@@ -78,6 +78,18 @@ type SessionState = {
 // history is on disk and will be resumed on the next request).
 const sessions = new Map<string, SessionState>();
 
+// Track which sessions are actively running (mid-turn).
+const runningSessions = new Set<string>();
+
+export type AgentStatus = "running" | "paused" | "unloaded";
+
+/** Returns the live status of a session by ID. */
+export function getSessionStatus(sessionId: string): AgentStatus {
+  if (runningSessions.has(sessionId)) return "running";
+  if (sessions.has(sessionId)) return "paused";
+  return "unloaded";
+}
+
 export async function* runAgent(
   message: string,
   sessionId?: string,
@@ -135,7 +147,12 @@ export async function* runAgent(
     state.push(message, images);
   }
 
+  // For existing sessions we already know the ID; mark running immediately.
+  // For brand-new sessions the ID arrives with the first "system" event below.
+  if (state.sessionId) runningSessions.add(state.sessionId);
+
   // Consume SDK events until we see a ResultMessage (end of this turn).
+  try {
   while (true) {
     const { value: msg, done } = await state.iter.next();
     if (done) {
@@ -148,6 +165,8 @@ export async function* runAgent(
         // Now we know the real session ID — register in the map.
         state.sessionId = msg.session_id;
         sessions.set(msg.session_id, state);
+        // Mark running now that we have the real ID (new-session path).
+        runningSessions.add(msg.session_id);
         yield { type: "session", sessionId: msg.session_id };
         break;
       }
@@ -213,9 +232,14 @@ export async function* runAgent(
       case "result": {
         state.sessionId = msg.session_id;
         sessions.set(msg.session_id, state);
+        runningSessions.delete(state.sessionId);
         yield { type: "done", sessionId: msg.session_id };
         return; // End of this turn — leave subprocess alive for next message.
       }
     }
+  }
+  } finally {
+    // Always clear running status, even if an error is thrown.
+    runningSessions.delete(state.sessionId);
   }
 }

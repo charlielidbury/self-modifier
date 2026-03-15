@@ -292,6 +292,7 @@ export function ChatProvider({
           body: JSON.stringify({
             message: text,
             sessionId: activeSessionId ?? undefined,
+            images: images.length > 0 ? images : undefined,
           }),
           signal: abortController.signal,
         });
@@ -417,6 +418,8 @@ export function ChatProvider({
     setIsRunning(false);
   }, [setIsRunning]);
 
+  const attachmentsAdapter = useMemo(() => new SimpleImageAttachmentAdapter(), []);
+
   const runtime = useExternalStoreRuntime({
     messages,
     setMessages,
@@ -424,6 +427,7 @@ export function ChatProvider({
     onNew,
     onCancel,
     convertMessage,
+    adapters: { attachments: attachmentsAdapter },
   });
 
   return (
