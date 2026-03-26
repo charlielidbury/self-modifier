@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Self-Modifier",
+  title: "Chat — Self-Modifier",
   description: "A self-modifying AI application",
 };
 
