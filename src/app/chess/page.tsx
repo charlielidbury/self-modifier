@@ -13,6 +13,7 @@ import {
   getLegalMoves,
   hasAnyMoves,
   getBestMove,
+  evaluate,
 } from "./engine";
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
@@ -181,19 +182,44 @@ export default function ChessPage() {
     });
   }, []);
 
-  // Ctrl+Z keyboard shortcut for undo
+  // Keyboard shortcuts: Ctrl+Z = undo, N = new game, F = flip board
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      // Don't fire when typing in a form element
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isEditable =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (e.target as HTMLElement)?.isContentEditable;
+      if (isEditable) return;
+
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
-        // Only undo if not thinking and there's something to undo
         if (!isThinking && undoStack.length > 0) {
           e.preventDefault();
           undo();
         }
+        return;
+      }
+
+      if (e.key === "n" || e.key === "N") {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          reset();
+        }
+        return;
+      }
+
+      if (e.key === "f" || e.key === "F") {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          setFlipped((prev) => !prev);
+        }
+        return;
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undo, isThinking, undoStack.length]);
 
   // ── Player click ─────────────────────────────────────────────────────────
@@ -272,6 +298,23 @@ export default function ChessPage() {
     if (isInCheck(board, 'b')) return findKing(board, 'b');
     return null;
   })();
+
+  // ── Position evaluation bar ───────────────────────────────────────────────
+  // Compute engine evaluation score (centipawns, + = white winning)
+  const evalScore = (() => {
+    if (status.includes("White wins")) return 99999;
+    if (status.includes("Black wins")) return -99999;
+    if (status.includes("Stalemate")) return 0;
+    return evaluate(board);
+  })();
+
+  // Map score to 0–100% using tanh for soft clamping (100 = white completely winning)
+  const evalPct = Math.max(1, Math.min(99, 50 + 50 * Math.tanh(evalScore / 400)));
+
+  // Human-readable score label in pawn units
+  const evalDisplay = Math.abs(evalScore) >= 99000
+    ? (evalScore > 0 ? "1-0" : "0-1")
+    : (evalScore >= 0 ? "+" : "") + (evalScore / 100).toFixed(1);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
