@@ -122,6 +122,14 @@ type Snapshot = {
   moveHistory: string[];
 };
 
+/** Format elapsed milliseconds as  m:ss  (e.g. "2:07") */
+function formatClock(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 export default function ChessPage() {
   const [board, setBoard] = useState<Board>(initBoard);
   const [turn, setTurn] = useState<Color>("w");
@@ -139,6 +147,32 @@ export default function ChessPage() {
   } | null>(null);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
   const [pgnCopied, setPgnCopied] = useState(false);
+
+  // ── Game clocks ───────────────────────────────────────────────────────────
+  const [whiteTime, setWhiteTime] = useState(0); // ms elapsed
+  const [blackTime, setBlackTime] = useState(0); // ms elapsed
+  const turnStartRef = useRef<number>(Date.now()); // timestamp when current turn began
+
+  // Reset the turn-start timestamp whenever the active player changes
+  useEffect(() => {
+    turnStartRef.current = Date.now();
+  }, [turn]);
+
+  // Tick the active player's clock every 100 ms while the game is live
+  useEffect(() => {
+    const gameOver = status.includes("Checkmate") || status.includes("Stalemate");
+    if (gameOver) return;
+    const id = setInterval(() => {
+      const elapsed = Date.now() - turnStartRef.current;
+      if (turn === "w") {
+        setWhiteTime((t) => t + elapsed);
+      } else {
+        setBlackTime((t) => t + elapsed);
+      }
+      turnStartRef.current = Date.now();
+    }, 100);
+    return () => clearInterval(id);
+  }, [turn, status]);
 
   const isGameOver =
     status.includes("Checkmate") || status.includes("Stalemate");
@@ -298,6 +332,9 @@ export default function ChessPage() {
     setMoveHistory([]);
     setUndoStack([]);
     setPendingPromotion(null);
+    setWhiteTime(0);
+    setBlackTime(0);
+    turnStartRef.current = Date.now();
   };
 
   // Called when the player selects a promotion piece from the dialog
@@ -595,6 +632,21 @@ export default function ChessPage() {
           </div>
         </div>
 
+        {/* Clocks + Move History */}
+        <div className="flex flex-col gap-2">
+          {/* Black clock (top — opponent) */}
+          <div
+            className={[
+              "flex items-center justify-between px-3 py-1.5 rounded-lg border text-sm font-mono font-semibold transition-colors",
+              turn === "b" && !isGameOver
+                ? "bg-neutral-800 dark:bg-neutral-700 text-white border-neutral-600 shadow-inner"
+                : "bg-card text-muted-foreground border-border opacity-60",
+            ].join(" ")}
+          >
+            <span className="text-xs font-sans font-normal">⬛ Black</span>
+            <span className="tabular-nums">{formatClock(blackTime)}</span>
+          </div>
+
         {/* Move History Panel */}
         <div className="flex flex-col w-44 border border-border rounded-lg overflow-hidden shadow bg-card h-[448px]">
           <div className="px-3 py-2 bg-muted/60 text-xs font-semibold text-muted-foreground border-b border-border shrink-0 flex items-center justify-between">
@@ -647,6 +699,20 @@ export default function ChessPage() {
                 </tbody>
               </table>
             )}
+          </div>
+        </div>
+
+          {/* White clock (bottom — you) */}
+          <div
+            className={[
+              "flex items-center justify-between px-3 py-1.5 rounded-lg border text-sm font-mono font-semibold transition-colors",
+              turn === "w" && !isGameOver
+                ? "bg-white dark:bg-neutral-200 text-neutral-900 border-neutral-300 shadow-inner"
+                : "bg-card text-muted-foreground border-border opacity-60",
+            ].join(" ")}
+          >
+            <span className="text-xs font-sans font-normal">⬜ White</span>
+            <span className="tabular-nums">{formatClock(whiteTime)}</span>
           </div>
         </div>
       </div>
