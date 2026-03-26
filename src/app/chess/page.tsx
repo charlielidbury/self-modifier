@@ -4,10 +4,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   type Board,
   type Color,
+  type PieceType,
   UNICODE,
   initBoard,
   applyMove,
   isInCheck,
+  findKing,
   getLegalMoves,
   hasAnyMoves,
   getBestMove,
@@ -58,6 +60,47 @@ function toSAN(
   }
 
   return san;
+}
+
+// ── Material tracking ────────────────────────────────────────────────────────
+const PIECE_VALUES: Record<PieceType, number> = { P: 1, N: 3, B: 3, R: 5, Q: 9, K: 0 };
+const INITIAL_COUNTS: Record<PieceType, number> = { P: 8, N: 2, B: 2, R: 2, Q: 1, K: 1 };
+const CAPTURE_ORDER: PieceType[] = ["Q", "R", "B", "N", "P"];
+
+/** Returns pieces captured by each side and the net material advantage (+ = white leads). */
+function getCapturedPieces(board: Board): {
+  capturedByWhite: PieceType[]; // black pieces white has taken
+  capturedByBlack: PieceType[]; // white pieces black has taken
+  advantage: number;            // positive = white ahead
+} {
+  const onBoard: Record<Color, Record<PieceType, number>> = {
+    w: { K: 0, Q: 0, R: 0, B: 0, N: 0, P: 0 },
+    b: { K: 0, Q: 0, R: 0, B: 0, N: 0, P: 0 },
+  };
+  for (let r = 0; r < 8; r++)
+    for (let c = 0; c < 8; c++) {
+      const p = board[r][c];
+      if (p) onBoard[p.color][p.type]++;
+    }
+
+  const capturedByWhite: PieceType[] = [];
+  const capturedByBlack: PieceType[] = [];
+  let advantage = 0;
+
+  for (const type of CAPTURE_ORDER) {
+    const bMissing = INITIAL_COUNTS[type] - onBoard.b[type];
+    for (let i = 0; i < bMissing; i++) {
+      capturedByWhite.push(type);
+      advantage += PIECE_VALUES[type];
+    }
+    const wMissing = INITIAL_COUNTS[type] - onBoard.w[type];
+    for (let i = 0; i < wMissing; i++) {
+      capturedByBlack.push(type);
+      advantage -= PIECE_VALUES[type];
+    }
+  }
+
+  return { capturedByWhite, capturedByBlack, advantage };
 }
 
 const DIFFICULTIES = [
@@ -218,6 +261,17 @@ export default function ChessPage() {
     movePairs.push([moveHistory[i], moveHistory[i + 1]]);
   }
 
+  // ── Captured pieces ───────────────────────────────────────────────────────
+  const { capturedByWhite, capturedByBlack, advantage } = getCapturedPieces(board);
+
+  // ── Check highlight ──────────────────────────────────────────────────────
+  // Find the king that is currently in check (if any) for board highlighting
+  const inCheckKingPos: [number, number] | null = (() => {
+    if (isInCheck(board, 'w')) return findKing(board, 'w');
+    if (isInCheck(board, 'b')) return findKing(board, 'b');
+    return null;
+  })();
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 gap-5">
@@ -285,8 +339,9 @@ export default function ChessPage() {
       <div className="flex gap-4 items-start">
         {/* Rank labels + board + file labels */}
         <div className="flex gap-2 items-start">
-          {/* Rank labels */}
+          {/* Rank labels — spacer at top aligns them with the board squares */}
           <div className="flex flex-col">
+            <div className="h-7 mb-1" aria-hidden="true" />
             {RANKS.map((rank) => (
               <div
                 key={rank}
@@ -298,6 +353,20 @@ export default function ChessPage() {
           </div>
 
           <div className="flex flex-col">
+            {/* Black's captures: white pieces taken by black — shown above board (black's side) */}
+            <div className="flex items-center h-7 gap-0.5 mb-1 min-h-7">
+              {capturedByBlack.map((type, i) => (
+                <span key={i} className="text-lg leading-none select-none text-foreground/60">
+                  {UNICODE.w[type]}
+                </span>
+              ))}
+              {advantage < 0 && (
+                <span className="text-xs font-semibold text-muted-foreground ml-1">
+                  +{-advantage}
+                </span>
+              )}
+            </div>
+
             <div className="border border-border rounded overflow-hidden shadow-lg">
               {board.map((row, r) => (
                 <div key={r} className="flex">
@@ -313,8 +382,14 @@ export default function ChessPage() {
                       ((lastMove[0][0] === r && lastMove[0][1] === c) ||
                         (lastMove[1][0] === r && lastMove[1][1] === c));
 
+                    const isCheckedKing =
+                      inCheckKingPos !== null &&
+                      inCheckKingPos[0] === r &&
+                      inCheckKingPos[1] === c;
+
                     let bg = isLight ? "bg-[#f0d9b5]" : "bg-[#b58863]";
                     if (isLastMove) bg = isLight ? "bg-[#cdd16f]" : "bg-[#aaa23a]";
+                    if (isCheckedKing) bg = isLight ? "bg-[#ff6b6b]" : "bg-[#cc3333]";
                     if (isSelected) bg = "bg-yellow-400";
 
                     const interactive =
@@ -367,6 +442,20 @@ export default function ChessPage() {
                   {file}
                 </div>
               ))}
+            </div>
+
+            {/* White's captures: black pieces taken by white — shown below board (white's side) */}
+            <div className="flex items-center h-7 gap-0.5 mt-1 min-h-7">
+              {capturedByWhite.map((type, i) => (
+                <span key={i} className="text-lg leading-none select-none text-foreground/60">
+                  {UNICODE.b[type]}
+                </span>
+              ))}
+              {advantage > 0 && (
+                <span className="text-xs font-semibold text-muted-foreground ml-1">
+                  +{advantage}
+                </span>
+              )}
             </div>
           </div>
         </div>
