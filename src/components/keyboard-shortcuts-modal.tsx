@@ -35,6 +35,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["Ctrl", "Z"], description: "Undo last move" },
       { keys: ["N"], description: "New game" },
       { keys: ["F"], description: "Flip board" },
+      { keys: ["H"], description: "Show best move hint" },
     ],
   },
   {

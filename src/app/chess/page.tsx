@@ -115,6 +115,15 @@ const DIFFICULTIES = [
 
 type DifficultyLabel = (typeof DIFFICULTIES)[number]["label"];
 
+const BOARD_THEMES = [
+  { name: "Classic", light: "#f0d9b5", dark: "#b58863" },
+  { name: "Green",   light: "#eeeed2", dark: "#769656" },
+  { name: "Blue",    light: "#dee3e6", dark: "#8ca2ad" },
+  { name: "Walnut",  light: "#e8cfa3", dark: "#6b3f27" },
+] as const;
+
+type BoardThemeName = (typeof BOARD_THEMES)[number]["name"];
+
 type Snapshot = {
   board: Board;
   status: string;
@@ -147,6 +156,9 @@ export default function ChessPage() {
   } | null>(null);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
   const [pgnCopied, setPgnCopied] = useState(false);
+  const [hint, setHint] = useState<[[number, number], [number, number]] | null>(null);
+  const [isHinting, setIsHinting] = useState(false);
+  const [boardTheme, setBoardTheme] = useState<BoardThemeName>("Classic");
 
   // ── Game clocks ───────────────────────────────────────────────────────────
   const [whiteTime, setWhiteTime] = useState(0); // ms elapsed
@@ -219,6 +231,7 @@ export default function ChessPage() {
       setMoveHistory(prev.moveHistory);
       setSelected(null);
       setLegalMoves([]);
+      setHint(null);
       return stack.slice(0, -1);
     });
   }, []);
@@ -257,11 +270,19 @@ export default function ChessPage() {
         }
         return;
       }
+
+      if (e.key === "h" || e.key === "H") {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          showHint();
+        }
+        return;
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undo, isThinking, undoStack.length]);
+  }, [undo, isThinking, undoStack.length, showHint]);
 
   // ── Player click ─────────────────────────────────────────────────────────
   const handleClick = useCallback(
@@ -298,6 +319,7 @@ export default function ChessPage() {
           setLastMove([[sr, sc], [r, c]]);
           setSelected(null);
           setLegalMoves([]);
+          setHint(null);
           setMoveHistory((h) => [...h, san]);
           return;
         }
@@ -332,6 +354,7 @@ export default function ChessPage() {
     setMoveHistory([]);
     setUndoStack([]);
     setPendingPromotion(null);
+    setHint(null);
     setWhiteTime(0);
     setBlackTime(0);
     turnStartRef.current = Date.now();
@@ -353,8 +376,24 @@ export default function ChessPage() {
     setTurn("b");
     setStatus(getStatus(next, "w"));
     setLastMove([[sr, sc], [r, c]]);
+    setHint(null);
     setMoveHistory((h) => [...h, san]);
   }, [pendingPromotion, board, status, lastMove, moveHistory]);
+
+  // Show a hint: compute best white move and highlight it briefly
+  const showHint = useCallback(() => {
+    if (isGameOver || isThinking || turn !== "w" || isHinting) return;
+    setIsHinting(true);
+    setTimeout(() => {
+      const move = getBestMove(board, "w", 3);
+      if (move) {
+        setHint([[move.fr, move.fc], [move.tr, move.tc]]);
+        // Auto-clear hint after 3 seconds
+        setTimeout(() => setHint(null), 3000);
+      }
+      setIsHinting(false);
+    }, 30);
+  }, [board, isGameOver, isThinking, turn, isHinting]);
 
   // Copy game moves as PGN to clipboard
   const copyPGN = useCallback(() => {
@@ -452,6 +491,14 @@ export default function ChessPage() {
           className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
         >
           ⇅ Flip
+        </button>
+        <button
+          onClick={showHint}
+          disabled={isGameOver || isThinking || turn !== "w" || isHinting}
+          title="Show best move hint (H)"
+          className="px-3 py-1 text-sm rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {isHinting ? "…" : "💡 Hint"}
         </button>
 
         {/* Difficulty selector */}
@@ -559,8 +606,14 @@ export default function ChessPage() {
                       inCheckKingPos[0] === r &&
                       inCheckKingPos[1] === c;
 
+                    const isHintSquare =
+                      hint !== null &&
+                      ((hint[0][0] === r && hint[0][1] === c) ||
+                        (hint[1][0] === r && hint[1][1] === c));
+
                     let bg = isLight ? "bg-[#f0d9b5]" : "bg-[#b58863]";
                     if (isLastMove) bg = isLight ? "bg-[#cdd16f]" : "bg-[#aaa23a]";
+                    if (isHintSquare) bg = isLight ? "bg-[#90c8f0]" : "bg-[#4a9fd4]";
                     if (isCheckedKing) bg = isLight ? "bg-[#ff6b6b]" : "bg-[#cc3333]";
                     if (isSelected) bg = "bg-yellow-400";
 
