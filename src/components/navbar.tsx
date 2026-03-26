@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MessageSquare, Swords, Cuboid, Infinity } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
 
 const tabs = [
   { href: "/", label: "Chat", Icon: MessageSquare, shortcut: "Alt+1" },
@@ -21,6 +23,12 @@ const tabs = [
 export function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
+  const tabRefs = useRef<(HTMLAnchorElement | null)[]>([]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
+  // Track whether pill has been positioned at least once so we can suppress
+  // the transition on the very first render (avoids slide-in from 0).
+  const initializedRef = useRef(false);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -34,42 +42,108 @@ export function Navbar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [router]);
 
+  // Use useLayoutEffect so the pill is positioned before the browser paints,
+  // preventing any flash of an un-highlighted tab on first load.
+  useLayoutEffect(() => {
+    const activeIndex = tabs.findIndex((t) => t.href === pathname);
+    const el = tabRefs.current[activeIndex];
+    const container = containerRef.current;
+    if (!el || !container) {
+      setPill(null);
+      return;
+    }
+    const cRect = container.getBoundingClientRect();
+    const eRect = el.getBoundingClientRect();
+    setPill({ left: eRect.left - cRect.left, width: eRect.width });
+    initializedRef.current = true;
+  }, [pathname]);
+
   return (
     <TooltipProvider delayDuration={600}>
       <nav className="h-12 flex-none border-b border-border bg-background flex items-center px-4 gap-1">
         <span className="font-semibold text-sm mr-4 text-foreground/70 select-none">
           Self-Modifier
         </span>
-        {tabs.map(({ href, label, Icon, shortcut }) => {
-          const active = pathname === href;
-          return (
-            <Tooltip key={href}>
-              <TooltipTrigger asChild>
-                <Link
-                  href={href}
-                  className={[
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                    active
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
-                  ].join(" ")}
-                >
-                  <Icon size={15} />
-                  {label}
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <span className="text-xs">
-                  {label}{" "}
-                  <kbd className="ml-1 rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
-                    {shortcut}
-                  </kbd>
-                </span>
-              </TooltipContent>
-            </Tooltip>
-          );
-        })}
+
+        {/* Tab container — position:relative so the sliding pill is anchored here */}
+        <div ref={containerRef} className="relative flex items-center gap-1">
+          {/* Animated sliding pill background */}
+          {pill && (
+            <div
+              className="absolute inset-y-1 rounded-md bg-accent pointer-events-none"
+              style={{
+                left: pill.left,
+                width: pill.width,
+                // Only animate after initial placement to avoid slide-in from 0
+                transition: initializedRef.current
+                  ? "left 200ms cubic-bezier(0.4,0,0.2,1), width 200ms cubic-bezier(0.4,0,0.2,1)"
+                  : "none",
+              }}
+            />
+          )}
+
+          {tabs.map(({ href, label, Icon, shortcut }, i) => {
+            const active = pathname === href;
+            return (
+              <Tooltip key={href}>
+                <TooltipTrigger asChild>
+                  <Link
+                    ref={(el) => {
+                      tabRefs.current[i] = el;
+                    }}
+                    href={href}
+                    className={[
+                      "relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                      active
+                        ? "text-accent-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/40",
+                    ].join(" ")}
+                  >
+                    <Icon size={15} />
+                    {label}
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <span className="text-xs">
+                    {label}{" "}
+                    <kbd className="ml-1 rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      {shortcut}
+                    </kbd>
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
+
+        <div className="ml-auto flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => {
+                  window.dispatchEvent(
+                    new KeyboardEvent("keydown", { key: "?" })
+                  );
+                }}
+                className="flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
+                aria-label="Keyboard shortcuts"
+              >
+                <kbd className="font-mono text-sm font-semibold leading-none">?</kbd>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <span className="text-xs">
+                Keyboard shortcuts{" "}
+                <kbd className="ml-1 rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+                  ?
+                </kbd>
+              </span>
+            </TooltipContent>
+          </Tooltip>
+          <ThemeToggle />
+        </div>
       </nav>
+      <KeyboardShortcutsModal />
     </TooltipProvider>
   );
 }
