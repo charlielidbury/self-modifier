@@ -16,23 +16,27 @@ import {
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
-  SuggestionPrimitive,
   ThreadPrimitive,
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  BotIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  Code2Icon,
   CopyIcon,
   DownloadIcon,
+  LayoutDashboardIcon,
+  LightbulbIcon,
   MoreHorizontalIcon,
   PencilIcon,
   RefreshCwIcon,
+  SparklesIcon,
   SquareIcon,
 } from "lucide-react";
-import type { FC } from "react";
+import type { FC, ElementType } from "react";
 
 export const Thread: FC = () => {
   return (
@@ -88,6 +92,11 @@ const ThreadWelcome: FC = () => {
     <div className="aui-thread-welcome-root mx-auto my-auto flex w-full max-w-(--thread-max-width) grow flex-col">
       <div className="aui-thread-welcome-center flex w-full grow flex-col items-center justify-center">
         <div className="aui-thread-welcome-message flex size-full flex-col justify-center px-4">
+          <div className="fade-in slide-in-from-bottom-1 animate-in fill-mode-both duration-200 mb-3">
+            <div className="inline-flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <BotIcon className="size-6" />
+            </div>
+          </div>
           <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both font-semibold text-2xl duration-200">
             Hello there!
           </h1>
@@ -101,30 +110,68 @@ const ThreadWelcome: FC = () => {
   );
 };
 
+const HARDCODED_SUGGESTIONS: {
+  prompt: string;
+  title: string;
+  description: string;
+  icon: ElementType;
+}[] = [
+  {
+    prompt: "What pages and features does this app have?",
+    title: "Explore the app",
+    description: "Get an overview of all features",
+    icon: LayoutDashboardIcon,
+  },
+  {
+    prompt: "Look at the codebase and suggest a meaningful improvement you could make",
+    title: "Suggest an improvement",
+    description: "Ideas for enhancing this app",
+    icon: LightbulbIcon,
+  },
+  {
+    prompt: "What is the most interesting or complex part of this codebase?",
+    title: "Explore the code",
+    description: "Learn about the architecture",
+    icon: Code2Icon,
+  },
+  {
+    prompt: "Make a small but meaningful visual polish improvement to the UI",
+    title: "Polish the UI",
+    description: "Enhance the look and feel",
+    icon: SparklesIcon,
+  },
+];
+
 const ThreadSuggestions: FC = () => {
   return (
     <div className="aui-thread-welcome-suggestions grid w-full @md:grid-cols-2 gap-2 pb-4">
-      <ThreadPrimitive.Suggestions
-        components={{
-          Suggestion: ThreadSuggestionItem,
-        }}
-      />
-    </div>
-  );
-};
-
-const ThreadSuggestionItem: FC = () => {
-  return (
-    <div className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 @md:nth-[n+3]:block nth-[n+3]:hidden animate-in fill-mode-both duration-200">
-      <SuggestionPrimitive.Trigger send asChild>
-        <Button
-          variant="ghost"
-          className="aui-thread-welcome-suggestion h-auto w-full @md:flex-col flex-wrap items-start justify-start gap-1 rounded-3xl border bg-background px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
+      {HARDCODED_SUGGESTIONS.map((s, i) => (
+        <div
+          key={i}
+          className={cn(
+            "fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200",
+            i >= 2 && "hidden @md:block"
+          )}
+          style={{ animationDelay: `${(i + 1) * 75}ms` }}
         >
-          <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1 font-medium" />
-          <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 text-muted-foreground empty:hidden" />
-        </Button>
-      </SuggestionPrimitive.Trigger>
+          <ThreadPrimitive.Suggestion prompt={s.prompt} send asChild>
+            <Button
+              variant="ghost"
+              className="h-auto w-full flex-row items-center justify-start gap-3 rounded-3xl border bg-background px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
+            >
+              <div className="shrink-0 flex size-8 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <s.icon className="size-4" />
+              </div>
+              <div className="flex min-w-0 flex-col">
+                <span className="font-medium">{s.title}</span>
+                <span className="text-muted-foreground text-xs empty:hidden">
+                  {s.description}
+                </span>
+              </div>
+            </Button>
+          </ThreadPrimitive.Suggestion>
+        </div>
+      ))}
     </div>
   );
 };
