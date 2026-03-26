@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Volume2, VolumeX } from "lucide-react";
 import {
   type Board,
   type Color,
@@ -162,6 +163,77 @@ export default function ChessPage() {
   const [isHinting, setIsHinting] = useState(false);
   const [boardTheme, setBoardTheme] = useState<BoardThemeName>("Classic");
 
+  // ── Sound effects ────────────────────────────────────────────────────────
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  // Use a ref so the stable playChessSound callback can always read the latest value
+  const soundEnabledRef = useRef(true);
+  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  /** Play a short synthesised sound for a chess event. */
+  const playChessSound = useCallback((type: "move" | "capture" | "check" | "checkmate") => {
+    if (!soundEnabledRef.current || typeof window === "undefined") return;
+    try {
+      if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
+        audioCtxRef.current = new AudioContext();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === "suspended") ctx.resume();
+      const now = ctx.currentTime;
+
+      if (type === "checkmate") {
+        // Descending four-note arpeggio: C5 → A4 → F4 → C4
+        ([523, 440, 349, 262] as number[]).forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.type = "sine";
+          const t = now + i * 0.18;
+          osc.frequency.setValueAtTime(freq, t);
+          gain.gain.setValueAtTime(0.18, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+          osc.start(t);
+          osc.stop(t + 0.3);
+        });
+        return;
+      }
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === "move") {
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(480, now);
+        osc.frequency.exponentialRampToValueAtTime(320, now + 0.1);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+        osc.start(now);
+        osc.stop(now + 0.15);
+      } else if (type === "capture") {
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(650, now);
+        osc.frequency.exponentialRampToValueAtTime(220, now + 0.15);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+        osc.start(now);
+        osc.stop(now + 0.2);
+      } else if (type === "check") {
+        // Two quick pulses at different pitches
+        osc.type = "square";
+        osc.frequency.setValueAtTime(880, now);
+        gain.gain.setValueAtTime(0.07, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+        osc.start(now);
+        osc.stop(now + 0.32);
+      }
+    } catch {
+      // AudioContext not supported or blocked by browser policy
+    }
+  }, []); // stable — reads soundEnabledRef at call time
+
   // ── Game clocks ───────────────────────────────────────────────────────────
   const [whiteTime, setWhiteTime] = useState(0); // ms elapsed
   const [blackTime, setBlackTime] = useState(0); // ms elapsed
@@ -208,11 +280,18 @@ export default function ChessPage() {
       if (move) {
         const next = applyMove(board, move.fr, move.fc, move.tr, move.tc);
         const san = toSAN(board, move.fr, move.fc, move.tr, move.tc, next, "b");
+        const newStatus = getStatus(next, "b");
+        const wasCapture = board[move.tr][move.tc] !== null;
         setBoard(next);
         setTurn("w");
-        setStatus(getStatus(next, "b"));
+        setStatus(newStatus);
         setLastMove([[move.fr, move.fc], [move.tr, move.tc]]);
         setMoveHistory((h) => [...h, san]);
+        // Sound feedback
+        if (newStatus.includes("Checkmate")) playChessSound("checkmate");
+        else if (newStatus.includes("check")) playChessSound("check");
+        else if (wasCapture) playChessSound("capture");
+        else playChessSound("move");
       }
       setIsThinking(false);
     }, 30);
@@ -237,6 +316,21 @@ export default function ChessPage() {
       return stack.slice(0, -1);
     });
   }, []);
+
+  // Show a hint: compute best white move and highlight it briefly
+  const showHint = useCallback(() => {
+    if (!vsAI || isGameOver || isThinking || turn !== "w" || isHinting) return;
+    setIsHinting(true);
+    setTimeout(() => {
+      const move = getBestMove(board, "w", 3);
+      if (move) {
+        setHint([[move.fr, move.fc], [move.tr, move.tc]]);
+        // Auto-clear hint after 3 seconds
+        setTimeout(() => setHint(null), 3000);
+      }
+      setIsHinting(false);
+    }, 30);
+  }, [board, isGameOver, isThinking, turn, isHinting, vsAI]);
 
   // Keyboard shortcuts: Ctrl+Z = undo, N = new game, F = flip board
   useEffect(() => {
@@ -280,6 +374,14 @@ export default function ChessPage() {
         }
         return;
       }
+
+      if (e.key === "m" || e.key === "M") {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          setSoundEnabled((s) => !s);
+        }
+        return;
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -315,14 +417,21 @@ export default function ChessPage() {
           ]);
           const next = applyMove(board, sr, sc, r, c);
           const san = toSAN(board, sr, sc, r, c, next, turn);
+          const newStatus = getStatus(next, turn);
           setBoard(next);
           setTurn(turn === "w" ? "b" : "w");
-          setStatus(getStatus(next, turn));
+          setStatus(newStatus);
           setLastMove([[sr, sc], [r, c]]);
           setSelected(null);
           setLegalMoves([]);
           setHint(null);
           setMoveHistory((h) => [...h, san]);
+          // Sound feedback (check board[r][c] before state update, not undefined isCapture)
+          const wasCapture = board[r][c] !== null;
+          if (newStatus.includes("Checkmate")) playChessSound("checkmate");
+          else if (newStatus.includes("check")) playChessSound("check");
+          else if (wasCapture) playChessSound("capture");
+          else playChessSound("move");
           return;
         }
 
@@ -342,7 +451,7 @@ export default function ChessPage() {
         setLegalMoves(getLegalMoves(board, r, c));
       }
     },
-    [board, selected, legalMoves, turn, isGameOver, isThinking, vsAI]
+    [board, selected, legalMoves, turn, isGameOver, isThinking, vsAI, playChessSound]
   );
 
   const reset = () => {
@@ -374,28 +483,20 @@ export default function ChessPage() {
     ]);
     const next = applyMove(board, sr, sc, r, c, promoteTo);
     const san = toSAN(board, sr, sc, r, c, next, color, promoteTo);
+    const newStatus = getStatus(next, color);
+    const wasCapture = board[r][c] !== null;
     setBoard(next);
     setTurn(color === "w" ? "b" : "w");
-    setStatus(getStatus(next, color));
+    setStatus(newStatus);
     setLastMove([[sr, sc], [r, c]]);
     setHint(null);
     setMoveHistory((h) => [...h, san]);
-  }, [pendingPromotion, board, status, lastMove, moveHistory]);
-
-  // Show a hint: compute best white move and highlight it briefly
-  const showHint = useCallback(() => {
-    if (!vsAI || isGameOver || isThinking || turn !== "w" || isHinting) return;
-    setIsHinting(true);
-    setTimeout(() => {
-      const move = getBestMove(board, "w", 3);
-      if (move) {
-        setHint([[move.fr, move.fc], [move.tr, move.tc]]);
-        // Auto-clear hint after 3 seconds
-        setTimeout(() => setHint(null), 3000);
-      }
-      setIsHinting(false);
-    }, 30);
-  }, [board, isGameOver, isThinking, turn, isHinting, vsAI]);
+    // Sound feedback
+    if (newStatus.includes("Checkmate")) playChessSound("checkmate");
+    else if (newStatus.includes("check")) playChessSound("check");
+    else if (wasCapture) playChessSound("capture");
+    else playChessSound("move");
+  }, [pendingPromotion, board, status, lastMove, moveHistory, playChessSound]);
 
   // Copy game moves as PGN to clipboard
   const copyPGN = useCallback(() => {
@@ -508,6 +609,15 @@ export default function ChessPage() {
           className="px-3 py-1 text-sm rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {isHinting ? "…" : "💡 Hint"}
+        </button>
+
+        {/* Sound toggle */}
+        <button
+          onClick={() => setSoundEnabled((s) => !s)}
+          title={soundEnabled ? "Mute sounds" : "Enable sounds"}
+          className="flex items-center justify-center w-8 h-8 rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
+        >
+          {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
         </button>
 
         {/* Mode selector */}
@@ -674,7 +784,7 @@ export default function ChessPage() {
                       ((hint[0][0] === r && hint[0][1] === c) ||
                         (hint[1][0] === r && hint[1][1] === c));
 
-                    let bgColor = isLight ? activeTheme.light : activeTheme.dark;
+                    let bgColor: string = isLight ? activeTheme.light : activeTheme.dark;
                     if (isLastMove) bgColor = isLight ? "#cdd16f" : "#aaa23a";
                     if (isHintSquare) bgColor = isLight ? "#90c8f0" : "#4a9fd4";
                     if (isCheckedKing) bgColor = isLight ? "#ff6b6b" : "#cc3333";
@@ -874,7 +984,7 @@ export default function ChessPage() {
                 <button
                   key={type}
                   onClick={() => confirmPromotion(type)}
-                  title={{ Q: "Queen", R: "Rook", B: "Bishop", N: "Knight" }[type]}
+                  title={(({ Q: "Queen", R: "Rook", B: "Bishop", N: "Knight" }) as Record<string, string>)[type]}
                   className="w-16 h-16 flex flex-col items-center justify-center gap-1 rounded-lg border border-border bg-secondary hover:bg-accent hover:border-primary transition-colors shadow-sm group"
                 >
                   <span className={`text-4xl leading-none group-hover:scale-110 transition-transform ${
@@ -885,7 +995,7 @@ export default function ChessPage() {
                     {UNICODE[pendingPromotion?.color ?? "w"][type]}
                   </span>
                   <span className="text-[10px] text-muted-foreground font-medium">
-                    {{ Q: "Queen", R: "Rook", B: "Bishop", N: "Knight" }[type]}
+                    {(({ Q: "Queen", R: "Rook", B: "Bishop", N: "Knight" }) as Record<string, string>)[type]}
                   </span>
                 </button>
               ))}
