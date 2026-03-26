@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Volume2, VolumeX } from "lucide-react";
+import { ExternalLink, Volume2, VolumeX } from "lucide-react";
 import {
   type Board,
   type Color,
@@ -235,6 +235,61 @@ function formatClock(ms: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/**
+ * Generate a FEN string for the current board position.
+ * Castling availability is inferred from piece positions (heuristic — does not
+ * track whether the king or rooks have previously moved).  En passant is
+ * omitted ("-") since the engine does not expose the last double-pawn push.
+ */
+function toFEN(board: Board, turn: Color, moveHistory: string[]): string {
+  // 1. Piece placement — ranks 8→1 map to rows 0→7
+  const ranks: string[] = [];
+  for (let r = 0; r < 8; r++) {
+    let rank = "";
+    let empty = 0;
+    for (let c = 0; c < 8; c++) {
+      const piece = board[r][c];
+      if (!piece) {
+        empty++;
+      } else {
+        if (empty > 0) { rank += empty; empty = 0; }
+        // Pawns are stored as "P" in PieceType; FEN also uses "P"/"p"
+        const letter = piece.type; // K, Q, R, B, N, P
+        rank += piece.color === "w" ? letter : letter.toLowerCase();
+      }
+    }
+    if (empty > 0) rank += empty;
+    ranks.push(rank);
+  }
+  const placement = ranks.join("/");
+
+  // 2. Active colour
+  const active = turn; // "w" | "b"
+
+  // 3. Castling availability (heuristic based on piece positions)
+  let castling = "";
+  if (board[7][4]?.type === "K" && board[7][4]?.color === "w") {
+    if (board[7][7]?.type === "R" && board[7][7]?.color === "w") castling += "K";
+    if (board[7][0]?.type === "R" && board[7][0]?.color === "w") castling += "Q";
+  }
+  if (board[0][4]?.type === "K" && board[0][4]?.color === "b") {
+    if (board[0][7]?.type === "R" && board[0][7]?.color === "b") castling += "k";
+    if (board[0][0]?.type === "R" && board[0][0]?.color === "b") castling += "q";
+  }
+  if (!castling) castling = "-";
+
+  // 4. En passant target square (not tracked — always "-")
+  const enPassant = "-";
+
+  // 5. Half-move clock (simplified — always 0)
+  const halfMove = 0;
+
+  // 6. Full-move number (starts at 1, increments after Black's move)
+  const fullMove = Math.floor(moveHistory.length / 2) + 1;
+
+  return `${placement} ${active} ${castling} ${enPassant} ${halfMove} ${fullMove}`;
+}
+
 export default function ChessPage() {
   const [board, setBoard] = useState<Board>(initBoard);
   const [turn, setTurn] = useState<Color>("w");
@@ -254,6 +309,7 @@ export default function ChessPage() {
   const historyEndRef = useRef<HTMLTableRowElement>(null);
   const statsCountedRef = useRef(false);
   const [pgnCopied, setPgnCopied] = useState(false);
+  const [fenCopied, setFenCopied] = useState(false);
 
   // ── Win/Loss/Draw statistics (persisted in localStorage) ─────────────────
   const [stats, setStats] = useState<{ wins: number; losses: number; draws: number }>(() => {
@@ -640,6 +696,25 @@ export default function ChessPage() {
       setTimeout(() => setPgnCopied(false), 2000);
     });
   }, [moveHistory]);
+
+  // Copy current board position as FEN to the clipboard
+  const copyFEN = useCallback(() => {
+    const fen = toFEN(board, turn, moveHistory);
+    navigator.clipboard.writeText(fen).then(() => {
+      setFenCopied(true);
+      setTimeout(() => setFenCopied(false), 2000);
+    });
+  }, [board, turn, moveHistory]);
+
+  // Open current position in Lichess analysis board
+  const openLichess = useCallback(() => {
+    const fen = toFEN(board, turn, moveHistory);
+    window.open(
+      `https://lichess.org/analysis?fen=${encodeURIComponent(fen)}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }, [board, turn, moveHistory]);
 
   // Group half-moves into pairs: [[white, black?], ...]
   const movePairs: [string, string | undefined][] = [];
@@ -1045,20 +1120,44 @@ export default function ChessPage() {
         <div className="flex flex-col w-44 border border-border rounded-lg overflow-hidden shadow bg-card h-[448px]">
           <div className="px-3 py-2 bg-muted/60 text-xs font-semibold text-muted-foreground border-b border-border shrink-0 flex items-center justify-between">
             Move History
-            <button
-              onClick={copyPGN}
-              disabled={moveHistory.length === 0}
-              title="Copy game moves as PGN (paste into Lichess, Chess.com, etc.)"
-              className={[
-                "ml-2 font-normal text-[10px] px-1.5 py-0.5 rounded transition-all",
-                pgnCopied
-                  ? "text-green-600 dark:text-green-400 opacity-100"
-                  : "opacity-50 hover:opacity-100 hover:bg-muted",
-                "disabled:opacity-20 disabled:cursor-not-allowed",
-              ].join(" ")}
-            >
-              {pgnCopied ? "✓ Copied" : "Copy PGN"}
-            </button>
+            <div className="flex items-center gap-1">
+              {/* Copy FEN — current board position as Forsyth-Edwards Notation */}
+              <button
+                onClick={copyFEN}
+                title="Copy board position as FEN (paste into Lichess analysis board, etc.)"
+                className={[
+                  "font-normal text-[10px] px-1.5 py-0.5 rounded transition-all",
+                  fenCopied
+                    ? "text-green-600 dark:text-green-400 opacity-100"
+                    : "opacity-50 hover:opacity-100 hover:bg-muted",
+                ].join(" ")}
+              >
+                {fenCopied ? "✓ FEN" : "FEN"}
+              </button>
+              {/* Copy PGN — full game move list */}
+              <button
+                onClick={copyPGN}
+                disabled={moveHistory.length === 0}
+                title="Copy game moves as PGN (paste into Lichess, Chess.com, etc.)"
+                className={[
+                  "font-normal text-[10px] px-1.5 py-0.5 rounded transition-all",
+                  pgnCopied
+                    ? "text-green-600 dark:text-green-400 opacity-100"
+                    : "opacity-50 hover:opacity-100 hover:bg-muted",
+                  "disabled:opacity-20 disabled:cursor-not-allowed",
+                ].join(" ")}
+              >
+                {pgnCopied ? "✓ PGN" : "PGN"}
+              </button>
+              {/* Open position in Lichess analysis */}
+              <button
+                onClick={openLichess}
+                title="Analyse current position on Lichess"
+                className="flex items-center justify-center opacity-50 hover:opacity-100 hover:bg-muted rounded p-0.5 transition-all"
+              >
+                <ExternalLink size={10} />
+              </button>
+            </div>
           </div>
           <div className="overflow-y-auto flex-1 text-sm font-mono">
             {movePairs.length === 0 ? (
