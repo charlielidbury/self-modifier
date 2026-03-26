@@ -346,8 +346,18 @@ const UserActionBar: FC = () => {
       autohide="not-last"
       className="aui-user-action-bar-root flex flex-col items-end"
     >
+      <ActionBarPrimitive.Copy asChild>
+        <TooltipIconButton tooltip="Copy" className="aui-user-action-copy">
+          <AuiIf condition={(s) => s.message.isCopied}>
+            <CheckIcon />
+          </AuiIf>
+          <AuiIf condition={(s) => !s.message.isCopied}>
+            <CopyIcon />
+          </AuiIf>
+        </TooltipIconButton>
+      </ActionBarPrimitive.Copy>
       <ActionBarPrimitive.Edit asChild>
-        <TooltipIconButton tooltip="Edit" className="aui-user-action-edit p-4">
+        <TooltipIconButton tooltip="Edit" className="aui-user-action-edit">
           <PencilIcon />
         </TooltipIconButton>
       </ActionBarPrimitive.Edit>
