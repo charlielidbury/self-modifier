@@ -37,6 +37,7 @@ function formatRelativeTime(timestamp: number, now: number): string {
   if (diffDay === 1) return "Yesterday";
   if (diffDay < 7) return `${diffDay}d ago`;
 
+  // Older: show short date (e.g. "Mar 15")
   return new Date(timestamp).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -106,6 +107,22 @@ export function SessionsSidebar({
     setIsOpen(window.innerWidth >= 1024);
   }, []);
 
+  // Alt+B: toggle sidebar open/closed  Alt+N: new session
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!e.altKey) return;
+      if (e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        setIsOpen((o) => !o);
+      } else if (e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        onNewSession();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onNewSession]);
+
   useEffect(() => {
     fetch("/api/sessions")
       .then((r) => r.json())
@@ -150,29 +167,6 @@ export function SessionsSidebar({
   useEffect(() => {
     sessionIdsRef.current = sessions.map((s) => s.sessionId);
   }, [sessions]);
-
-  // Derived: sessions filtered by the current search query.
-  const filteredSessions = useMemo(
-    () =>
-      sessions.filter((s) => {
-        if (!searchQuery) return true;
-        const q = searchQuery.toLowerCase();
-        const label = (s.summary || s.sessionId.slice(0, 8)).toLowerCase();
-        return label.includes(q);
-      }),
-    [sessions, searchQuery]
-  );
-
-  // Reset keyboard focus whenever the search query changes.
-  useEffect(() => {
-    setKbdFocusIndex(null);
-  }, [searchQuery]);
-
-  // Scroll the keyboard-focused item into view whenever the index changes.
-  useEffect(() => {
-    if (kbdFocusIndex === null) return;
-    itemRefs.current[kbdFocusIndex]?.scrollIntoView({ block: "nearest" });
-  }, [kbdFocusIndex]);
 
   const loadSession = useCallback(
     async (sessionId: string) => {
@@ -241,19 +235,31 @@ export function SessionsSidebar({
     [armedForDelete]
   );
 
-  /** ArrowDown in the search input moves keyboard focus to the first session. */
-  const handleSearchKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "ArrowDown" && filteredSessions.length > 0) {
-        e.preventDefault();
-        setKbdFocusIndex(0);
-        listRef.current?.focus();
-      }
-    },
-    [filteredSessions.length]
+  // Derived: sessions filtered by the current search query.
+  const filteredSessions = useMemo(
+    () =>
+      sessions.filter((s) => {
+        if (!searchQuery) return true;
+        const q = searchQuery.toLowerCase();
+        const label = (s.summary || s.sessionId.slice(0, 8)).toLowerCase();
+        return label.includes(q);
+      }),
+    [sessions, searchQuery]
   );
 
-  /** Keyboard navigation within the session list container. */
+  // Reset keyboard focus whenever the search query changes.
+  useEffect(() => {
+    setKbdFocusIndex(null);
+  }, [searchQuery]);
+
+  // Scroll the keyboard-focused item into view whenever the index changes.
+  useEffect(() => {
+    if (kbdFocusIndex === null) return;
+    itemRefs.current[kbdFocusIndex]?.scrollIntoView({ block: "nearest" });
+  }, [kbdFocusIndex]);
+
+  // Keyboard navigation handler for the session list container.
+  // The list div has tabIndex={0} so it can receive focus and process arrow-key events.
   const handleListKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (filteredSessions.length === 0) return;
@@ -264,23 +270,39 @@ export function SessionsSidebar({
         );
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        if (kbdFocusIndex === 0 || kbdFocusIndex === null) {
-          // Wrap back up to the search input
-          setKbdFocusIndex(null);
-          searchInputRef.current?.focus();
-        } else {
-          setKbdFocusIndex(kbdFocusIndex - 1);
-        }
+        setKbdFocusIndex((prev) => {
+          if (prev === null) return filteredSessions.length - 1;
+          if (prev === 0) {
+            // Wrap focus back to the search input
+            listRef.current?.blur();
+            searchInputRef.current?.focus();
+            return null;
+          }
+          return prev - 1;
+        });
       } else if (e.key === "Enter" && kbdFocusIndex !== null) {
         e.preventDefault();
         loadSession(filteredSessions[kbdFocusIndex].sessionId);
       } else if (e.key === "Escape") {
         e.preventDefault();
         setKbdFocusIndex(null);
+        listRef.current?.blur();
         searchInputRef.current?.focus();
       }
     },
     [filteredSessions, kbdFocusIndex, loadSession]
+  );
+
+  // When the user presses ArrowDown from the search input, move focus to the list.
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "ArrowDown" && filteredSessions.length > 0) {
+        e.preventDefault();
+        setKbdFocusIndex(0);
+        listRef.current?.focus();
+      }
+    },
+    [filteredSessions.length]
   );
 
   return (
@@ -322,7 +344,7 @@ export function SessionsSidebar({
           + New Agent
         </button>
 
-        {/* Search / filter — press ↓ to move focus into the list */}
+        {/* Search / filter */}
         <div className="px-3 pb-2 relative">
           <input
             ref={searchInputRef}
@@ -369,14 +391,9 @@ export function SessionsSidebar({
         <div
           ref={listRef}
           className="flex-1 overflow-y-auto focus:outline-none"
-          tabIndex={-1}
+          tabIndex={0}
           onKeyDown={handleListKeyDown}
-          onBlur={(e) => {
-            // Only clear focus if focus is leaving the list entirely
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-              setKbdFocusIndex(null);
-            }
-          }}
+          onBlur={() => setKbdFocusIndex(null)}
           aria-label="Session list"
         >
           {filteredSessions.map((s, idx) => {

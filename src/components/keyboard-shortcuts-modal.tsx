@@ -33,6 +33,7 @@ const SECTIONS: ShortcutSection[] = [
     title: "Chat",
     rows: [
       { keys: ["Alt", "N"], description: "New session" },
+      { keys: ["Alt", "B"], description: "Toggle session sidebar" },
       { keys: ["↓"], description: "Focus session list from filter box" },
       { keys: ["↑", "↓"], description: "Navigate between sessions" },
       { keys: ["Enter"], description: "Open highlighted session" },
