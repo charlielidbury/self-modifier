@@ -13,6 +13,7 @@ import {
   Camera,
   Link,
   Check,
+  Bookmark,
 } from "lucide-react";
 
 // ─── WebGL Shaders ────────────────────────────────────────────────────────────
@@ -121,6 +122,98 @@ type FractalKey = (typeof FRACTAL_MODES)[number]["key"];
 
 const PALETTES = ["Fire", "Ocean", "Neon", "Twilight"];
 
+// ─── Preset locations ─────────────────────────────────────────────────────────
+
+type Preset = {
+  name: string;
+  mode: FractalKey;
+  center: { x: number; y: number };
+  zoom: number;
+  juliaAngle?: number;
+};
+
+const PRESETS: Preset[] = [
+  // ── Mandelbrot ──
+  {
+    name: "Mandelbrot Overview",
+    mode: "mandelbrot",
+    center: { x: -0.5, y: 0 },
+    zoom: 0.35,
+  },
+  {
+    name: "Seahorse Valley",
+    mode: "mandelbrot",
+    center: { x: -0.7436448, y: 0.1318259 },
+    zoom: 90,
+  },
+  {
+    name: "Elephant Valley",
+    mode: "mandelbrot",
+    center: { x: 0.2825, y: 0.0 },
+    zoom: 7,
+  },
+  {
+    name: "Triple Spiral",
+    mode: "mandelbrot",
+    center: { x: -0.15925, y: 1.03195 },
+    zoom: 35,
+  },
+  {
+    name: "Mini Mandelbrot",
+    mode: "mandelbrot",
+    center: { x: -1.7549, y: 0.0 },
+    zoom: 200,
+  },
+  {
+    name: "Star Cluster",
+    mode: "mandelbrot",
+    center: { x: -0.5612, y: 0.6395 },
+    zoom: 20,
+  },
+  // ── Julia ──
+  {
+    name: "Julia: Dragon",
+    mode: "julia",
+    center: { x: 0, y: 0 },
+    zoom: 0.45,
+    juliaAngle: 2.094, // c ≈ (-0.394, 0.683)
+  },
+  {
+    name: "Julia: Ice Crystal",
+    mode: "julia",
+    center: { x: 0, y: 0 },
+    zoom: 0.45,
+    juliaAngle: Math.PI / 2, // c = (0, 0.7885)
+  },
+  {
+    name: "Julia: Galaxy",
+    mode: "julia",
+    center: { x: 0, y: 0 },
+    zoom: 0.45,
+    juliaAngle: 0.65,
+  },
+  {
+    name: "Julia: Star",
+    mode: "julia",
+    center: { x: 0, y: 0 },
+    zoom: 0.45,
+    juliaAngle: Math.PI, // c = (-0.7885, 0)
+  },
+  // ── Burning Ship ──
+  {
+    name: "Burning Ship",
+    mode: "burning",
+    center: { x: -0.4, y: 0.6 },
+    zoom: 0.4,
+  },
+  {
+    name: "Ship's Mast",
+    mode: "burning",
+    center: { x: -1.7656, y: -0.0418 },
+    zoom: 28,
+  },
+];
+
 // Julia c parameter traces this path when animating
 // (classic "dragon" orbit around the Mandelbrot boundary)
 const JULIA_ORBIT_R = 0.7885;
@@ -159,6 +252,7 @@ export default function FractalsPage() {
   const [juliaAngle, setJuliaAngle] = useState(0);
   const [copied, setCopied]     = useState(false);
   const [mouseCoords, setMouseCoords] = useState<{ re: number; im: number } | null>(null);
+  const [showPresets, setShowPresets] = useState(false);
 
   // ── Init WebGL ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -509,6 +603,30 @@ export default function FractalsPage() {
     needsDrawRef.current = true;
   };
 
+  const applyPreset = (preset: Preset) => {
+    // Stop animation
+    playingRef.current = false;
+    setPlaying(false);
+
+    // Apply mode
+    modeRef.current = preset.mode;
+    setMode(preset.mode);
+
+    // Apply view
+    centerRef.current = preset.center;
+    zoomRef.current = preset.zoom;
+
+    // Apply julia angle if provided, otherwise reset
+    const angle = preset.juliaAngle ?? 0;
+    juliaAngleRef.current = angle;
+    setJuliaAngle(angle);
+    colorShiftRef.current = 0;
+    dirRef.current = 1;
+
+    needsDrawRef.current = true;
+    setShowPresets(false);
+  };
+
   const shareView = useCallback(() => {
     const params = new URLSearchParams({
       cx: centerRef.current.x.toString(),
@@ -654,6 +772,54 @@ export default function FractalsPage() {
           >
             <RotateCcw size={14} />
           </button>
+
+          {/* Presets */}
+          <div className="relative">
+            <button
+              onClick={() => setShowPresets((v) => !v)}
+              title="Preset locations"
+              className={[
+                "flex items-center gap-1.5 px-2.5 py-2 backdrop-blur border rounded-xl text-xs font-medium transition-all duration-200",
+                showPresets
+                  ? "bg-white/20 border-white/30 text-white"
+                  : "bg-black/50 border-white/10 text-white/60 hover:text-white",
+              ].join(" ")}
+            >
+              <Bookmark size={13} />
+              <span>Presets</span>
+            </button>
+
+            {showPresets && (
+              <div className="absolute bottom-full mb-2 right-0 w-52 bg-black/80 backdrop-blur border border-white/15 rounded-xl overflow-hidden shadow-xl z-10">
+                {/* Group heading helper */}
+                {(["mandelbrot", "julia", "burning"] as FractalKey[]).map((groupKey) => {
+                  const groupPresets = PRESETS.filter((p) => p.mode === groupKey);
+                  const groupLabel =
+                    groupKey === "mandelbrot"
+                      ? "Mandelbrot"
+                      : groupKey === "julia"
+                      ? "Julia"
+                      : "Burning Ship";
+                  return (
+                    <div key={groupKey}>
+                      <div className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-white/30">
+                        {groupLabel}
+                      </div>
+                      {groupPresets.map((preset) => (
+                        <button
+                          key={preset.name}
+                          onClick={() => applyPreset(preset)}
+                          className="w-full text-left px-3 py-1.5 text-xs text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                        >
+                          {preset.name}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {/* Save as PNG */}
           <button
