@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MessageSquare, Swords, Cuboid } from "lucide-react";
+import { MessageSquare, Swords, Cuboid, Infinity } from "lucide-react";
 
 const tabs = [
   { href: "/", label: "Chat", Icon: MessageSquare },
   { href: "/chess", label: "Chess", Icon: Swords },
   { href: "/minecraft", label: "Minecraft", Icon: Cuboid },
+  { href: "/fractals", label: "Fractals", Icon: Infinity },
 ];
 
 export function Navbar() {
