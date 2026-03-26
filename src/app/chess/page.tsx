@@ -68,6 +68,13 @@ const DIFFICULTIES = [
 
 type DifficultyLabel = (typeof DIFFICULTIES)[number]["label"];
 
+type Snapshot = {
+  board: Board;
+  status: string;
+  lastMove: [[number, number], [number, number]] | null;
+  moveHistory: string[];
+};
+
 export default function ChessPage() {
   const [board, setBoard] = useState<Board>(initBoard);
   const [turn, setTurn] = useState<Color>("w");
@@ -78,6 +85,7 @@ export default function ChessPage() {
   const [lastMove, setLastMove] = useState<[[number, number], [number, number]] | null>(null);
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [difficulty, setDifficulty] = useState<DifficultyLabel>("Hard");
+  const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
 
   const isGameOver =
@@ -113,6 +121,37 @@ export default function ChessPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turn, board, difficulty]);
 
+  // ── Undo ──────────────────────────────────────────────────────────────────
+  const undo = useCallback(() => {
+    setUndoStack((stack) => {
+      if (stack.length === 0) return stack;
+      const prev = stack[stack.length - 1];
+      setBoard(prev.board);
+      setTurn("w");
+      setStatus(prev.status);
+      setLastMove(prev.lastMove);
+      setMoveHistory(prev.moveHistory);
+      setSelected(null);
+      setLegalMoves([]);
+      return stack.slice(0, -1);
+    });
+  }, []);
+
+  // Ctrl+Z keyboard shortcut for undo
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        // Only undo if not thinking and there's something to undo
+        if (!isThinking && undoStack.length > 0) {
+          e.preventDefault();
+          undo();
+        }
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [undo, isThinking, undoStack.length]);
+
   // ── Player click ─────────────────────────────────────────────────────────
   const handleClick = useCallback(
     (r: number, c: number) => {
@@ -125,6 +164,11 @@ export default function ChessPage() {
         const isLegal = legalMoves.some(([lr, lc]) => lr === r && lc === c);
 
         if (isLegal) {
+          // Save snapshot before committing the move so it can be undone
+          setUndoStack((stack) => [
+            ...stack,
+            { board, status, lastMove, moveHistory },
+          ]);
           const next = applyMove(board, sr, sc, r, c);
           const san = toSAN(board, sr, sc, r, c, next, "w");
           setBoard(next);
@@ -165,6 +209,7 @@ export default function ChessPage() {
     setIsThinking(false);
     setLastMove(null);
     setMoveHistory([]);
+    setUndoStack([]);
   };
 
   // Group half-moves into pairs: [[white, black?], ...]
@@ -204,6 +249,14 @@ export default function ChessPage() {
           className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
         >
           New Game
+        </button>
+        <button
+          onClick={undo}
+          disabled={undoStack.length === 0 || isThinking}
+          title="Undo last move (Ctrl+Z)"
+          className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          ↩ Undo
         </button>
 
         {/* Difficulty selector */}
