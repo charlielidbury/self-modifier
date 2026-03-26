@@ -290,6 +290,59 @@ function toFEN(board: Board, turn: Color, moveHistory: string[]): string {
   return `${placement} ${active} ${castling} ${enPassant} ${halfMove} ${fullMove}`;
 }
 
+// ── Confetti celebration ──────────────────────────────────────────────────────
+
+const CONFETTI_COLORS = [
+  "#f59e0b", "#10b981", "#3b82f6", "#ef4444",
+  "#a855f7", "#ec4899", "#f97316", "#fbbf24",
+  "#84cc16", "#06b6d4", "#ffffff",
+];
+
+function ConfettiOverlay() {
+  const particles = useMemo(
+    () =>
+      Array.from({ length: 90 }, (_, i) => ({
+        id: i,
+        left: Math.random() * 100,
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        width: 5 + Math.random() * 8,
+        height: 4 + Math.random() * 12,
+        delay: Math.random() * 1.5,
+        duration: 2.2 + Math.random() * 1.8,
+        borderRadius:
+          i % 3 === 0 ? "50%" : i % 3 === 1 ? "2px" : "0 4px 0 4px",
+        alt: i % 2 === 0,
+      })),
+    []
+  );
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-[100] overflow-hidden">
+      {particles.map((p) => (
+        <div
+          key={p.id}
+          style={{
+            position: "absolute",
+            left: `${p.left}%`,
+            top: "-16px",
+            width: `${p.width}px`,
+            height: `${p.height}px`,
+            backgroundColor: p.color,
+            borderRadius: p.borderRadius,
+            animationName: p.alt ? "confettiFallAlt" : "confettiFall",
+            animationDuration: `${p.duration}s`,
+            animationDelay: `${p.delay}s`,
+            animationTimingFunction: "linear",
+            animationFillMode: "forwards",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function ChessPage() {
   const [board, setBoard] = useState<Board>(initBoard);
   const [turn, setTurn] = useState<Color>("w");
@@ -324,6 +377,11 @@ export default function ChessPage() {
   const [hint, setHint] = useState<[[number, number], [number, number]] | null>(null);
   const [isHinting, setIsHinting] = useState(false);
   const [boardTheme, setBoardTheme] = useState<BoardThemeName>("Classic");
+
+  // ── Confetti state ────────────────────────────────────────────────────────
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [confettiKey, setConfettiKey] = useState(0);
+  const confettiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Sound effects ────────────────────────────────────────────────────────
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -570,6 +628,18 @@ export default function ChessPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undo, isThinking, undoStack.length, showHint]);
 
+  // ── Confetti on checkmate ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!status.includes("Checkmate")) return;
+    if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
+    setConfettiKey((k) => k + 1);
+    setShowConfetti(true);
+    confettiTimerRef.current = setTimeout(() => setShowConfetti(false), 4500);
+    return () => {
+      if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
+    };
+  }, [status]);
+
   // ── Player click ─────────────────────────────────────────────────────────
   const handleClick = useCallback(
     (r: number, c: number) => {
@@ -652,6 +722,9 @@ export default function ChessPage() {
     setBlackTime(0);
     turnStartRef.current = Date.now();
     statsCountedRef.current = false;
+    // Clear any active confetti
+    setShowConfetti(false);
+    if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
   };
 
   // Called when the player selects a promotion piece from the dialog
@@ -766,6 +839,9 @@ export default function ChessPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 gap-5">
+      {/* Confetti overlay — only shown on checkmate */}
+      {showConfetti && <ConfettiOverlay key={confettiKey} />}
+
       {/* Title + opening name grouped so gap-5 applies between this block and the controls */}
       <div className="flex flex-col items-center gap-1">
         <h1 className="text-2xl font-bold tracking-tight">Chess</h1>
