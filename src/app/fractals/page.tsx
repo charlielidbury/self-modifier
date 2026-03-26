@@ -10,6 +10,7 @@ import {
   ChevronRight,
   RotateCcw,
   Infinity,
+  Camera,
 } from "lucide-react";
 
 // ─── WebGL Shaders ────────────────────────────────────────────────────────────
@@ -158,7 +159,7 @@ export default function FractalsPage() {
   // ── Init WebGL ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const gl = canvas.getContext("webgl", { antialias: false, preserveDrawingBuffer: false });
+    const gl = canvas.getContext("webgl", { antialias: false, preserveDrawingBuffer: true });
     if (!gl) { console.error("WebGL not supported"); return; }
     glRef.current = gl;
 
@@ -343,11 +344,35 @@ export default function FractalsPage() {
 
   const onPointerUp = useCallback(() => { dragRef.current = null; }, []);
 
-  // ── Wheel (zoom) ────────────────────────────────────────────────────────────
+  // ── Wheel (zoom to cursor) ───────────────────────────────────────────────────
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
     const factor = e.deltaY > 0 ? 0.85 : 1 / 0.85;
-    zoomRef.current = Math.max(0.05, Math.min(1e8, zoomRef.current * factor));
+    const newZoom = Math.max(0.05, Math.min(1e8, zoomRef.current * factor));
+
+    // Keep the fractal point under the cursor fixed while zooming.
+    // Use CSS dimensions (offsetWidth/Height) consistent with the pan handler.
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const W = rect.width;
+    const H = rect.height;
+    const minDim = Math.min(W, H);
+
+    // Fractal coordinate currently under the cursor (before zoom changes)
+    const fractalX =  (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
+    const fractalY = -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
+
+    // Shift center so that same fractal point stays under the cursor after zoom
+    centerRef.current = {
+      x: fractalX - (mouseX - W / 2) / (minDim * newZoom),
+      y: fractalY + (mouseY - H / 2) / (minDim * newZoom),
+    };
+
+    zoomRef.current = newZoom;
     needsDrawRef.current = true;
   }, []);
 
@@ -399,6 +424,19 @@ export default function FractalsPage() {
     setMaxIter(v);
     needsDrawRef.current = true;
   };
+
+  const saveImage = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    // Ensure the latest frame is rendered before capturing
+    draw();
+    const paletteName = PALETTES[palRef.current]?.toLowerCase() ?? "custom";
+    const filename = `fractal-${modeRef.current}-${paletteName}-${Date.now()}.png`;
+    const link = document.createElement("a");
+    link.href = canvas.toDataURL("image/png");
+    link.download = filename;
+    link.click();
+  }, [draw]);
 
   const juliaCx = (Math.cos(juliaAngle) * JULIA_ORBIT_R).toFixed(4);
   const juliaCy = (Math.sin(juliaAngle) * JULIA_ORBIT_R).toFixed(4);
@@ -510,6 +548,15 @@ export default function FractalsPage() {
             className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-xl text-white/60 hover:text-white transition-colors"
           >
             <RotateCcw size={14} />
+          </button>
+
+          {/* Save as PNG */}
+          <button
+            onClick={saveImage}
+            title="Save as PNG"
+            className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-xl text-white/60 hover:text-white transition-colors"
+          >
+            <Camera size={14} />
           </button>
         </div>
 
