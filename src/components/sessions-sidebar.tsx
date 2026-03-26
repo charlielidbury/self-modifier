@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Trash2 } from "lucide-react";
+import { Trash2, MessageSquare } from "lucide-react";
 import type { SessionInfo, ChatMessage } from "@/lib/types";
 import type { AgentStatus } from "@/lib/agent";
 
@@ -258,6 +258,20 @@ export function SessionsSidebar({
     itemRefs.current[kbdFocusIndex]?.scrollIntoView({ block: "nearest" });
   }, [kbdFocusIndex]);
 
+  // Scroll the active session into view whenever the active session changes.
+  const prevActiveSessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeSessionId) return;
+    if (activeSessionId === prevActiveSessionIdRef.current) return;
+    prevActiveSessionIdRef.current = activeSessionId;
+    const idx = filteredSessions.findIndex((s) => s.sessionId === activeSessionId);
+    if (idx === -1) return;
+    requestAnimationFrame(() => {
+      itemRefs.current[idx]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, filteredSessions]);
+
   // Keyboard navigation handler for the session list container.
   // The list div has tabIndex={0} so it can receive focus and process arrow-key events.
   const handleListKeyDown = useCallback(
@@ -441,11 +455,23 @@ export function SessionsSidebar({
               </div>
             );
           })}
-          {searchQuery && filteredSessions.length === 0 && (
+          {sessions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
+              <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-300 dark:text-neutral-600">
+                <MessageSquare className="size-5" />
+              </div>
+              <p className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
+                No sessions yet
+              </p>
+              <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
+                Click &ldquo;+ New Agent&rdquo; to get started
+              </p>
+            </div>
+          ) : searchQuery && filteredSessions.length === 0 ? (
             <p className="px-4 py-3 text-xs text-neutral-400 dark:text-neutral-500 italic">
               No sessions match &ldquo;{searchQuery}&rdquo;
             </p>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
