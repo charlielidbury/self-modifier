@@ -129,6 +129,7 @@ type Snapshot = {
   status: string;
   lastMove: [[number, number], [number, number]] | null;
   moveHistory: string[];
+  turn: Color;
 };
 
 /** Format elapsed milliseconds as  m:ss  (e.g. "2:07") */
@@ -149,10 +150,11 @@ export default function ChessPage() {
   const [lastMove, setLastMove] = useState<[[number, number], [number, number]] | null>(null);
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [difficulty, setDifficulty] = useState<DifficultyLabel>("Hard");
+  const [vsAI, setVsAI] = useState(true);
   const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
   const [flipped, setFlipped] = useState(false);
   const [pendingPromotion, setPendingPromotion] = useState<{
-    sr: number; sc: number; r: number; c: number;
+    sr: number; sc: number; r: number; c: number; color: Color;
   } | null>(null);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
   const [pgnCopied, setPgnCopied] = useState(false);
@@ -196,7 +198,7 @@ export default function ChessPage() {
 
   // ── Engine move (black) ──────────────────────────────────────────────────
   useEffect(() => {
-    if (turn !== "b" || isGameOver || isThinking) return;
+    if (turn !== "b" || isGameOver || isThinking || !vsAI) return;
 
     setIsThinking(true);
     const depth = DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3;
@@ -217,7 +219,7 @@ export default function ChessPage() {
 
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turn, board, difficulty]);
+  }, [turn, board, difficulty, vsAI]);
 
   // ── Undo ──────────────────────────────────────────────────────────────────
   const undo = useCallback(() => {
@@ -225,7 +227,7 @@ export default function ChessPage() {
       if (stack.length === 0) return stack;
       const prev = stack[stack.length - 1];
       setBoard(prev.board);
-      setTurn("w");
+      setTurn(prev.turn);
       setStatus(prev.status);
       setLastMove(prev.lastMove);
       setMoveHistory(prev.moveHistory);
@@ -287,7 +289,7 @@ export default function ChessPage() {
   // ── Player click ─────────────────────────────────────────────────────────
   const handleClick = useCallback(
     (r: number, c: number) => {
-      if (isGameOver || isThinking || turn !== "w") return;
+      if (isGameOver || isThinking || (vsAI && turn !== "w")) return;
 
       const piece = board[r][c];
 
@@ -296,26 +298,26 @@ export default function ChessPage() {
         const isLegal = legalMoves.some(([lr, lc]) => lr === r && lc === c);
 
         if (isLegal) {
-          // Check if this move is a pawn promotion (white pawn reaching row 0)
+          // Check if this move is a pawn promotion (either side reaching the back rank)
           const movingPiece = board[sr][sc];
-          if (movingPiece?.type === "P" && movingPiece.color === "w" && r === 0) {
+          if (movingPiece?.type === "P" && (r === 0 || r === 7)) {
             // Pause and ask the player which piece to promote to
             setSelected(null);
             setLegalMoves([]);
-            setPendingPromotion({ sr, sc, r, c });
+            setPendingPromotion({ sr, sc, r, c, color: turn });
             return;
           }
 
           // Save snapshot before committing the move so it can be undone
           setUndoStack((stack) => [
             ...stack,
-            { board, status, lastMove, moveHistory },
+            { board, status, lastMove, moveHistory, turn },
           ]);
           const next = applyMove(board, sr, sc, r, c);
-          const san = toSAN(board, sr, sc, r, c, next, "w");
+          const san = toSAN(board, sr, sc, r, c, next, turn);
           setBoard(next);
-          setTurn("b");
-          setStatus(getStatus(next, "w"));
+          setTurn(turn === "w" ? "b" : "w");
+          setStatus(getStatus(next, turn));
           setLastMove([[sr, sc], [r, c]]);
           setSelected(null);
           setLegalMoves([]);
@@ -324,7 +326,7 @@ export default function ChessPage() {
           return;
         }
 
-        if (piece?.color === "w") {
+        if (piece?.color === turn) {
           setSelected([r, c]);
           setLegalMoves(getLegalMoves(board, r, c));
           return;
@@ -335,12 +337,12 @@ export default function ChessPage() {
         return;
       }
 
-      if (piece?.color === "w") {
+      if (piece?.color === turn) {
         setSelected([r, c]);
         setLegalMoves(getLegalMoves(board, r, c));
       }
     },
-    [board, selected, legalMoves, turn, isGameOver, isThinking]
+    [board, selected, legalMoves, turn, isGameOver, isThinking, vsAI]
   );
 
   const reset = () => {
@@ -363,18 +365,18 @@ export default function ChessPage() {
   // Called when the player selects a promotion piece from the dialog
   const confirmPromotion = useCallback((promoteTo: PieceType) => {
     if (!pendingPromotion) return;
-    const { sr, sc, r, c } = pendingPromotion;
+    const { sr, sc, r, c, color } = pendingPromotion;
     setPendingPromotion(null);
-    // Save snapshot for undo
+    // Save snapshot for undo (restore to the promoting player's turn)
     setUndoStack((stack) => [
       ...stack,
-      { board, status, lastMove, moveHistory },
+      { board, status, lastMove, moveHistory, turn: color },
     ]);
     const next = applyMove(board, sr, sc, r, c, promoteTo);
-    const san = toSAN(board, sr, sc, r, c, next, "w", promoteTo);
+    const san = toSAN(board, sr, sc, r, c, next, color, promoteTo);
     setBoard(next);
-    setTurn("b");
-    setStatus(getStatus(next, "w"));
+    setTurn(color === "w" ? "b" : "w");
+    setStatus(getStatus(next, color));
     setLastMove([[sr, sc], [r, c]]);
     setHint(null);
     setMoveHistory((h) => [...h, san]);
@@ -382,7 +384,7 @@ export default function ChessPage() {
 
   // Show a hint: compute best white move and highlight it briefly
   const showHint = useCallback(() => {
-    if (isGameOver || isThinking || turn !== "w" || isHinting) return;
+    if (!vsAI || isGameOver || isThinking || turn !== "w" || isHinting) return;
     setIsHinting(true);
     setTimeout(() => {
       const move = getBestMove(board, "w", 3);
@@ -393,7 +395,7 @@ export default function ChessPage() {
       }
       setIsHinting(false);
     }, 30);
-  }, [board, isGameOver, isThinking, turn, isHinting]);
+  }, [board, isGameOver, isThinking, turn, isHinting, vsAI]);
 
   // Copy game moves as PGN to clipboard
   const copyPGN = useCallback(() => {
@@ -445,6 +447,9 @@ export default function ChessPage() {
     ? (evalScore > 0 ? "1-0" : "0-1")
     : (evalScore >= 0 ? "+" : "") + (evalScore / 100).toFixed(1);
 
+  // ── Active board theme ───────────────────────────────────────────────────
+  const activeTheme = BOARD_THEMES.find((t) => t.name === boardTheme)!;
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 gap-5">
@@ -468,7 +473,11 @@ export default function ChessPage() {
           </span>
         ) : (
           <span className="text-sm text-muted-foreground">
-            ⬜ Your turn (White)
+            {vsAI
+              ? "⬜ Your turn (White)"
+              : turn === "w"
+              ? "⬜ White's turn"
+              : "⬛ Black's turn"}
           </span>
         )}
         <button
@@ -494,14 +503,44 @@ export default function ChessPage() {
         </button>
         <button
           onClick={showHint}
-          disabled={isGameOver || isThinking || turn !== "w" || isHinting}
-          title="Show best move hint (H)"
+          disabled={!vsAI || isGameOver || isThinking || turn !== "w" || isHinting}
+          title={vsAI ? "Show best move hint (H)" : "Hints only available in vs AI mode"}
           className="px-3 py-1 text-sm rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {isHinting ? "…" : "💡 Hint"}
         </button>
 
-        {/* Difficulty selector */}
+        {/* Mode selector */}
+        <div className="flex items-center gap-1.5 ml-2">
+          <span className="text-xs text-muted-foreground select-none">Mode:</span>
+          <div className="flex rounded-md overflow-hidden border border-border">
+            <button
+              onClick={() => setVsAI(true)}
+              className={[
+                "px-2.5 py-1 text-xs font-medium transition-colors",
+                vsAI
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground hover:bg-accent",
+              ].join(" ")}
+            >
+              vs AI
+            </button>
+            <button
+              onClick={() => setVsAI(false)}
+              className={[
+                "px-2.5 py-1 text-xs font-medium transition-colors",
+                !vsAI
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground hover:bg-accent",
+              ].join(" ")}
+            >
+              2 Players
+            </button>
+          </div>
+        </div>
+
+        {/* Difficulty selector — only relevant in vs AI mode */}
+        {vsAI && (
         <div className="flex items-center gap-1.5 ml-2">
           <span className="text-xs text-muted-foreground select-none">Difficulty:</span>
           <div className="flex rounded-md overflow-hidden border border-border">
@@ -518,6 +557,30 @@ export default function ChessPage() {
               >
                 {label}
               </button>
+            ))}
+          </div>
+        </div>
+        )}
+
+        {/* Board theme selector */}
+        <div className="flex items-center gap-1.5 ml-2">
+          <span className="text-xs text-muted-foreground select-none">Board:</span>
+          <div className="flex items-center gap-1">
+            {BOARD_THEMES.map(({ name, light, dark }) => (
+              <button
+                key={name}
+                onClick={() => setBoardTheme(name)}
+                title={name}
+                className={[
+                  "w-6 h-6 rounded-sm overflow-hidden border-2 transition-all",
+                  boardTheme === name
+                    ? "border-primary scale-110 shadow-sm"
+                    : "border-transparent hover:border-border",
+                ].join(" ")}
+                style={{
+                  background: `linear-gradient(135deg, ${light} 50%, ${dark} 50%)`,
+                }}
+              />
             ))}
           </div>
         </div>
@@ -611,22 +674,22 @@ export default function ChessPage() {
                       ((hint[0][0] === r && hint[0][1] === c) ||
                         (hint[1][0] === r && hint[1][1] === c));
 
-                    let bg = isLight ? "bg-[#f0d9b5]" : "bg-[#b58863]";
-                    if (isLastMove) bg = isLight ? "bg-[#cdd16f]" : "bg-[#aaa23a]";
-                    if (isHintSquare) bg = isLight ? "bg-[#90c8f0]" : "bg-[#4a9fd4]";
-                    if (isCheckedKing) bg = isLight ? "bg-[#ff6b6b]" : "bg-[#cc3333]";
-                    if (isSelected) bg = "bg-yellow-400";
+                    let bgColor = isLight ? activeTheme.light : activeTheme.dark;
+                    if (isLastMove) bgColor = isLight ? "#cdd16f" : "#aaa23a";
+                    if (isHintSquare) bgColor = isLight ? "#90c8f0" : "#4a9fd4";
+                    if (isCheckedKing) bgColor = isLight ? "#ff6b6b" : "#cc3333";
+                    if (isSelected) bgColor = "#f6f669";
 
                     const interactive =
-                      !isGameOver && !isThinking && turn === "w";
+                      !isGameOver && !isThinking && (!vsAI || turn === "w");
 
                     return (
                       <div
                         key={c}
                         onClick={() => handleClick(r, c)}
+                        style={{ backgroundColor: bgColor }}
                         className={[
                           "w-14 h-14 flex items-center justify-center relative select-none",
-                          bg,
                           interactive ? "cursor-pointer" : "cursor-default",
                         ].join(" ")}
                       >
@@ -734,21 +797,43 @@ export default function ChessPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {movePairs.map(([white, black], i) => (
-                    <tr
-                      key={i}
-                      className={i % 2 === 0 ? "" : "bg-muted/30"}
-                      ref={i === movePairs.length - 1 ? historyEndRef : null}
-                    >
-                      <td className="px-2 py-1 text-xs text-muted-foreground text-center">
-                        {i + 1}
-                      </td>
-                      <td className="px-2 py-1">{white}</td>
-                      <td className="px-2 py-1 text-muted-foreground">
-                        {black ?? ""}
-                      </td>
-                    </tr>
-                  ))}
+                  {movePairs.map(([white, black], i) => {
+                    const isLastPair = i === movePairs.length - 1;
+                    // Odd length → white was last to move; even length → black was last
+                    const highlightWhite = isLastPair && moveHistory.length % 2 === 1;
+                    const highlightBlack = isLastPair && moveHistory.length % 2 === 0;
+                    return (
+                      <tr
+                        key={i}
+                        className={i % 2 === 0 ? "" : "bg-muted/30"}
+                        ref={i === movePairs.length - 1 ? historyEndRef : null}
+                      >
+                        <td className="px-2 py-1 text-xs text-muted-foreground text-center">
+                          {i + 1}
+                        </td>
+                        <td
+                          className={[
+                            "px-2 py-1 rounded-sm transition-colors",
+                            highlightWhite
+                              ? "bg-yellow-400/30 dark:bg-yellow-400/20 font-semibold text-foreground"
+                              : "",
+                          ].join(" ")}
+                        >
+                          {white}
+                        </td>
+                        <td
+                          className={[
+                            "px-2 py-1 rounded-sm transition-colors",
+                            highlightBlack
+                              ? "bg-yellow-400/30 dark:bg-yellow-400/20 font-semibold text-foreground"
+                              : "text-muted-foreground",
+                          ].join(" ")}
+                        >
+                          {black ?? ""}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -771,7 +856,9 @@ export default function ChessPage() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        You play White · Engine plays Black (depth {DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3})
+        {vsAI
+          ? `You play White · Engine plays Black (depth ${DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3})`
+          : "Two-player mode · White vs Black (same device)"}
       </p>
 
       {/* Pawn Promotion Dialog */}
@@ -790,8 +877,12 @@ export default function ChessPage() {
                   title={{ Q: "Queen", R: "Rook", B: "Bishop", N: "Knight" }[type]}
                   className="w-16 h-16 flex flex-col items-center justify-center gap-1 rounded-lg border border-border bg-secondary hover:bg-accent hover:border-primary transition-colors shadow-sm group"
                 >
-                  <span className="text-4xl leading-none text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.8),0_0_1px_rgba(0,0,0,1)] group-hover:scale-110 transition-transform">
-                    {UNICODE.w[type]}
+                  <span className={`text-4xl leading-none group-hover:scale-110 transition-transform ${
+                    pendingPromotion?.color === "b"
+                      ? "text-gray-900 [text-shadow:0_1px_2px_rgba(255,255,255,0.3)]"
+                      : "text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.8),0_0_1px_rgba(0,0,0,1)]"
+                  }`}>
+                    {UNICODE[pendingPromotion?.color ?? "w"][type]}
                   </span>
                   <span className="text-[10px] text-muted-foreground font-medium">
                     {{ Q: "Queen", R: "Rook", B: "Bishop", N: "Knight" }[type]}
