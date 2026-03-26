@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Volume2, VolumeX } from "lucide-react";
 import {
   type Board,
@@ -124,6 +124,100 @@ const BOARD_THEMES = [
 ] as const;
 
 type BoardThemeName = (typeof BOARD_THEMES)[number]["name"];
+
+// ── Chess opening book ────────────────────────────────────────────────────────
+// Entries are listed from most-specific to least-specific so the greedy search
+// naturally picks the longest matching line.
+const OPENINGS: { moves: string[]; name: string }[] = [
+  // ── Sicilian variations ──
+  { moves: ["e4", "c5", "Nf3", "d6", "d4", "cxd4", "Nxd4", "Nf6", "Nc3", "a6"], name: "Sicilian: Najdorf" },
+  { moves: ["e4", "c5", "Nf3", "Nc6", "d4", "cxd4", "Nxd4", "g6"], name: "Sicilian: Dragon" },
+  { moves: ["e4", "c5", "Nf3", "e6", "d4", "cxd4", "Nxd4"], name: "Sicilian: Scheveningen" },
+  // ── Ruy Lopez ──
+  { moves: ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Ba4", "Nf6"], name: "Ruy Lopez: Open" },
+  { moves: ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6"], name: "Ruy Lopez: Morphy" },
+  { moves: ["e4", "e5", "Nf3", "Nc6", "Bb5"], name: "Ruy Lopez" },
+  // ── Italian Game ──
+  { moves: ["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "c3", "Nf6"], name: "Giuoco Piano" },
+  { moves: ["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "c3"], name: "Giuoco Piano" },
+  { moves: ["e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6"], name: "Two Knights Defense" },
+  { moves: ["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5"], name: "Giuoco Piano" },
+  { moves: ["e4", "e5", "Nf3", "Nc6", "Bc4"], name: "Italian Game" },
+  // ── Scotch ──
+  { moves: ["e4", "e5", "Nf3", "Nc6", "d4", "exd4", "Nxd4"], name: "Scotch Game" },
+  { moves: ["e4", "e5", "Nf3", "Nc6", "d4"], name: "Scotch Game" },
+  // ── Other e4 e5 ──
+  { moves: ["e4", "e5", "Nf3", "Nf6"], name: "Petrov's Defense" },
+  { moves: ["e4", "e5", "f4", "exf4"], name: "King's Gambit Accepted" },
+  { moves: ["e4", "e5", "f4", "d5"], name: "Falkbeer Counter Gambit" },
+  { moves: ["e4", "e5", "f4"], name: "King's Gambit" },
+  { moves: ["e4", "e5", "Nf3", "Nc6"], name: "Open Game" },
+  { moves: ["e4", "e5"], name: "Open Game" },
+  // ── Sicilian ──
+  { moves: ["e4", "c5", "Nf3", "d6"], name: "Sicilian: Classical" },
+  { moves: ["e4", "c5", "Nf3"], name: "Sicilian Defense" },
+  { moves: ["e4", "c5"], name: "Sicilian Defense" },
+  // ── Other e4 defenses ──
+  { moves: ["e4", "e6", "d4", "d5"], name: "French Defense" },
+  { moves: ["e4", "e6"], name: "French Defense" },
+  { moves: ["e4", "c6", "d4", "d5"], name: "Caro-Kann Defense" },
+  { moves: ["e4", "c6"], name: "Caro-Kann Defense" },
+  { moves: ["e4", "d6", "d4", "Nf6"], name: "Pirc Defense" },
+  { moves: ["e4", "d6"], name: "Pirc Defense" },
+  { moves: ["e4", "Nf6", "e5", "Nd5"], name: "Alekhine's Defense" },
+  { moves: ["e4", "Nf6"], name: "Alekhine's Defense" },
+  { moves: ["e4", "d5", "exd5"], name: "Scandinavian Defense" },
+  { moves: ["e4", "d5"], name: "Scandinavian Defense" },
+  { moves: ["e4", "g6"], name: "Modern Defense" },
+  // ── d4 openings ──
+  { moves: ["d4", "Nf6", "c4", "g6", "Nc3", "Bg7", "e4", "d6"], name: "King's Indian Defense" },
+  { moves: ["d4", "Nf6", "c4", "g6", "Nc3"], name: "King's Indian Defense" },
+  { moves: ["d4", "Nf6", "c4", "g6"], name: "King's Indian Defense" },
+  { moves: ["d4", "Nf6", "c4", "e6", "Nc3", "Bb4"], name: "Nimzo-Indian Defense" },
+  { moves: ["d4", "d5", "c4", "c6", "Nf3", "Nf6"], name: "Slav Defense" },
+  { moves: ["d4", "d5", "c4", "c6"], name: "Slav Defense" },
+  { moves: ["d4", "d5", "c4", "e6", "Nc3", "Nf6"], name: "Queen's Gambit Declined" },
+  { moves: ["d4", "d5", "c4", "dxc4"], name: "Queen's Gambit Accepted" },
+  { moves: ["d4", "d5", "c4", "e6"], name: "Queen's Gambit Declined" },
+  { moves: ["d4", "d5", "c4"], name: "Queen's Gambit" },
+  { moves: ["d4", "Nf6", "c4", "e6"], name: "Queen's Indian / Nimzo" },
+  { moves: ["d4", "Nf6", "c4"], name: "Indian Defense" },
+  { moves: ["d4", "d5"], name: "Queen's Pawn Game" },
+  { moves: ["d4", "Nf6"], name: "Indian Defense" },
+  // ── Flank openings ──
+  { moves: ["Nf3", "d5", "c4"], name: "Réti Opening" },
+  { moves: ["c4", "e5"], name: "English: Reversed Sicilian" },
+  { moves: ["c4", "Nf6"], name: "English Opening" },
+  { moves: ["c4"], name: "English Opening" },
+  { moves: ["Nf3"], name: "Réti Opening" },
+  // ── Generic first moves ──
+  { moves: ["d4"], name: "Queen's Pawn Opening" },
+  { moves: ["e4"], name: "King's Pawn Opening" },
+];
+
+/** Strip check (+), checkmate (#), and annotation (!?) symbols from a SAN move. */
+function cleanSAN(san: string): string {
+  return san.replace(/[+#!?]/g, "");
+}
+
+/**
+ * Return the most specific opening name for the given move history,
+ * or null if no entry matches or the game has progressed too far.
+ */
+function getOpeningName(moves: string[]): string | null {
+  if (moves.length === 0) return null;
+  const cleaned = moves.map(cleanSAN);
+  let best: { name: string; len: number } | null = null;
+  for (const opening of OPENINGS) {
+    const len = opening.moves.length;
+    if (len > cleaned.length) continue;
+    if (best && len <= best.len) continue; // prefer longer (more specific) match
+    if (opening.moves.every((m, i) => m === cleaned[i])) {
+      best = { name: opening.name, len };
+    }
+  }
+  return best?.name ?? null;
+}
 
 type Snapshot = {
   board: Board;
@@ -581,13 +675,31 @@ export default function ChessPage() {
     ? (evalScore > 0 ? "1-0" : "0-1")
     : (evalScore >= 0 ? "+" : "") + (evalScore / 100).toFixed(1);
 
+  // ── Opening name detection ────────────────────────────────────────────────
+  // Only show during the opening phase (first 20 half-moves) and not after game over.
+  const openingName = useMemo(
+    () =>
+      !isGameOver && moveHistory.length > 0 && moveHistory.length <= 20
+        ? getOpeningName(moveHistory)
+        : null,
+    [moveHistory, isGameOver]
+  );
+
   // ── Active board theme ───────────────────────────────────────────────────
   const activeTheme = BOARD_THEMES.find((t) => t.name === boardTheme)!;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 gap-5">
-      <h1 className="text-2xl font-bold tracking-tight">Chess</h1>
+      {/* Title + opening name grouped so gap-5 applies between this block and the controls */}
+      <div className="flex flex-col items-center gap-1">
+        <h1 className="text-2xl font-bold tracking-tight">Chess</h1>
+        {openingName && (
+          <span className="text-xs text-muted-foreground/80 italic select-none animate-in fade-in duration-300">
+            {openingName}
+          </span>
+        )}
+      </div>
 
       {/* Status bar */}
       <div className="flex items-center gap-3 min-h-8">
