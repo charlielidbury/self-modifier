@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { ExternalLink, Volume2, VolumeX } from "lucide-react";
 import {
   type Board,
@@ -363,6 +363,15 @@ export default function ChessPage() {
   const statsCountedRef = useRef(false);
   const [pgnCopied, setPgnCopied] = useState(false);
   const [fenCopied, setFenCopied] = useState(false);
+  const boardInnerRef = useRef<HTMLDivElement>(null);
+
+  // ── Drag state ────────────────────────────────────────────────────────────
+  const [dragging, setDragging] = useState<{
+    fromR: number;
+    fromC: number;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
 
   // ── Win/Loss/Draw statistics (persisted in localStorage) ─────────────────
   const [stats, setStats] = useState<{ wins: number; losses: number; draws: number }>(() => {
@@ -706,6 +715,101 @@ export default function ChessPage() {
     [board, selected, legalMoves, turn, isGameOver, isThinking, vsAI, playChessSound]
   );
 
+  // ── Drag-and-drop piece movement ─────────────────────────────────────────
+  const handlePieceMouseDown = useCallback(
+    (r: number, c: number, e: React.MouseEvent) => {
+      const piece = board[r][c];
+      if (!piece || piece.color !== turn) return;
+      if (isGameOver || isThinking || (vsAI && turn !== "w")) return;
+
+      e.preventDefault();
+
+      const moves = getLegalMoves(board, r, c);
+      setSelected([r, c]);
+      setLegalMoves(moves);
+
+      let isDragStarted = false;
+      const startX = e.clientX;
+      const startY = e.clientY;
+
+      const onMouseMove = (ev: MouseEvent) => {
+        if (!isDragStarted) {
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+          if (Math.sqrt(dx * dx + dy * dy) >= 5) {
+            isDragStarted = true;
+            setDragging({ fromR: r, fromC: c, clientX: ev.clientX, clientY: ev.clientY });
+          }
+        } else {
+          setDragging((d) => d ? { ...d, clientX: ev.clientX, clientY: ev.clientY } : null);
+        }
+      };
+
+      const onMouseUp = (ev: MouseEvent) => {
+        cleanup();
+        setDragging(null);
+
+        if (!isDragStarted) return; // Was a plain click — onClick will handle it
+
+        // Compute which board square the cursor is over
+        const boardEl = boardInnerRef.current;
+        if (!boardEl) return;
+        const rect = boardEl.getBoundingClientRect();
+        const x = ev.clientX - rect.left;
+        const y = ev.clientY - rect.top;
+        if (x < 0 || y < 0 || x >= rect.width || y >= rect.height) return;
+        const squareSize = rect.width / 8;
+        const vc = Math.min(7, Math.max(0, Math.floor(x / squareSize)));
+        const vr = Math.min(7, Math.max(0, Math.floor(y / squareSize)));
+        const tr = flipped ? 7 - vr : vr;
+        const tc = flipped ? 7 - vc : vc;
+
+        const isLegal = moves.some(([lr, lc]) => lr === tr && lc === tc);
+        if (!isLegal) return;
+
+        // Pawn promotion
+        if (piece.type === "P" && (tr === 0 || tr === 7)) {
+          setSelected(null);
+          setLegalMoves([]);
+          setPendingPromotion({ sr: r, sc: c, r: tr, c: tc, color: turn });
+          return;
+        }
+
+        // Commit the move
+        setUndoStack((stack) => [
+          ...stack,
+          { board, status, lastMove, moveHistory, turn },
+        ]);
+        const next = applyMove(board, r, c, tr, tc);
+        const san = toSAN(board, r, c, tr, tc, next, turn);
+        const newStatus = getStatus(next, turn);
+        const wasCapture = board[tr][tc] !== null;
+        setBoard(next);
+        setTurn(turn === "w" ? "b" : "w");
+        setStatus(newStatus);
+        setLastMove([[r, c], [tr, tc]]);
+        setSelected(null);
+        setLegalMoves([]);
+        setHint(null);
+        setMoveHistory((h) => [...h, san]);
+        if (newStatus.includes("Checkmate")) playChessSound("checkmate");
+        else if (newStatus.includes("check")) playChessSound("check");
+        else if (wasCapture) playChessSound("capture");
+        else playChessSound("move");
+      };
+
+      const cleanup = () => {
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+      };
+
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [board, turn, isGameOver, isThinking, vsAI, flipped, status, lastMove, moveHistory, playChessSound]
+  );
+
   const reset = () => {
     setBoard(initBoard());
     setTurn("w");
@@ -718,6 +822,7 @@ export default function ChessPage() {
     setUndoStack([]);
     setPendingPromotion(null);
     setHint(null);
+    setDragging(null);
     setWhiteTime(0);
     setBlackTime(0);
     turnStartRef.current = Date.now();
@@ -841,6 +946,35 @@ export default function ChessPage() {
     <div className="flex flex-col items-center justify-center h-full p-8 gap-5">
       {/* Confetti overlay — only shown on checkmate */}
       {showConfetti && <ConfettiOverlay key={confettiKey} />}
+
+      {/* Drag ghost piece — follows the cursor while dragging */}
+      {dragging && (() => {
+        const dragPiece = board[dragging.fromR][dragging.fromC];
+        if (!dragPiece) return null;
+        const SQUARE = 56;
+        return (
+          <div
+            className="pointer-events-none fixed z-[200] flex items-center justify-center"
+            style={{
+              left: dragging.clientX - SQUARE / 2,
+              top: dragging.clientY - SQUARE / 2,
+              width: SQUARE,
+              height: SQUARE,
+              transform: "scale(1.2)",
+            }}
+          >
+            <span
+              className={`text-4xl leading-none select-none drop-shadow-lg ${
+                dragPiece.color === "w"
+                  ? "text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.8),0_0_1px_rgba(0,0,0,1)]"
+                  : "text-gray-900 [text-shadow:0_1px_2px_rgba(255,255,255,0.3)]"
+              }`}
+            >
+              {UNICODE[dragPiece.color][dragPiece.type]}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Title + opening name grouped so gap-5 applies between this block and the controls */}
       <div className="flex flex-col items-center gap-1">
@@ -1054,7 +1188,7 @@ export default function ChessPage() {
               )}
             </div>
 
-            <div className="relative border border-border rounded overflow-hidden shadow-lg">
+            <div ref={boardInnerRef} className="relative border border-border rounded overflow-hidden shadow-lg">
               {/* ── Game-over overlay ──────────────────────────────────────── */}
               {isGameOver && (
                 <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px] flex items-center justify-center z-30">
@@ -1112,9 +1246,15 @@ export default function ChessPage() {
                     const interactive =
                       !isGameOver && !isThinking && (!vsAI || turn === "w");
 
+                    const isDragSource =
+                      dragging !== null &&
+                      dragging.fromR === r &&
+                      dragging.fromC === c;
+
                     return (
                       <div
                         key={c}
+                        onMouseDown={(e) => handlePieceMouseDown(r, c, e)}
                         onClick={() => handleClick(r, c)}
                         style={{ backgroundColor: bgColor }}
                         className={[
@@ -1130,8 +1270,8 @@ export default function ChessPage() {
                         {isCapture && (
                           <div className="absolute inset-0 ring-4 ring-inset ring-black/30 pointer-events-none z-10" />
                         )}
-                        {/* Piece */}
-                        {piece && (
+                        {/* Piece — hidden while being dragged (ghost follows cursor) */}
+                        {piece && !isDragSource && (
                           <span
                             className={`text-4xl leading-none z-20 ${
                               piece.color === "w"
@@ -1315,27 +1455,68 @@ export default function ChessPage() {
       </p>
 
       {/* Win / Loss / Draw statistics (vs AI only) */}
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-muted-foreground select-none">vs AI record:</span>
-        <span className="font-semibold tabular-nums text-green-600 dark:text-green-400">
-          {stats.wins}W
-        </span>
-        <span className="text-muted-foreground">·</span>
-        <span className="font-semibold tabular-nums text-red-500 dark:text-red-400">
-          {stats.losses}L
-        </span>
-        <span className="text-muted-foreground">·</span>
-        <span className="font-semibold tabular-nums text-muted-foreground">
-          {stats.draws}D
-        </span>
-        <button
-          onClick={() => setStats({ wins: 0, losses: 0, draws: 0 })}
-          title="Reset statistics"
-          className="ml-1 text-[10px] text-muted-foreground opacity-40 hover:opacity-80 transition-opacity"
-        >
-          reset
-        </button>
-      </div>
+      {(() => {
+        const total = stats.wins + stats.losses + stats.draws;
+        const winPct  = total > 0 ? Math.round((stats.wins  / total) * 100) : 0;
+        const lossPct = total > 0 ? Math.round((stats.losses / total) * 100) : 0;
+        const drawPct = total > 0 ? 100 - winPct - lossPct : 0;
+        return (
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground select-none">vs AI record:</span>
+              <span className="font-semibold tabular-nums text-green-600 dark:text-green-400">
+                {stats.wins}W
+              </span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-semibold tabular-nums text-red-500 dark:text-red-400">
+                {stats.losses}L
+              </span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-semibold tabular-nums text-muted-foreground">
+                {stats.draws}D
+              </span>
+              {total > 0 && (
+                <span className="text-muted-foreground/60 tabular-nums">
+                  ({winPct}% wins)
+                </span>
+              )}
+              <button
+                onClick={() => setStats({ wins: 0, losses: 0, draws: 0 })}
+                title="Reset statistics"
+                className="ml-1 text-[10px] text-muted-foreground opacity-40 hover:opacity-80 transition-opacity"
+              >
+                reset
+              </button>
+            </div>
+            {/* Visual win-rate bar — only shown after at least one game */}
+            {total > 0 && (
+              <div
+                className="flex h-1.5 w-48 overflow-hidden rounded-full bg-border"
+                title={`${stats.wins}W / ${stats.losses}L / ${stats.draws}D`}
+              >
+                {stats.wins > 0 && (
+                  <div
+                    className="bg-green-500 dark:bg-green-400 transition-all duration-500"
+                    style={{ width: `${winPct}%` }}
+                  />
+                )}
+                {stats.draws > 0 && (
+                  <div
+                    className="bg-muted-foreground/40 transition-all duration-500"
+                    style={{ width: `${drawPct}%` }}
+                  />
+                )}
+                {stats.losses > 0 && (
+                  <div
+                    className="bg-red-500 dark:bg-red-400 transition-all duration-500"
+                    style={{ width: `${lossPct}%` }}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Pawn Promotion Dialog */}
       {pendingPromotion && (
