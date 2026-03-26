@@ -14,6 +14,8 @@ import {
   Link,
   Check,
   Bookmark,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 
 // ─── WebGL Shaders ────────────────────────────────────────────────────────────
@@ -257,6 +259,10 @@ export default function FractalsPage() {
   // Drag state
   const dragRef = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
 
+  // Pinch-to-zoom state (tracks all active pointers and the last pinch distance)
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const lastPinchDistRef = useRef<number | null>(null);
+
   // Fly-to animation state (smooth preset transitions)
   const flyAnimRef = useRef<{
     fromCenter: { x: number; y: number };
@@ -280,6 +286,7 @@ export default function FractalsPage() {
   const [centerDisplay, setCenterDisplay] = useState({ x: centerRef.current.x, y: centerRef.current.y });
   const [hintVisible, setHintVisible] = useState(true);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Show hint for 6 s after the page loads, then fade it away.
   // Re-show it briefly whenever the user interacts so they can rediscover controls.
@@ -293,6 +300,15 @@ export default function FractalsPage() {
     resetHintTimer();
     return () => { if (hintTimerRef.current) clearTimeout(hintTimerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Fullscreen change listener ───────────────────────────────────────────────
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement !== null);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
   // ── Init WebGL ──────────────────────────────────────────────────────────────
@@ -572,6 +588,20 @@ export default function FractalsPage() {
           needsDrawRef.current = true;
           break;
         }
+        case "m":
+        case "M": {
+          e.preventDefault();
+          const modeKeys = FRACTAL_MODES.map((f) => f.key) as FractalKey[];
+          const currentIdx = modeKeys.indexOf(modeRef.current);
+          const nextMode = modeKeys[(currentIdx + 1) % modeKeys.length];
+          modeRef.current = nextMode;
+          setMode(nextMode);
+          if (nextMode === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: -0.5, y: 0 }); }
+          if (nextMode === "julia")      { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.45; setZoomLevel(0.45); setCenterDisplay({ x: 0.0, y: 0 }); }
+          if (nextMode === "burning")    { centerRef.current = { x: -0.4, y: 0.6 }; zoomRef.current = 0.4; setZoomLevel(0.4); setCenterDisplay({ x: -0.4, y: 0.6 }); }
+          needsDrawRef.current = true;
+          break;
+        }
       }
       // Any fractal-control key resets the hint fade timer
       resetHintTimer();
@@ -581,19 +611,62 @@ export default function FractalsPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [resetHintTimer]); // all refs and state setters are stable; resetHintTimer is also stable
 
-  // ── Pointer events (pan) ────────────────────────────────────────────────────
+  // ── Pointer events (pan + pinch-to-zoom) ────────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     // Cancel any in-progress fly animation so the user takes control immediately
     flyAnimRef.current = null;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = {
-      x: e.clientX, y: e.clientY,
-      cx: centerRef.current.x, cy: centerRef.current.y,
-    };
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointersRef.current.size === 1) {
+      // Single finger — start a pan
+      dragRef.current = { x: e.clientX, y: e.clientY, cx: centerRef.current.x, cy: centerRef.current.y };
+      lastPinchDistRef.current = null;
+    } else {
+      // Second finger arrived — cancel pan and initialise pinch-to-zoom
+      dragRef.current = null;
+      const pts = [...pointersRef.current.values()];
+      lastPinchDistRef.current = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    }
     resetHintTimer();
   }, [resetHintTimer]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointersRef.current.size >= 2) {
+      // ── Pinch-to-zoom ──────────────────────────────────────────────────────
+      const pts = [...pointersRef.current.values()];
+      const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      if (lastPinchDistRef.current !== null && lastPinchDistRef.current > 0) {
+        const factor = dist / lastPinchDistRef.current;
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const rect = canvas.getBoundingClientRect();
+          // Zoom centred on the midpoint between the two fingers
+          const midX = (pts[0].x + pts[1].x) / 2 - rect.left;
+          const midY = (pts[0].y + pts[1].y) / 2 - rect.top;
+          const W = rect.width, H = rect.height;
+          const minDim = Math.min(W, H);
+          // Fractal-space point currently under the pinch midpoint
+          const fractalX =  (midX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
+          const fractalY = -(midY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
+          const newZoom = Math.max(0.05, Math.min(1e8, zoomRef.current * factor));
+          // Shift center so the same fractal point stays under the pinch midpoint
+          centerRef.current = {
+            x: fractalX - (midX - W / 2) / (minDim * newZoom),
+            y: fractalY + (midY - H / 2) / (minDim * newZoom),
+          };
+          zoomRef.current = newZoom;
+          setZoomLevel(newZoom);
+          needsDrawRef.current = true;
+        }
+      }
+      lastPinchDistRef.current = dist;
+      return;
+    }
+
+    // ── Single-pointer pan (existing logic) ───────────────────────────────────
     if (!dragRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const scale  = 1 / (Math.min(canvas.offsetWidth, canvas.offsetHeight) * zoomRef.current);
@@ -603,9 +676,19 @@ export default function FractalsPage() {
     needsDrawRef.current = true;
   }, []);
 
-  const onPointerUp = useCallback(() => {
-    dragRef.current = null;
-    setCenterDisplay({ ...centerRef.current });
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size === 0) {
+      // All fingers lifted
+      dragRef.current = null;
+      lastPinchDistRef.current = null;
+      setCenterDisplay({ ...centerRef.current });
+    } else if (pointersRef.current.size === 1) {
+      // One finger lifted — transition back to single-pointer pan from the current position
+      lastPinchDistRef.current = null;
+      const [pt] = [...pointersRef.current.values()];
+      dragRef.current = { x: pt.x, y: pt.y, cx: centerRef.current.x, cy: centerRef.current.y };
+    }
   }, []);
 
   // ── Mouse coordinate tracking ────────────────────────────────────────────────
@@ -625,6 +708,15 @@ export default function FractalsPage() {
 
   const onMouseLeave = useCallback(() => {
     setMouseCoords(null);
+  }, []);
+
+  // ── Fullscreen toggle ────────────────────────────────────────────────────────
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {/* not available */});
+    } else {
+      document.exitFullscreen().catch(() => {/* not available */});
+    }
   }, []);
 
   // ── Double-click to zoom in (3×) centred on clicked fractal point ───────────
@@ -805,6 +897,7 @@ export default function FractalsPage() {
       <canvas
         ref={canvasRef}
         className="w-full h-full cursor-crosshair"
+        style={{ touchAction: "none" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -1036,9 +1129,9 @@ export default function FractalsPage() {
             opacity: hintVisible ? 1 : 0,
           }}
         >
-          drag to pan · scroll to zoom · double-click to zoom in
+          drag to pan · scroll to zoom · pinch to zoom · double-click to zoom in
           <br />
-          ← → ↑ ↓ pan · +/− zoom · space play · r reset · s share · d save
+          ← → ↑ ↓ pan · +/− zoom · space play · m mode · p palette · r reset · s share · d save
         </div>
       </div>
     </div>
