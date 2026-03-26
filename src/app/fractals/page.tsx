@@ -277,6 +277,7 @@ export default function FractalsPage() {
   const [mouseCoords, setMouseCoords] = useState<{ re: number; im: number } | null>(null);
   const [showPresets, setShowPresets] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(zoomRef.current);
+  const [centerDisplay, setCenterDisplay] = useState({ x: centerRef.current.x, y: centerRef.current.y });
   const [hintVisible, setHintVisible] = useState(true);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -330,7 +331,7 @@ export default function FractalsPage() {
       const mi  = parseInt(p.get("mi")   ?? "");
       const ja  = parseFloat(p.get("ja") ?? "");
 
-      if (!isNaN(cx) && !isNaN(cy)) centerRef.current = { x: cx, y: cy };
+      if (!isNaN(cx) && !isNaN(cy)) { centerRef.current = { x: cx, y: cy }; setCenterDisplay({ x: cx, y: cy }); }
       if (!isNaN(z) && z > 0) { zoomRef.current = z; setZoomLevel(z); }
       if (m && FRACTAL_MODES.some((fm) => fm.key === m)) {
         modeRef.current = m;
@@ -416,6 +417,7 @@ export default function FractalsPage() {
           y: anim.fromCenter.y + (anim.toCenter.y - anim.fromCenter.y) * ease,
         };
         setZoomLevel(zoomRef.current);
+        setCenterDisplay({ ...centerRef.current });
         needsDrawRef.current = true;
         if (progress >= 1) flyAnimRef.current = null;
       }
@@ -458,21 +460,25 @@ export default function FractalsPage() {
         case "ArrowLeft":
           e.preventDefault();
           centerRef.current = { ...centerRef.current, x: centerRef.current.x - panStep };
+          setCenterDisplay({ ...centerRef.current });
           needsDrawRef.current = true;
           break;
         case "ArrowRight":
           e.preventDefault();
           centerRef.current = { ...centerRef.current, x: centerRef.current.x + panStep };
+          setCenterDisplay({ ...centerRef.current });
           needsDrawRef.current = true;
           break;
         case "ArrowUp":
           e.preventDefault();
           centerRef.current = { ...centerRef.current, y: centerRef.current.y + panStep };
+          setCenterDisplay({ ...centerRef.current });
           needsDrawRef.current = true;
           break;
         case "ArrowDown":
           e.preventDefault();
           centerRef.current = { ...centerRef.current, y: centerRef.current.y - panStep };
+          setCenterDisplay({ ...centerRef.current });
           needsDrawRef.current = true;
           break;
         case "+":
@@ -514,6 +520,7 @@ export default function FractalsPage() {
             zoomRef.current = 0.4;
           }
           setZoomLevel(zoomRef.current);
+          setCenterDisplay({ ...centerRef.current });
           needsDrawRef.current = true;
           break;
         }
@@ -596,7 +603,10 @@ export default function FractalsPage() {
     needsDrawRef.current = true;
   }, []);
 
-  const onPointerUp = useCallback(() => { dragRef.current = null; }, []);
+  const onPointerUp = useCallback(() => {
+    dragRef.current = null;
+    setCenterDisplay({ ...centerRef.current });
+  }, []);
 
   // ── Mouse coordinate tracking ────────────────────────────────────────────────
   const onMouseMove = useCallback((e: React.MouseEvent) => {
@@ -636,6 +646,7 @@ export default function FractalsPage() {
     centerRef.current = { x: fractalX, y: fractalY };
     zoomRef.current = Math.min(1e8, zoomRef.current * 3);
     setZoomLevel(zoomRef.current);
+    setCenterDisplay({ x: fractalX, y: fractalY });
     needsDrawRef.current = true;
   }, []);
 
@@ -671,6 +682,7 @@ export default function FractalsPage() {
 
     zoomRef.current = newZoom;
     setZoomLevel(newZoom);
+    setCenterDisplay({ ...centerRef.current });
     needsDrawRef.current = true;
     resetHintTimer();
   }, [resetHintTimer]);
@@ -680,9 +692,9 @@ export default function FractalsPage() {
     modeRef.current = m;
     setMode(m);
     // Reset view to nice defaults per mode
-    if (m === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); }
-    if (m === "julia")      { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.45; setZoomLevel(0.45); }
-    if (m === "burning")    { centerRef.current = { x: -0.4, y: 0.6 }; zoomRef.current = 0.4; setZoomLevel(0.4); }
+    if (m === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: -0.5, y: 0 }); }
+    if (m === "julia")      { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.45; setZoomLevel(0.45); setCenterDisplay({ x: 0.0, y: 0 }); }
+    if (m === "burning")    { centerRef.current = { x: -0.4, y: 0.6 }; zoomRef.current = 0.4; setZoomLevel(0.4); setCenterDisplay({ x: -0.4, y: 0.6 }); }
     needsDrawRef.current = true;
   };
 
@@ -998,12 +1010,19 @@ export default function FractalsPage() {
         </div>
       </div>
 
-      {/* ── Mouse coordinate display ── */}
-      {mouseCoords && (
-        <div className="absolute top-3 left-4 text-white/60 text-xs font-mono bg-black/50 backdrop-blur px-3 py-1.5 rounded-lg pointer-events-none tabular-nums">
-          {mouseCoords.re.toFixed(6)}{mouseCoords.im >= 0 ? " + " : " − "}{Math.abs(mouseCoords.im).toFixed(6)}i
-        </div>
-      )}
+      {/* ── Coordinate display — shows mouse position while hovering, center otherwise ── */}
+      <div className="absolute top-3 left-4 text-white/60 text-xs font-mono bg-black/50 backdrop-blur px-3 py-1.5 rounded-lg pointer-events-none tabular-nums">
+        {mouseCoords ? (
+          <>
+            {mouseCoords.re.toFixed(6)}{mouseCoords.im >= 0 ? " + " : " − "}{Math.abs(mouseCoords.im).toFixed(6)}i
+          </>
+        ) : (
+          <span className="text-white/40">
+            <span className="text-white/25 mr-1">ctr</span>
+            {centerDisplay.x.toFixed(6)}{centerDisplay.y >= 0 ? " + " : " − "}{Math.abs(centerDisplay.y).toFixed(6)}i
+          </span>
+        )}
+      </div>
 
       {/* ── Zoom level + Hint ── */}
       <div className="absolute top-3 right-4 flex flex-col items-end gap-1.5 pointer-events-none">
