@@ -158,7 +158,19 @@ export default function ChessPage() {
     sr: number; sc: number; r: number; c: number; color: Color;
   } | null>(null);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
+  const statsCountedRef = useRef(false);
   const [pgnCopied, setPgnCopied] = useState(false);
+
+  // ── Win/Loss/Draw statistics (persisted in localStorage) ─────────────────
+  const [stats, setStats] = useState<{ wins: number; losses: number; draws: number }>(() => {
+    if (typeof window === "undefined") return { wins: 0, losses: 0, draws: 0 };
+    try {
+      const saved = localStorage.getItem("chess-stats");
+      return saved ? JSON.parse(saved) : { wins: 0, losses: 0, draws: 0 };
+    } catch {
+      return { wins: 0, losses: 0, draws: 0 };
+    }
+  });
   const [hint, setHint] = useState<[[number, number], [number, number]] | null>(null);
   const [isHinting, setIsHinting] = useState(false);
   const [boardTheme, setBoardTheme] = useState<BoardThemeName>("Classic");
@@ -233,6 +245,26 @@ export default function ChessPage() {
       // AudioContext not supported or blocked by browser policy
     }
   }, []); // stable — reads soundEnabledRef at call time
+
+  // Persist stats to localStorage whenever they change
+  useEffect(() => {
+    try { localStorage.setItem("chess-stats", JSON.stringify(stats)); } catch { /* ignore */ }
+  }, [stats]);
+
+  // Record a result once per game (vs AI only)
+  useEffect(() => {
+    if (!vsAI || statsCountedRef.current) return;
+    if (status.includes("White wins")) {
+      statsCountedRef.current = true;
+      setStats((s) => ({ ...s, wins: s.wins + 1 }));
+    } else if (status.includes("Black wins")) {
+      statsCountedRef.current = true;
+      setStats((s) => ({ ...s, losses: s.losses + 1 }));
+    } else if (status.includes("Stalemate")) {
+      statsCountedRef.current = true;
+      setStats((s) => ({ ...s, draws: s.draws + 1 }));
+    }
+  }, [status, vsAI]);
 
   // ── Game clocks ───────────────────────────────────────────────────────────
   const [whiteTime, setWhiteTime] = useState(0); // ms elapsed
@@ -469,6 +501,7 @@ export default function ChessPage() {
     setWhiteTime(0);
     setBlackTime(0);
     turnStartRef.current = Date.now();
+    statsCountedRef.current = false;
   };
 
   // Called when the player selects a promotion piece from the dialog
@@ -758,7 +791,30 @@ export default function ChessPage() {
               )}
             </div>
 
-            <div className="border border-border rounded overflow-hidden shadow-lg">
+            <div className="relative border border-border rounded overflow-hidden shadow-lg">
+              {/* ── Game-over overlay ──────────────────────────────────────── */}
+              {isGameOver && (
+                <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px] flex items-center justify-center z-30">
+                  <div className="bg-background/95 border border-border rounded-2xl shadow-2xl px-8 py-6 flex flex-col items-center gap-3 mx-4">
+                    <span className="text-4xl select-none" aria-hidden="true">
+                      {status.includes("White wins")
+                        ? "♔"
+                        : status.includes("Black wins")
+                        ? "♚"
+                        : "🤝"}
+                    </span>
+                    <p className="text-base font-semibold text-foreground text-center leading-snug">
+                      {status}
+                    </p>
+                    <button
+                      onClick={reset}
+                      className="mt-1 px-6 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 active:scale-95 transition-all"
+                    >
+                      Play Again
+                    </button>
+                  </div>
+                </div>
+              )}
               {Array.from({ length: 8 }, (_, vr) => flipped ? 7 - vr : vr).map((r) => (
                 <div key={r} className="flex">
                   {Array.from({ length: 8 }, (_, vc) => flipped ? 7 - vc : vc).map((c) => {
@@ -970,6 +1026,29 @@ export default function ChessPage() {
           ? `You play White · Engine plays Black (depth ${DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3})`
           : "Two-player mode · White vs Black (same device)"}
       </p>
+
+      {/* Win / Loss / Draw statistics (vs AI only) */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground select-none">vs AI record:</span>
+        <span className="font-semibold tabular-nums text-green-600 dark:text-green-400">
+          {stats.wins}W
+        </span>
+        <span className="text-muted-foreground">·</span>
+        <span className="font-semibold tabular-nums text-red-500 dark:text-red-400">
+          {stats.losses}L
+        </span>
+        <span className="text-muted-foreground">·</span>
+        <span className="font-semibold tabular-nums text-muted-foreground">
+          {stats.draws}D
+        </span>
+        <button
+          onClick={() => setStats({ wins: 0, losses: 0, draws: 0 })}
+          title="Reset statistics"
+          className="ml-1 text-[10px] text-muted-foreground opacity-40 hover:opacity-80 transition-opacity"
+        >
+          reset
+        </button>
+      </div>
 
       {/* Pawn Promotion Dialog */}
       {pendingPromotion && (
