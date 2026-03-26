@@ -191,6 +191,28 @@ export default function MinecraftScene() {
     const W = mount.clientWidth || window.innerWidth;
     const H = mount.clientHeight || window.innerHeight;
 
+    // ── Drag-to-rotate state ──
+    let rotY = 0;
+    let isDragging = false;
+    let lastPointerX = 0;
+
+    const onPointerDown = (e: PointerEvent) => {
+      isDragging = true;
+      lastPointerX = e.clientX;
+      renderer.domElement.style.cursor = 'grabbing';
+      renderer.domElement.setPointerCapture(e.pointerId);
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!isDragging) return;
+      const dx = e.clientX - lastPointerX;
+      lastPointerX = e.clientX;
+      rotY += dx * 0.008;
+    };
+    const onPointerUp = () => {
+      isDragging = false;
+      renderer.domElement.style.cursor = 'grab';
+    };
+
     // ── Scene ──
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(P.BG);
@@ -205,7 +227,13 @@ export default function MinecraftScene() {
     renderer.setSize(W, H);
     renderer.setPixelRatio(1);
     renderer.domElement.style.imageRendering = 'pixelated';
+    renderer.domElement.style.cursor = 'grab';
     mount.appendChild(renderer.domElement);
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('pointercancel', onPointerUp);
 
     // ── Lights ──
     scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -295,8 +323,11 @@ export default function MinecraftScene() {
       rafId = requestAnimationFrame(animate);
       t += 0.012;
 
-      // Spin the whole world
-      mainGroup.rotation.y = t * 0.55;
+      // Spin the whole world (auto-rotate when not dragging; add user drag delta always)
+      if (!isDragging) {
+        rotY += 0.012 * 0.55;
+      }
+      mainGroup.rotation.y = rotY;
       mainGroup.rotation.x = Math.sin(t * 0.18) * 0.07;
 
       // Pigs orbit + bob + flap
@@ -348,6 +379,10 @@ export default function MinecraftScene() {
     return () => {
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', onResize);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointermove', onPointerMove);
+      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener('pointercancel', onPointerUp);
       renderer.dispose();
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);

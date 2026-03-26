@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { useEffect, useState } from 'react';
 
 const MinecraftScene = dynamic(
   () => import('@/components/minecraft-scene'),
@@ -8,6 +9,13 @@ const MinecraftScene = dynamic(
 );
 
 export default function MinecraftPage() {
+  const [hintVisible, setHintVisible] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setHintVisible(false), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black">
       {/* Minecraft-style pixel title overlay */}
@@ -32,6 +40,26 @@ export default function MinecraftPage() {
           }}
         >
           WHEN PIGS FLY
+        </p>
+      </div>
+
+      {/* Drag-to-rotate hint */}
+      <div
+        className="absolute bottom-8 left-0 right-0 z-10 pointer-events-none flex justify-center"
+        style={{
+          transition: 'opacity 1s ease',
+          opacity: hintVisible ? 1 : 0,
+        }}
+      >
+        <p
+          className="text-white/60 text-xs tracking-widest select-none"
+          style={{
+            fontFamily: 'monospace',
+            textShadow: '2px 2px 0 #000',
+            letterSpacing: '0.15em',
+          }}
+        >
+          ← DRAG TO ROTATE →
         </p>
       </div>
 
