@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Trash2, MessageSquare } from "lucide-react";
+import { Trash2, MessageSquare, Pencil } from "lucide-react";
 import type { SessionInfo, ChatMessage } from "@/lib/types";
 import type { AgentStatus } from "@/lib/agent";
 
@@ -89,6 +89,10 @@ export function SessionsSidebar({
   const [isOpen, setIsOpen] = useState(true);
   // Track which session is "armed" for deletion (first click arms, second click deletes)
   const [armedForDelete, setArmedForDelete] = useState<string | null>(null);
+  // Inline rename state
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const sessionIdsRef = useRef<string[]>([]);
   // Keyboard-navigation: index into the filtered sessions list (null = no kbd focus)
   const [kbdFocusIndex, setKbdFocusIndex] = useState<number | null>(null);
@@ -234,6 +238,55 @@ export function SessionsSidebar({
     },
     [armedForDelete]
   );
+
+  // Focus the rename input whenever we enter rename mode.
+  useEffect(() => {
+    if (renamingSessionId !== null) {
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select();
+      });
+    }
+  }, [renamingSessionId]);
+
+  const startRename = useCallback(
+    (sessionId: string, currentLabel: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setArmedForDelete(null);
+      setRenamingSessionId(sessionId);
+      setRenameValue(currentLabel);
+    },
+    []
+  );
+
+  const commitRename = useCallback(async () => {
+    if (!renamingSessionId) return;
+    const trimmed = renameValue.trim();
+    setRenamingSessionId(null);
+    if (!trimmed) return;
+
+    // Optimistically update local state
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.sessionId === renamingSessionId ? { ...s, summary: trimmed } : s
+      )
+    );
+
+    try {
+      await fetch(`/api/sessions/${renamingSessionId}/rename`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+    } catch {
+      // Silently ignore network errors; optimistic update stays
+    }
+  }, [renamingSessionId, renameValue]);
+
+  const cancelRename = useCallback(() => {
+    setRenamingSessionId(null);
+    setRenameValue("");
+  }, []);
 
   // Derived: sessions filtered by the current search query.
   const filteredSessions = useMemo(
@@ -414,6 +467,7 @@ export function SessionsSidebar({
             const label = s.summary || s.sessionId.slice(0, 8);
             const isActive = activeSessionId === s.sessionId;
             const isKbdFocused = kbdFocusIndex === idx;
+            const isRenaming = renamingSessionId === s.sessionId;
             return (
               <div
                 key={s.sessionId}
@@ -428,30 +482,65 @@ export function SessionsSidebar({
                 ].join(" ")}
               >
                 <button
-                  onClick={() => loadSession(s.sessionId)}
+                  onClick={() => !isRenaming && loadSession(s.sessionId)}
+                  onDoubleClick={(e) => startRename(s.sessionId, label, e)}
+                  title={isRenaming ? undefined : "Double-click to rename"}
                   className="flex-1 min-w-0 text-left px-4 py-2.5 flex items-center gap-2"
                 >
                   <StatusDot status={statuses[s.sessionId] ?? "unloaded"} />
-                  <span className="flex flex-col min-w-0">
-                    <span className="truncate text-sm leading-snug">
-                      <HighlightedText text={label} query={searchQuery} />
-                    </span>
+                  <span className="flex flex-col min-w-0 flex-1">
+                    {isRenaming ? (
+                      <input
+                        ref={renameInputRef}
+                        type="text"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitRename();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            cancelRename();
+                          }
+                          e.stopPropagation();
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-700 px-1.5 py-0.5 text-sm text-neutral-800 dark:text-neutral-100 outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-500"
+                      />
+                    ) : (
+                      <span className="truncate text-sm leading-snug">
+                        <HighlightedText text={label} query={searchQuery} />
+                      </span>
+                    )}
                     <span className="text-xs leading-snug text-neutral-400 dark:text-neutral-500 tabular-nums">
                       {formatRelativeTime(s.lastModified, now)}
                     </span>
                   </span>
                 </button>
-                <button
-                  onClick={(e) => deleteSession(s.sessionId, e)}
-                  title={armedForDelete === s.sessionId ? "Click again to confirm delete" : "Delete session"}
-                  className={`mr-2 flex-shrink-0 rounded p-1 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 ${
-                    armedForDelete === s.sessionId
-                      ? "opacity-100 text-red-500 dark:text-red-400 bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50"
-                      : "text-neutral-400 dark:text-neutral-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-neutral-200 dark:hover:bg-neutral-700"
-                  }`}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                {!isRenaming && (
+                  <>
+                    <button
+                      onClick={(e) => startRename(s.sessionId, label, e)}
+                      title="Rename session"
+                      className="mr-1 flex-shrink-0 rounded p-1 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => deleteSession(s.sessionId, e)}
+                      title={armedForDelete === s.sessionId ? "Click again to confirm delete" : "Delete session"}
+                      className={`mr-2 flex-shrink-0 rounded p-1 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 ${
+                        armedForDelete === s.sessionId
+                          ? "opacity-100 text-red-500 dark:text-red-400 bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50"
+                          : "text-neutral-400 dark:text-neutral-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                      }`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             );
           })}
