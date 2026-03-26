@@ -122,13 +122,14 @@ export function applyMove(
   fr: number,
   fc: number,
   tr: number,
-  tc: number
+  tc: number,
+  promoteTo: PieceType = "Q"
 ): Board {
   const next = board.map((row) => [...row]);
   next[tr][tc] = next[fr][fc];
   next[fr][fc] = null;
   if (next[tr][tc]?.type === "P" && (tr === 0 || tr === 7))
-    next[tr][tc] = { type: "Q", color: next[tr][tc]!.color };
+    next[tr][tc] = { type: promoteTo, color: next[tr][tc]!.color };
   return next;
 }
 
@@ -269,7 +270,7 @@ function pst(type: PieceType, color: Color, r: number, c: number): number {
   return PST[type][row][c];
 }
 
-function evaluate(board: Board): number {
+export function evaluate(board: Board): number {
   let score = 0;
   for (let r = 0; r < 8; r++)
     for (let c = 0; c < 8; c++) {

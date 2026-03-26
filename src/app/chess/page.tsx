@@ -41,7 +41,8 @@ function toSAN(
   tr: number,
   tc: number,
   nextBoard: Board,
-  justMoved: Color
+  justMoved: Color,
+  promoteTo?: PieceType
 ): string {
   const piece = board[fr][fc]!;
   const isCapture = board[tr][tc] !== null;
@@ -50,6 +51,8 @@ function toSAN(
   let san: string;
   if (piece.type === "P") {
     san = isCapture ? `${FILES[fc]}x${dest}` : dest;
+    // Always annotate the promotion piece
+    if (tr === 0 || tr === 7) san += `=${promoteTo ?? "Q"}`;
   } else {
     san = piece.type + (isCapture ? "x" : "") + dest;
   }
@@ -131,6 +134,9 @@ export default function ChessPage() {
   const [difficulty, setDifficulty] = useState<DifficultyLabel>("Hard");
   const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
   const [flipped, setFlipped] = useState(false);
+  const [pendingPromotion, setPendingPromotion] = useState<{
+    sr: number; sc: number; r: number; c: number;
+  } | null>(null);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
 
   const isGameOver =
@@ -234,6 +240,16 @@ export default function ChessPage() {
         const isLegal = legalMoves.some(([lr, lc]) => lr === r && lc === c);
 
         if (isLegal) {
+          // Check if this move is a pawn promotion (white pawn reaching row 0)
+          const movingPiece = board[sr][sc];
+          if (movingPiece?.type === "P" && movingPiece.color === "w" && r === 0) {
+            // Pause and ask the player which piece to promote to
+            setSelected(null);
+            setLegalMoves([]);
+            setPendingPromotion({ sr, sc, r, c });
+            return;
+          }
+
           // Save snapshot before committing the move so it can be undone
           setUndoStack((stack) => [
             ...stack,
@@ -280,7 +296,27 @@ export default function ChessPage() {
     setLastMove(null);
     setMoveHistory([]);
     setUndoStack([]);
+    setPendingPromotion(null);
   };
+
+  // Called when the player selects a promotion piece from the dialog
+  const confirmPromotion = useCallback((promoteTo: PieceType) => {
+    if (!pendingPromotion) return;
+    const { sr, sc, r, c } = pendingPromotion;
+    setPendingPromotion(null);
+    // Save snapshot for undo
+    setUndoStack((stack) => [
+      ...stack,
+      { board, status, lastMove, moveHistory },
+    ]);
+    const next = applyMove(board, sr, sc, r, c, promoteTo);
+    const san = toSAN(board, sr, sc, r, c, next, "w", promoteTo);
+    setBoard(next);
+    setTurn("b");
+    setStatus(getStatus(next, "w"));
+    setLastMove([[sr, sc], [r, c]]);
+    setMoveHistory((h) => [...h, san]);
+  }, [pendingPromotion, board, status, lastMove, moveHistory]);
 
   // Group half-moves into pairs: [[white, black?], ...]
   const movePairs: [string, string | undefined][] = [];
@@ -390,6 +426,36 @@ export default function ChessPage() {
       <div className="flex gap-4 items-start">
         {/* Rank labels + board + file labels */}
         <div className="flex gap-2 items-start">
+          {/* Evaluation bar — aligned with the board (same top spacer as rank labels) */}
+          <div className="flex flex-col items-center">
+            <div className="h-7 mb-1" aria-hidden="true" />
+            <div
+              className="w-3 rounded overflow-hidden border border-border shadow-sm"
+              style={{ height: "448px" }}
+              title={`Evaluation: ${evalDisplay}`}
+            >
+              {/* Black section (top) */}
+              <div
+                className="w-full bg-neutral-700 dark:bg-neutral-800"
+                style={{
+                  height: `${100 - evalPct}%`,
+                  transition: "height 600ms cubic-bezier(0.4,0,0.2,1)",
+                }}
+              />
+              {/* White section (bottom) */}
+              <div
+                className="w-full bg-white"
+                style={{
+                  height: `${evalPct}%`,
+                  transition: "height 600ms cubic-bezier(0.4,0,0.2,1)",
+                }}
+              />
+            </div>
+            <div className="text-[9px] font-mono text-muted-foreground mt-1 tabular-nums leading-none">
+              {evalDisplay}
+            </div>
+          </div>
+
           {/* Rank labels — spacer at top aligns them with the board squares */}
           <div className="flex flex-col">
             <div className="h-7 mb-1" aria-hidden="true" />
@@ -557,6 +623,35 @@ export default function ChessPage() {
       <p className="text-xs text-muted-foreground">
         You play White · Engine plays Black (depth {DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3})
       </p>
+
+      {/* Pawn Promotion Dialog */}
+      {pendingPromotion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-xl shadow-2xl p-6 flex flex-col items-center gap-4">
+            <h2 className="text-base font-semibold text-foreground tracking-tight">
+              Promote Pawn
+            </h2>
+            <p className="text-xs text-muted-foreground -mt-1">Choose a piece</p>
+            <div className="flex gap-3">
+              {(["Q", "R", "B", "N"] as PieceType[]).map((type) => (
+                <button
+                  key={type}
+                  onClick={() => confirmPromotion(type)}
+                  title={{ Q: "Queen", R: "Rook", B: "Bishop", N: "Knight" }[type]}
+                  className="w-16 h-16 flex flex-col items-center justify-center gap-1 rounded-lg border border-border bg-secondary hover:bg-accent hover:border-primary transition-colors shadow-sm group"
+                >
+                  <span className="text-4xl leading-none text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.8),0_0_1px_rgba(0,0,0,1)] group-hover:scale-110 transition-transform">
+                    {UNICODE.w[type]}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    {{ Q: "Queen", R: "Rook", B: "Bishop", N: "Knight" }[type]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
