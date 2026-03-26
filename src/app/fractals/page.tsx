@@ -158,6 +158,7 @@ export default function FractalsPage() {
   const [maxIter, setMaxIter]   = useState(200);
   const [juliaAngle, setJuliaAngle] = useState(0);
   const [copied, setCopied]     = useState(false);
+  const [mouseCoords, setMouseCoords] = useState<{ re: number; im: number } | null>(null);
 
   // ── Init WebGL ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -408,6 +409,25 @@ export default function FractalsPage() {
 
   const onPointerUp = useCallback(() => { dragRef.current = null; }, []);
 
+  // ── Mouse coordinate tracking ────────────────────────────────────────────────
+  const onMouseMove = useCallback((e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const W = rect.width;
+    const H = rect.height;
+    const minDim = Math.min(W, H);
+    const re = (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
+    const im = -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
+    setMouseCoords({ re, im });
+  }, []);
+
+  const onMouseLeave = useCallback(() => {
+    setMouseCoords(null);
+  }, []);
+
   // ── Wheel (zoom to cursor) ───────────────────────────────────────────────────
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -535,6 +555,8 @@ export default function FractalsPage() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onWheel={onWheel}
+        onMouseMove={onMouseMove}
+        onMouseLeave={onMouseLeave}
       />
 
       {/* ── Controls overlay ── */}
@@ -683,6 +705,13 @@ export default function FractalsPage() {
           <span className="text-white/60 text-xs w-8 text-right">{maxIter}</span>
         </div>
       </div>
+
+      {/* ── Mouse coordinate display ── */}
+      {mouseCoords && (
+        <div className="absolute top-3 left-4 text-white/60 text-xs font-mono bg-black/50 backdrop-blur px-3 py-1.5 rounded-lg pointer-events-none tabular-nums">
+          {mouseCoords.re.toFixed(6)}{mouseCoords.im >= 0 ? " + " : " − "}{Math.abs(mouseCoords.im).toFixed(6)}i
+        </div>
+      )}
 
       {/* ── Hint ── */}
       <div className="absolute top-3 right-4 text-white/30 text-xs text-right pointer-events-none leading-relaxed">
