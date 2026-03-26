@@ -11,6 +11,8 @@ import {
   RotateCcw,
   Infinity,
   Camera,
+  Link,
+  Check,
 } from "lucide-react";
 
 // ─── WebGL Shaders ────────────────────────────────────────────────────────────
@@ -155,6 +157,7 @@ export default function FractalsPage() {
   const [playing, setPlaying]   = useState(false);
   const [maxIter, setMaxIter]   = useState(200);
   const [juliaAngle, setJuliaAngle] = useState(0);
+  const [copied, setCopied]     = useState(false);
 
   // ── Init WebGL ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -177,6 +180,44 @@ export default function FractalsPage() {
 
     needsDrawRef.current = true;
   }, []);
+
+  // ── Restore view from URL hash ───────────────────────────────────────────────
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+    try {
+      const p = new URLSearchParams(hash);
+      const cx  = parseFloat(p.get("cx") ?? "");
+      const cy  = parseFloat(p.get("cy") ?? "");
+      const z   = parseFloat(p.get("z")  ?? "");
+      const m   = p.get("m") as FractalKey | null;
+      const pal = parseInt(p.get("p")    ?? "");
+      const mi  = parseInt(p.get("mi")   ?? "");
+      const ja  = parseFloat(p.get("ja") ?? "");
+
+      if (!isNaN(cx) && !isNaN(cy)) centerRef.current = { x: cx, y: cy };
+      if (!isNaN(z) && z > 0) zoomRef.current = z;
+      if (m && FRACTAL_MODES.some((fm) => fm.key === m)) {
+        modeRef.current = m;
+        setMode(m);
+      }
+      if (!isNaN(pal) && pal >= 0 && pal < PALETTES.length) {
+        palRef.current = pal;
+        setPalette(pal);
+      }
+      if (!isNaN(mi) && mi >= 50 && mi <= 1000) {
+        maxIterRef.current = mi;
+        setMaxIter(mi);
+      }
+      if (!isNaN(ja)) {
+        juliaAngleRef.current = ja;
+        setJuliaAngle(ja);
+      }
+      needsDrawRef.current = true;
+    } catch {
+      // malformed hash — just ignore it
+    }
+  }, []); // runs once on mount
 
   // ── Draw ────────────────────────────────────────────────────────────────────
   const draw = useCallback(() => {
@@ -316,6 +357,29 @@ export default function FractalsPage() {
           needsDrawRef.current = true;
           break;
         }
+        case "s":
+        case "S": {
+          // Don't intercept Ctrl/Cmd+S (browser save dialog)
+          if (e.ctrlKey || e.metaKey) break;
+          e.preventDefault();
+          const shareParams = new URLSearchParams({
+            cx: centerRef.current.x.toString(),
+            cy: centerRef.current.y.toString(),
+            z:  zoomRef.current.toString(),
+            m:  modeRef.current,
+            p:  palRef.current.toString(),
+            mi: maxIterRef.current.toString(),
+            ja: juliaAngleRef.current.toString(),
+          });
+          const shareHash = shareParams.toString();
+          window.history.replaceState(null, "", `#${shareHash}`);
+          const shareUrl = `${window.location.origin}${window.location.pathname}#${shareHash}`;
+          navigator.clipboard.writeText(shareUrl).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }).catch(() => {/* clipboard unavailable */});
+          break;
+        }
       }
     };
 
@@ -424,6 +488,25 @@ export default function FractalsPage() {
     setMaxIter(v);
     needsDrawRef.current = true;
   };
+
+  const shareView = useCallback(() => {
+    const params = new URLSearchParams({
+      cx: centerRef.current.x.toString(),
+      cy: centerRef.current.y.toString(),
+      z:  zoomRef.current.toString(),
+      m:  modeRef.current,
+      p:  palRef.current.toString(),
+      mi: maxIterRef.current.toString(),
+      ja: juliaAngleRef.current.toString(),
+    });
+    const hash = params.toString();
+    window.history.replaceState(null, "", `#${hash}`);
+    const url = `${window.location.origin}${window.location.pathname}#${hash}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {/* clipboard not available */});
+  }, []);
 
   const saveImage = useCallback(() => {
     const canvas = canvasRef.current;
@@ -557,6 +640,30 @@ export default function FractalsPage() {
             className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-xl text-white/60 hover:text-white transition-colors"
           >
             <Camera size={14} />
+          </button>
+
+          {/* Share / copy link */}
+          <button
+            onClick={shareView}
+            title="Copy shareable link to this view"
+            className={[
+              "flex items-center gap-1.5 px-2.5 py-2 backdrop-blur border rounded-xl text-xs font-medium transition-all duration-200",
+              copied
+                ? "bg-green-500/30 border-green-400/40 text-green-300"
+                : "bg-black/50 border-white/10 text-white/60 hover:text-white",
+            ].join(" ")}
+          >
+            {copied ? (
+              <>
+                <Check size={13} />
+                <span>Copied!</span>
+              </>
+            ) : (
+              <>
+                <Link size={13} />
+                <span>Share</span>
+              </>
+            )}
           </button>
         </div>
 

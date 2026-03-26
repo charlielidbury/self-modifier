@@ -45,6 +45,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["-"], description: "Zoom out" },
       { keys: ["Space"], description: "Play / pause animation" },
       { keys: ["R"], description: "Reset view" },
+      { keys: ["S"], description: "Copy shareable link" },
     ],
   },
   {
