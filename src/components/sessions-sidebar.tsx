@@ -1,9 +1,27 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Trash2 } from "lucide-react";
 import type { SessionInfo, ChatMessage } from "@/lib/types";
 import type { AgentStatus } from "@/lib/agent";
+
+/** Renders `text` with any occurrence of `query` wrapped in a highlight span. */
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const idx = lowerText.indexOf(lowerQuery);
+  if (idx === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-yellow-200 dark:bg-yellow-700/60 text-inherit rounded-[2px] px-0">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
 
 /** Convert a Unix-ms timestamp into a human-readable relative string. */
 function formatRelativeTime(timestamp: number, now: number): string {
@@ -19,7 +37,6 @@ function formatRelativeTime(timestamp: number, now: number): string {
   if (diffDay === 1) return "Yesterday";
   if (diffDay < 7) return `${diffDay}d ago`;
 
-  // Older: show short date (e.g. "Mar 15")
   return new Date(timestamp).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -72,6 +89,11 @@ export function SessionsSidebar({
   // Track which session is "armed" for deletion (first click arms, second click deletes)
   const [armedForDelete, setArmedForDelete] = useState<string | null>(null);
   const sessionIdsRef = useRef<string[]>([]);
+  // Keyboard-navigation: index into the filtered sessions list (null = no kbd focus)
+  const [kbdFocusIndex, setKbdFocusIndex] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Current time, refreshed every minute so relative timestamps stay accurate.
   const [now, setNow] = useState(() => Date.now());
@@ -128,6 +150,29 @@ export function SessionsSidebar({
   useEffect(() => {
     sessionIdsRef.current = sessions.map((s) => s.sessionId);
   }, [sessions]);
+
+  // Derived: sessions filtered by the current search query.
+  const filteredSessions = useMemo(
+    () =>
+      sessions.filter((s) => {
+        if (!searchQuery) return true;
+        const q = searchQuery.toLowerCase();
+        const label = (s.summary || s.sessionId.slice(0, 8)).toLowerCase();
+        return label.includes(q);
+      }),
+    [sessions, searchQuery]
+  );
+
+  // Reset keyboard focus whenever the search query changes.
+  useEffect(() => {
+    setKbdFocusIndex(null);
+  }, [searchQuery]);
+
+  // Scroll the keyboard-focused item into view whenever the index changes.
+  useEffect(() => {
+    if (kbdFocusIndex === null) return;
+    itemRefs.current[kbdFocusIndex]?.scrollIntoView({ block: "nearest" });
+  }, [kbdFocusIndex]);
 
   const loadSession = useCallback(
     async (sessionId: string) => {
@@ -196,6 +241,48 @@ export function SessionsSidebar({
     [armedForDelete]
   );
 
+  /** ArrowDown in the search input moves keyboard focus to the first session. */
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "ArrowDown" && filteredSessions.length > 0) {
+        e.preventDefault();
+        setKbdFocusIndex(0);
+        listRef.current?.focus();
+      }
+    },
+    [filteredSessions.length]
+  );
+
+  /** Keyboard navigation within the session list container. */
+  const handleListKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (filteredSessions.length === 0) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setKbdFocusIndex((prev) =>
+          prev === null ? 0 : Math.min(prev + 1, filteredSessions.length - 1)
+        );
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (kbdFocusIndex === 0 || kbdFocusIndex === null) {
+          // Wrap back up to the search input
+          setKbdFocusIndex(null);
+          searchInputRef.current?.focus();
+        } else {
+          setKbdFocusIndex(kbdFocusIndex - 1);
+        }
+      } else if (e.key === "Enter" && kbdFocusIndex !== null) {
+        e.preventDefault();
+        loadSession(filteredSessions[kbdFocusIndex].sessionId);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setKbdFocusIndex(null);
+        searchInputRef.current?.focus();
+      }
+    },
+    [filteredSessions, kbdFocusIndex, loadSession]
+  );
+
   return (
     <div
       className={`relative flex flex-col border-r border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 flex-shrink-0 transition-all duration-300 ${
@@ -235,13 +322,15 @@ export function SessionsSidebar({
           + New Agent
         </button>
 
-        {/* Search / filter */}
+        {/* Search / filter — press ↓ to move focus into the list */}
         <div className="px-3 pb-2 relative">
           <input
+            ref={searchInputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter sessions…"
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Filter sessions… ↓ to navigate"
             className="w-full rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-2.5 py-1.5 pr-7 text-xs text-neutral-700 dark:text-neutral-200 placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-500 transition-colors"
           />
           {searchQuery && (
@@ -276,22 +365,36 @@ export function SessionsSidebar({
           </span>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {sessions
-            .filter((s) => {
-              if (!searchQuery) return true;
-              const q = searchQuery.toLowerCase();
-              const label = (s.summary || s.sessionId.slice(0, 8)).toLowerCase();
-              return label.includes(q);
-            })
-            .map((s) => (
+        {/* Session list — receives focus so arrow-key navigation works */}
+        <div
+          ref={listRef}
+          className="flex-1 overflow-y-auto focus:outline-none"
+          tabIndex={-1}
+          onKeyDown={handleListKeyDown}
+          onBlur={(e) => {
+            // Only clear focus if focus is leaving the list entirely
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setKbdFocusIndex(null);
+            }
+          }}
+          aria-label="Session list"
+        >
+          {filteredSessions.map((s, idx) => {
+            const label = s.summary || s.sessionId.slice(0, 8);
+            const isActive = activeSessionId === s.sessionId;
+            const isKbdFocused = kbdFocusIndex === idx;
+            return (
               <div
                 key={s.sessionId}
-                className={`group relative flex items-center text-sm transition-colors ${
-                  activeSessionId === s.sessionId
+                ref={(el) => { itemRefs.current[idx] = el; }}
+                className={[
+                  "group relative flex items-center text-sm transition-colors",
+                  isActive
                     ? "bg-neutral-200 dark:bg-neutral-700"
-                    : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                }`}
+                    : isKbdFocused
+                    ? "bg-neutral-100 dark:bg-neutral-800 ring-1 ring-inset ring-neutral-300 dark:ring-neutral-600"
+                    : "hover:bg-neutral-100 dark:hover:bg-neutral-800",
+                ].join(" ")}
               >
                 <button
                   onClick={() => loadSession(s.sessionId)}
@@ -300,7 +403,7 @@ export function SessionsSidebar({
                   <StatusDot status={statuses[s.sessionId] ?? "unloaded"} />
                   <span className="flex flex-col min-w-0">
                     <span className="truncate text-sm leading-snug">
-                      {s.summary || s.sessionId.slice(0, 8)}
+                      <HighlightedText text={label} query={searchQuery} />
                     </span>
                     <span className="text-xs leading-snug text-neutral-400 dark:text-neutral-500 tabular-nums">
                       {formatRelativeTime(s.lastModified, now)}
@@ -319,17 +422,13 @@ export function SessionsSidebar({
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
-            ))}
-          {searchQuery &&
-            sessions.filter((s) => {
-              const q = searchQuery.toLowerCase();
-              const label = (s.summary || s.sessionId.slice(0, 8)).toLowerCase();
-              return label.includes(q);
-            }).length === 0 && (
-              <p className="px-4 py-3 text-xs text-neutral-400 dark:text-neutral-500 italic">
-                No sessions match &ldquo;{searchQuery}&rdquo;
-              </p>
-            )}
+            );
+          })}
+          {searchQuery && filteredSessions.length === 0 && (
+            <p className="px-4 py-3 text-xs text-neutral-400 dark:text-neutral-500 italic">
+              No sessions match &ldquo;{searchQuery}&rdquo;
+            </p>
+          )}
         </div>
       </div>
     </div>
