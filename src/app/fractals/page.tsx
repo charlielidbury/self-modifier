@@ -243,6 +243,85 @@ export default function FractalsPage() {
     return () => ro.disconnect();
   }, []);
 
+  // ── Keyboard shortcuts ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't fire if typing in a form element
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      )
+        return;
+
+      const panStep = 0.15 / zoomRef.current;
+
+      switch (e.key) {
+        case "ArrowLeft":
+          e.preventDefault();
+          centerRef.current = { ...centerRef.current, x: centerRef.current.x - panStep };
+          needsDrawRef.current = true;
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          centerRef.current = { ...centerRef.current, x: centerRef.current.x + panStep };
+          needsDrawRef.current = true;
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          centerRef.current = { ...centerRef.current, y: centerRef.current.y + panStep };
+          needsDrawRef.current = true;
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          centerRef.current = { ...centerRef.current, y: centerRef.current.y - panStep };
+          needsDrawRef.current = true;
+          break;
+        case "+":
+        case "=":
+          e.preventDefault();
+          zoomRef.current = Math.min(1e8, zoomRef.current * 1.2);
+          needsDrawRef.current = true;
+          break;
+        case "-":
+          e.preventDefault();
+          zoomRef.current = Math.max(0.05, zoomRef.current / 1.2);
+          needsDrawRef.current = true;
+          break;
+        case " ":
+          e.preventDefault();
+          playingRef.current = !playingRef.current;
+          setPlaying((p) => !p);
+          break;
+        case "r":
+        case "R": {
+          // Reset to defaults for the current mode
+          playingRef.current = false;
+          setPlaying(false);
+          juliaAngleRef.current = 0;
+          setJuliaAngle(0);
+          colorShiftRef.current = 0;
+          dirRef.current = 1;
+          const m = modeRef.current;
+          if (m === "mandelbrot") {
+            centerRef.current = { x: -0.5, y: 0 };
+            zoomRef.current = 0.35;
+          } else if (m === "julia") {
+            centerRef.current = { x: 0.0, y: 0 };
+            zoomRef.current = 0.45;
+          } else {
+            centerRef.current = { x: -0.4, y: 0.6 };
+            zoomRef.current = 0.4;
+          }
+          needsDrawRef.current = true;
+          break;
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []); // all refs and state setters are stable
+
   // ── Pointer events (pan) ────────────────────────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -452,8 +531,10 @@ export default function FractalsPage() {
       </div>
 
       {/* ── Hint ── */}
-      <div className="absolute top-3 right-4 text-white/30 text-xs text-right pointer-events-none">
+      <div className="absolute top-3 right-4 text-white/30 text-xs text-right pointer-events-none leading-relaxed">
         drag to pan · scroll to zoom
+        <br />
+        ← → ↑ ↓ pan · +/− zoom · space play · r reset
       </div>
     </div>
   );
