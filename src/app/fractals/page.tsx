@@ -556,6 +556,15 @@ export default function FractalsPage() {
           link.click();
           break;
         }
+        case "p":
+        case "P": {
+          e.preventDefault();
+          const nextPal = (palRef.current + 1) % PALETTES.length;
+          palRef.current = nextPal;
+          setPalette(nextPal);
+          needsDrawRef.current = true;
+          break;
+        }
       }
       // Any fractal-control key resets the hint fade timer
       resetHintTimer();

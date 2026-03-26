@@ -57,6 +57,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["+"], description: "Zoom in" },
       { keys: ["-"], description: "Zoom out" },
       { keys: ["Space"], description: "Play / pause animation" },
+      { keys: ["P"], description: "Cycle colour palette" },
       { keys: ["R"], description: "Reset view" },
       { keys: ["S"], description: "Copy shareable link" },
       { keys: ["D"], description: "Save as PNG" },
