@@ -65,7 +65,10 @@ const SECTIONS: ShortcutSection[] = [
   },
   {
     title: "Global",
-    rows: [{ keys: ["?"], description: "Show keyboard shortcuts" }],
+    rows: [
+      { keys: ["?"], description: "Show keyboard shortcuts" },
+      { keys: ["Alt", "T"], description: "Toggle dark / light mode" },
+    ],
   },
 ];
 
