@@ -257,6 +257,16 @@ export default function FractalsPage() {
   // Drag state
   const dragRef = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
 
+  // Fly-to animation state (smooth preset transitions)
+  const flyAnimRef = useRef<{
+    fromCenter: { x: number; y: number };
+    fromZoom: number;
+    toCenter: { x: number; y: number };
+    toZoom: number;
+    startTime: number;
+    duration: number;
+  } | null>(null);
+
   // React state (for UI re-render only)
   const [mode, setMode]         = useState<FractalKey>("mandelbrot");
   const [palette, setPalette]   = useState(1);
@@ -267,6 +277,22 @@ export default function FractalsPage() {
   const [mouseCoords, setMouseCoords] = useState<{ re: number; im: number } | null>(null);
   const [showPresets, setShowPresets] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(zoomRef.current);
+  const [hintVisible, setHintVisible] = useState(true);
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Show hint for 6 s after the page loads, then fade it away.
+  // Re-show it briefly whenever the user interacts so they can rediscover controls.
+  const resetHintTimer = useCallback(() => {
+    setHintVisible(true);
+    if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+    hintTimerRef.current = setTimeout(() => setHintVisible(false), 6000);
+  }, []);
+
+  useEffect(() => {
+    resetHintTimer();
+    return () => { if (hintTimerRef.current) clearTimeout(hintTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Init WebGL ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -370,6 +396,28 @@ export default function FractalsPage() {
         colorShiftRef.current += 0.0004 * dirRef.current;
         setJuliaAngle(juliaAngleRef.current); // update display
         needsDrawRef.current = true;
+      }
+
+      // ── Fly-to animation (smooth preset transitions) ──
+      if (flyAnimRef.current) {
+        const anim = flyAnimRef.current;
+        const progress = Math.min(1, (Date.now() - anim.startTime) / anim.duration);
+        // Ease in-out cubic
+        const ease = progress < 0.5
+          ? 4 * progress * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        // Interpolate zoom in log-space so large zoom changes feel proportional
+        const logFrom = Math.log(anim.fromZoom);
+        const logTo   = Math.log(anim.toZoom);
+        zoomRef.current = Math.exp(logFrom + (logTo - logFrom) * ease);
+        // Interpolate center in fractal coordinates
+        centerRef.current = {
+          x: anim.fromCenter.x + (anim.toCenter.x - anim.fromCenter.x) * ease,
+          y: anim.fromCenter.y + (anim.toCenter.y - anim.fromCenter.y) * ease,
+        };
+        setZoomLevel(zoomRef.current);
+        needsDrawRef.current = true;
+        if (progress >= 1) flyAnimRef.current = null;
       }
 
       if (needsDrawRef.current) draw();
@@ -509,20 +557,25 @@ export default function FractalsPage() {
           break;
         }
       }
+      // Any fractal-control key resets the hint fade timer
+      resetHintTimer();
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []); // all refs and state setters are stable
+  }, [resetHintTimer]); // all refs and state setters are stable; resetHintTimer is also stable
 
   // ── Pointer events (pan) ────────────────────────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    // Cancel any in-progress fly animation so the user takes control immediately
+    flyAnimRef.current = null;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     dragRef.current = {
       x: e.clientX, y: e.clientY,
       cx: centerRef.current.x, cy: centerRef.current.y,
     };
-  }, []);
+    resetHintTimer();
+  }, [resetHintTimer]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragRef.current || !canvasRef.current) return;
@@ -580,6 +633,8 @@ export default function FractalsPage() {
   // ── Wheel (zoom to cursor) ───────────────────────────────────────────────────
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
+    // Cancel any in-progress fly animation so the user takes control immediately
+    flyAnimRef.current = null;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -608,7 +663,8 @@ export default function FractalsPage() {
     zoomRef.current = newZoom;
     setZoomLevel(newZoom);
     needsDrawRef.current = true;
-  }, []);
+    resetHintTimer();
+  }, [resetHintTimer]);
 
   // ── UI handlers ─────────────────────────────────────────────────────────────
   const setModeUI = (m: FractalKey) => {
@@ -660,25 +716,28 @@ export default function FractalsPage() {
   };
 
   const applyPreset = (preset: Preset) => {
-    // Stop animation
+    // Stop Julia/color animation
     playingRef.current = false;
     setPlaying(false);
 
-    // Apply mode
+    // Apply mode, julia angle, and color shift immediately (non-spatial changes)
     modeRef.current = preset.mode;
     setMode(preset.mode);
-
-    // Apply view
-    centerRef.current = preset.center;
-    zoomRef.current = preset.zoom;
-    setZoomLevel(preset.zoom);
-
-    // Apply julia angle if provided, otherwise reset
     const angle = preset.juliaAngle ?? 0;
     juliaAngleRef.current = angle;
     setJuliaAngle(angle);
     colorShiftRef.current = 0;
     dirRef.current = 1;
+
+    // Fly smoothly to the preset view instead of snapping
+    flyAnimRef.current = {
+      fromCenter: { ...centerRef.current },
+      fromZoom: zoomRef.current,
+      toCenter: preset.center,
+      toZoom: preset.zoom,
+      startTime: Date.now(),
+      duration: 1200,
+    };
 
     needsDrawRef.current = true;
     setShowPresets(false);
@@ -942,7 +1001,13 @@ export default function FractalsPage() {
         <div className="text-white/70 text-xs font-mono bg-black/50 backdrop-blur px-3 py-1 rounded-lg tabular-nums">
           {formatMag(zoomLevel)}
         </div>
-        <div className="text-white/30 text-xs text-right leading-relaxed">
+        <div
+          className="text-white/30 text-xs text-right leading-relaxed"
+          style={{
+            transition: "opacity 1s ease",
+            opacity: hintVisible ? 1 : 0,
+          }}
+        >
           drag to pan · scroll to zoom · double-click to zoom in
           <br />
           ← → ↑ ↓ pan · +/− zoom · space play · r reset · s share · d save
