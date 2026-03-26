@@ -214,6 +214,19 @@ const PRESETS: Preset[] = [
   },
 ];
 
+// ─── Zoom formatting ──────────────────────────────────────────────────────────
+
+/** Convert internal zoom value to a human-readable magnification string.
+ *  Magnification is relative to the default Mandelbrot overview (zoom ≈ 0.35 → "1×"). */
+function formatMag(zoom: number): string {
+  const mag = zoom / 0.35;
+  if (mag >= 1e9) return `${(mag / 1e9).toFixed(2)}B×`;
+  if (mag >= 1e6) return `${(mag / 1e6).toFixed(2)}M×`;
+  if (mag >= 1e3) return `${(mag / 1e3).toFixed(1)}K×`;
+  if (mag >= 10)  return `${Math.round(mag)}×`;
+  return `${mag.toFixed(1)}×`;
+}
+
 // Julia c parameter traces this path when animating
 // (classic "dragon" orbit around the Mandelbrot boundary)
 const JULIA_ORBIT_R = 0.7885;
@@ -253,6 +266,7 @@ export default function FractalsPage() {
   const [copied, setCopied]     = useState(false);
   const [mouseCoords, setMouseCoords] = useState<{ re: number; im: number } | null>(null);
   const [showPresets, setShowPresets] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(zoomRef.current);
 
   // ── Init WebGL ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -291,7 +305,7 @@ export default function FractalsPage() {
       const ja  = parseFloat(p.get("ja") ?? "");
 
       if (!isNaN(cx) && !isNaN(cy)) centerRef.current = { x: cx, y: cy };
-      if (!isNaN(z) && z > 0) zoomRef.current = z;
+      if (!isNaN(z) && z > 0) { zoomRef.current = z; setZoomLevel(z); }
       if (m && FRACTAL_MODES.some((fm) => fm.key === m)) {
         modeRef.current = m;
         setMode(m);
@@ -417,11 +431,13 @@ export default function FractalsPage() {
         case "=":
           e.preventDefault();
           zoomRef.current = Math.min(1e8, zoomRef.current * 1.2);
+          setZoomLevel(zoomRef.current);
           needsDrawRef.current = true;
           break;
         case "-":
           e.preventDefault();
           zoomRef.current = Math.max(0.05, zoomRef.current / 1.2);
+          setZoomLevel(zoomRef.current);
           needsDrawRef.current = true;
           break;
         case " ":
@@ -449,6 +465,7 @@ export default function FractalsPage() {
             centerRef.current = { x: -0.4, y: 0.6 };
             zoomRef.current = 0.4;
           }
+          setZoomLevel(zoomRef.current);
           needsDrawRef.current = true;
           break;
         }
@@ -473,6 +490,22 @@ export default function FractalsPage() {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
           }).catch(() => {/* clipboard unavailable */});
+          break;
+        }
+        case "d":
+        case "D": {
+          // Don't intercept Ctrl/Cmd+D (browser bookmark dialog)
+          if (e.ctrlKey || e.metaKey) break;
+          e.preventDefault();
+          const canvas = canvasRef.current;
+          if (!canvas) break;
+          // preserveDrawingBuffer: true guarantees the last rendered frame is still available
+          const paletteName = PALETTES[palRef.current]?.toLowerCase() ?? "custom";
+          const filename = `fractal-${modeRef.current}-${paletteName}-${Date.now()}.png`;
+          const link = document.createElement("a");
+          link.href = canvas.toDataURL("image/png");
+          link.download = filename;
+          link.click();
           break;
         }
       }
@@ -522,6 +555,28 @@ export default function FractalsPage() {
     setMouseCoords(null);
   }, []);
 
+  // ── Double-click to zoom in (3×) centred on clicked fractal point ───────────
+  const onDoubleClick = useCallback((e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const W = rect.width;
+    const H = rect.height;
+    const minDim = Math.min(W, H);
+
+    // Fractal-space coordinate currently under the cursor
+    const fractalX =  (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
+    const fractalY = -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
+
+    // Zoom 3× into that point
+    centerRef.current = { x: fractalX, y: fractalY };
+    zoomRef.current = Math.min(1e8, zoomRef.current * 3);
+    setZoomLevel(zoomRef.current);
+    needsDrawRef.current = true;
+  }, []);
+
   // ── Wheel (zoom to cursor) ───────────────────────────────────────────────────
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -551,6 +606,7 @@ export default function FractalsPage() {
     };
 
     zoomRef.current = newZoom;
+    setZoomLevel(newZoom);
     needsDrawRef.current = true;
   }, []);
 
@@ -559,9 +615,9 @@ export default function FractalsPage() {
     modeRef.current = m;
     setMode(m);
     // Reset view to nice defaults per mode
-    if (m === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 }; zoomRef.current = 0.35; }
-    if (m === "julia")      { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.45; }
-    if (m === "burning")    { centerRef.current = { x: -0.4, y: 0.6 }; zoomRef.current = 0.4; }
+    if (m === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); }
+    if (m === "julia")      { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.45; setZoomLevel(0.45); }
+    if (m === "burning")    { centerRef.current = { x: -0.4, y: 0.6 }; zoomRef.current = 0.4; setZoomLevel(0.4); }
     needsDrawRef.current = true;
   };
 
@@ -615,6 +671,7 @@ export default function FractalsPage() {
     // Apply view
     centerRef.current = preset.center;
     zoomRef.current = preset.zoom;
+    setZoomLevel(preset.zoom);
 
     // Apply julia angle if provided, otherwise reset
     const angle = preset.juliaAngle ?? 0;
@@ -675,6 +732,7 @@ export default function FractalsPage() {
         onWheel={onWheel}
         onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
+        onDoubleClick={onDoubleClick}
       />
 
       {/* ── Controls overlay ── */}
@@ -879,11 +937,16 @@ export default function FractalsPage() {
         </div>
       )}
 
-      {/* ── Hint ── */}
-      <div className="absolute top-3 right-4 text-white/30 text-xs text-right pointer-events-none leading-relaxed">
-        drag to pan · scroll to zoom
-        <br />
-        ← → ↑ ↓ pan · +/− zoom · space play · r reset
+      {/* ── Zoom level + Hint ── */}
+      <div className="absolute top-3 right-4 flex flex-col items-end gap-1.5 pointer-events-none">
+        <div className="text-white/70 text-xs font-mono bg-black/50 backdrop-blur px-3 py-1 rounded-lg tabular-nums">
+          {formatMag(zoomLevel)}
+        </div>
+        <div className="text-white/30 text-xs text-right leading-relaxed">
+          drag to pan · scroll to zoom · double-click to zoom in
+          <br />
+          ← → ↑ ↓ pan · +/− zoom · space play · r reset · s share · d save
+        </div>
       </div>
     </div>
   );
