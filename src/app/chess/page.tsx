@@ -138,6 +138,7 @@ export default function ChessPage() {
     sr: number; sc: number; r: number; c: number;
   } | null>(null);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
+  const [pgnCopied, setPgnCopied] = useState(false);
 
   const isGameOver =
     status.includes("Checkmate") || status.includes("Stalemate");
@@ -317,6 +318,22 @@ export default function ChessPage() {
     setLastMove([[sr, sc], [r, c]]);
     setMoveHistory((h) => [...h, san]);
   }, [pendingPromotion, board, status, lastMove, moveHistory]);
+
+  // Copy game moves as PGN to clipboard
+  const copyPGN = useCallback(() => {
+    if (moveHistory.length === 0) return;
+    let pgn = "";
+    for (let i = 0; i < moveHistory.length; i += 2) {
+      const moveNum = Math.floor(i / 2) + 1;
+      pgn += `${moveNum}. ${moveHistory[i]}`;
+      if (moveHistory[i + 1]) pgn += ` ${moveHistory[i + 1]}`;
+      if (i + 2 < moveHistory.length) pgn += " ";
+    }
+    navigator.clipboard.writeText(pgn).then(() => {
+      setPgnCopied(true);
+      setTimeout(() => setPgnCopied(false), 2000);
+    });
+  }, [moveHistory]);
 
   // Group half-moves into pairs: [[white, black?], ...]
   const movePairs: [string, string | undefined][] = [];
@@ -580,8 +597,22 @@ export default function ChessPage() {
 
         {/* Move History Panel */}
         <div className="flex flex-col w-44 border border-border rounded-lg overflow-hidden shadow bg-card h-[448px]">
-          <div className="px-3 py-2 bg-muted/60 text-xs font-semibold text-muted-foreground border-b border-border shrink-0">
+          <div className="px-3 py-2 bg-muted/60 text-xs font-semibold text-muted-foreground border-b border-border shrink-0 flex items-center justify-between">
             Move History
+            <button
+              onClick={copyPGN}
+              disabled={moveHistory.length === 0}
+              title="Copy game moves as PGN (paste into Lichess, Chess.com, etc.)"
+              className={[
+                "ml-2 font-normal text-[10px] px-1.5 py-0.5 rounded transition-all",
+                pgnCopied
+                  ? "text-green-600 dark:text-green-400 opacity-100"
+                  : "opacity-50 hover:opacity-100 hover:bg-muted",
+                "disabled:opacity-20 disabled:cursor-not-allowed",
+              ].join(" ")}
+            >
+              {pgnCopied ? "✓ Copied" : "Copy PGN"}
+            </button>
           </div>
           <div className="overflow-y-auto flex-1 text-sm font-mono">
             {movePairs.length === 0 ? (
