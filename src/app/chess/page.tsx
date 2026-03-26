@@ -129,6 +129,7 @@ export default function ChessPage() {
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [difficulty, setDifficulty] = useState<DifficultyLabel>("Hard");
   const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
+  const [flipped, setFlipped] = useState(false);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
 
   const isGameOver =
@@ -312,6 +313,13 @@ export default function ChessPage() {
         >
           ↩ Undo
         </button>
+        <button
+          onClick={() => setFlipped((f) => !f)}
+          title="Flip board (view from Black's side)"
+          className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
+        >
+          ⇅ Flip
+        </button>
 
         {/* Difficulty selector */}
         <div className="flex items-center gap-1.5 ml-2">
@@ -342,7 +350,7 @@ export default function ChessPage() {
           {/* Rank labels — spacer at top aligns them with the board squares */}
           <div className="flex flex-col">
             <div className="h-7 mb-1" aria-hidden="true" />
-            {RANKS.map((rank) => (
+            {(flipped ? [...RANKS].reverse() : RANKS).map((rank) => (
               <div
                 key={rank}
                 className="w-5 h-14 flex items-center justify-center text-xs text-muted-foreground select-none"
@@ -353,24 +361,25 @@ export default function ChessPage() {
           </div>
 
           <div className="flex flex-col">
-            {/* Black's captures: white pieces taken by black — shown above board (black's side) */}
+            {/* Top captures row: black side when normal, white side when flipped */}
             <div className="flex items-center h-7 gap-0.5 mb-1 min-h-7">
-              {capturedByBlack.map((type, i) => (
+              {(flipped ? capturedByWhite : capturedByBlack).map((type, i) => (
                 <span key={i} className="text-lg leading-none select-none text-foreground/60">
-                  {UNICODE.w[type]}
+                  {flipped ? UNICODE.b[type] : UNICODE.w[type]}
                 </span>
               ))}
-              {advantage < 0 && (
+              {(flipped ? advantage > 0 : advantage < 0) && (
                 <span className="text-xs font-semibold text-muted-foreground ml-1">
-                  +{-advantage}
+                  +{Math.abs(advantage)}
                 </span>
               )}
             </div>
 
             <div className="border border-border rounded overflow-hidden shadow-lg">
-              {board.map((row, r) => (
+              {Array.from({ length: 8 }, (_, vr) => flipped ? 7 - vr : vr).map((r) => (
                 <div key={r} className="flex">
-                  {row.map((piece, c) => {
+                  {Array.from({ length: 8 }, (_, vc) => flipped ? 7 - vc : vc).map((c) => {
+                    const piece = board[r][c];
                     const isLight = (r + c) % 2 === 0;
                     const isSelected = selected?.[0] === r && selected?.[1] === c;
                     const isLegal = legalMoves.some(
@@ -434,7 +443,7 @@ export default function ChessPage() {
 
             {/* File labels */}
             <div className="flex mt-1">
-              {FILES.map((file) => (
+              {(flipped ? [...FILES].reverse() : FILES).map((file) => (
                 <div
                   key={file}
                   className="w-14 flex items-center justify-center text-xs text-muted-foreground select-none"
@@ -444,16 +453,16 @@ export default function ChessPage() {
               ))}
             </div>
 
-            {/* White's captures: black pieces taken by white — shown below board (white's side) */}
+            {/* Bottom captures row: white side when normal, black side when flipped */}
             <div className="flex items-center h-7 gap-0.5 mt-1 min-h-7">
-              {capturedByWhite.map((type, i) => (
+              {(flipped ? capturedByBlack : capturedByWhite).map((type, i) => (
                 <span key={i} className="text-lg leading-none select-none text-foreground/60">
-                  {UNICODE.b[type]}
+                  {flipped ? UNICODE.w[type] : UNICODE.b[type]}
                 </span>
               ))}
-              {advantage > 0 && (
+              {(flipped ? advantage < 0 : advantage > 0) && (
                 <span className="text-xs font-semibold text-muted-foreground ml-1">
-                  +{advantage}
+                  +{Math.abs(advantage)}
                 </span>
               )}
             </div>
