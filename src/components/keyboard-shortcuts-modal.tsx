@@ -30,6 +30,12 @@ const SECTIONS: ShortcutSection[] = [
     ],
   },
   {
+    title: "Chat",
+    rows: [
+      { keys: ["Alt", "N"], description: "New session" },
+    ],
+  },
+  {
     title: "Chess",
     rows: [
       { keys: ["Ctrl", "Z"], description: "Undo last move" },

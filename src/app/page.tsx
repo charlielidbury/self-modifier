@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { ChatMessage } from "@/lib/types";
 import { ChatProvider } from "@/components/chat-provider";
 import { SessionsSidebar } from "@/components/sessions-sidebar";
@@ -16,6 +16,18 @@ export default function Home() {
     setActiveSessionId(null);
     setMessages([]);
   }, []);
+
+  // Alt+N: create a new chat session (only active while on this page)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.altKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        handleNewSession();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleNewSession]);
 
   const handleLoadSession = useCallback(
     (loaded: ChatMessage[], sessionId: string) => {
