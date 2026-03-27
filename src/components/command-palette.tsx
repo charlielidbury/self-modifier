@@ -30,6 +30,7 @@ import {
   Orbit,
   Waves,
   Atom,
+  Fan,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -176,6 +177,14 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/particles"),
       keywords: ["particle", "life", "emergence", "chemistry", "artificial", "simulation", "swarm"],
+    },
+    {
+      id: "nav-pendulum",
+      label: "Go to Pendulum",
+      icon: <Fan size={16} />,
+      group: "Navigation",
+      action: () => router.push("/pendulum"),
+      keywords: ["double", "pendulum", "chaos", "butterfly", "physics", "simulation", "lagrangian"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {
@@ -382,6 +391,55 @@ function useCommands(): Command[] {
               window.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }));
             },
             keywords: ["reset", "empty", "wipe"],
+          },
+        ]
+      : []),
+    // ── Pendulum page commands ─────────────────────────────────────────────────
+    ...(pathname === "/pendulum"
+      ? [
+          {
+            id: "pendulum-toggle",
+            label: "Toggle Pendulum Simulation",
+            hint: "Space",
+            icon: <Play size={16} />,
+            group: "Pendulum",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+            },
+            keywords: ["play", "pause", "run", "stop"],
+          },
+          {
+            id: "pendulum-reset",
+            label: "Reset Pendulums",
+            hint: "R",
+            icon: <RotateCcw size={16} />,
+            group: "Pendulum",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
+            },
+            keywords: ["restart", "default", "butterfly"],
+          },
+          {
+            id: "pendulum-clear",
+            label: "Clear All Pendulums",
+            hint: "C",
+            icon: <RotateCcw size={16} />,
+            group: "Pendulum",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }));
+            },
+            keywords: ["remove", "empty", "wipe"],
+          },
+          {
+            id: "pendulum-add",
+            label: "Add Pendulum",
+            hint: "+",
+            icon: <Plus size={16} />,
+            group: "Pendulum",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "=" }));
+            },
+            keywords: ["new", "create", "spawn"],
           },
         ]
       : []),

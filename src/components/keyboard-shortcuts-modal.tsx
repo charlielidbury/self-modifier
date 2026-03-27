@@ -139,6 +139,17 @@ const SECTIONS: ShortcutSection[] = [
     ],
   },
   {
+    title: "Pendulum",
+    rows: [
+      { keys: ["Space"], description: "Pause / resume simulation" },
+      { keys: ["R"], description: "Reset to default preset" },
+      { keys: ["C"], description: "Clear all pendulums" },
+      { keys: ["T"], description: "Toggle trails on / off" },
+      { keys: ["+"], description: "Add a pendulum" },
+      { keys: ["-"], description: "Remove a pendulum" },
+    ],
+  },
+  {
     title: "Evolution",
     rows: [
       { keys: ["R"], description: "Refresh commit history" },
