@@ -99,6 +99,11 @@ export function SessionsSidebar({
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [statuses, setStatuses] = useState<Record<string, AgentStatus>>({});
   const [searchQuery, setSearchQuery] = useState("");
+  // Number of currently-running sessions (derived from statuses map).
+  const runningCount = useMemo(
+    () => Object.values(statuses).filter((s) => s === "running").length,
+    [statuses]
+  );
   // Default open on large screens (>= 1024px), collapsed on small screens.
   // Start with true so SSR/hydration doesn't flash; useEffect corrects it on the client.
   const [isOpen, setIsOpen] = useState(true);
@@ -591,6 +596,24 @@ export function SessionsSidebar({
             </p>
           ) : null}
         </div>
+
+        {/* Session stats footer */}
+        {sessions.length > 0 && (
+          <div className="flex-shrink-0 px-4 py-2 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
+            <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
+              {sessions.length} session{sessions.length !== 1 ? "s" : ""}
+            </span>
+            {runningCount > 0 && (
+              <span className="flex items-center gap-1.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-500" />
+                </span>
+                {runningCount} running
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
