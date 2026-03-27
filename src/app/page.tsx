@@ -297,28 +297,6 @@ export default function Home() {
     });
   }, []);
 
-  // Staggered entrance animation via IntersectionObserver
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  useEffect(() => {
-    const grid = gridRef.current;
-    if (!grid) return;
-    const cards = grid.querySelectorAll<HTMLElement>("[data-spotlight]");
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            (entry.target as HTMLElement).classList.add("home-card-visible");
-            observerRef.current?.unobserve(entry.target);
-          }
-        });
-      },
-      { threshold: 0.1, rootMargin: "0px 0px -40px 0px" }
-    );
-    cards.forEach((card) => {
-      observerRef.current!.observe(card);
-    });
-    return () => observerRef.current?.disconnect();
-  }, []);
 
   const gridCards = cards.filter(c => c.href !== "/chat");
   const chatMod = recentMods.get("/chat");
