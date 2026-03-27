@@ -119,17 +119,25 @@ void main() {
   float escaped = -1.0;
   for (int n = 0; n < 1024; n++) {
     if (float(n) >= u_maxIter) break;
-    float zx, zy;
-    if (u_mode == 2) {
-      // Burning Ship: |Re| and |Im| taken absolute
-      zx = abs(z.x); zy = abs(z.y);
-    } else if (u_mode == 4) {
-      // Tricorn: conjugate squaring — z̄² + c  (negate imaginary part)
-      zx = z.x; zy = -z.y;
+    if (u_mode == 5) {
+      // Multibrot degree 3: z → z³ + c
+      // z³ = (x+iy)³ = (x³ - 3xy²) + i(3x²y - y³)
+      float zx = z.x, zy = z.y;
+      z = vec2(zx*zx*zx - 3.0*zx*zy*zy + c.x,
+               3.0*zx*zx*zy - zy*zy*zy + c.y);
     } else {
-      zx = z.x; zy = z.y;
+      float zx, zy;
+      if (u_mode == 2) {
+        // Burning Ship: |Re| and |Im| taken absolute
+        zx = abs(z.x); zy = abs(z.y);
+      } else if (u_mode == 4) {
+        // Tricorn: conjugate squaring — z̄² + c  (negate imaginary part)
+        zx = z.x; zy = -z.y;
+      } else {
+        zx = z.x; zy = z.y;
+      }
+      z = vec2(zx*zx - zy*zy + c.x, 2.0*zx*zy + c.y);
     }
-    z = vec2(zx*zx - zy*zy + c.x, 2.0*zx*zy + c.y);
     if (dot(z,z) > 256.0) { escaped = float(n); break; }
   }
 
@@ -138,8 +146,10 @@ void main() {
     return;
   }
 
-  // Smooth iteration count (needs |z|>1, which is guaranteed since we used 256 as bailout)
-  float smooth = escaped + 1.0 - log2(log2(length(z)));
+  // Smooth iteration count (needs |z|>1, which is guaranteed since we used 256 as bailout).
+  // For degree-3 Multibrot apply log₂(3) normalisation for smooth colouring at boundaries.
+  float lognorm = (u_mode == 5) ? 0.63093 : 1.0;
+  float smooth = escaped + 1.0 - log2(log2(length(z))) * lognorm;
   float t = smooth / u_maxIter;
   vec3 col = colour(t * 4.0);
   // Slight darkening near the set boundary for depth
@@ -172,11 +182,48 @@ function buildProgram(gl: WebGLRenderingContext) {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const FRACTAL_MODES = [
-  { key: "mandelbrot", label: "Mandelbrot",   glMode: 0, description: "The classic Mandelbrot set. Zoom into the boundary to discover infinite self-similar spirals and minibrots." },
-  { key: "julia",      label: "Julia",        glMode: 1, description: "Julia set — shape evolves as the animation parameter c changes. In Mandelbrot mode, Shift+click any point to pin its Julia set." },
-  { key: "burning",    label: "Burning Ship", glMode: 2, description: "The Burning Ship fractal. Absolute-value iterations create asymmetric ship-like structures with fiery detail." },
-  { key: "newton",     label: "Newton",       glMode: 3, description: "Newton fractal for z³−1=0. Each colour marks which of the three roots Newton-Raphson converges to from that point." },
-  { key: "tricorn",    label: "Tricorn",      glMode: 4, description: "The Tricorn (Mandelbar) set. Complex conjugate iterations produce three-armed symmetry and distinctive antenna structures." },
+  {
+    key: "mandelbrot",
+    label: "Mandelbrot",
+    glMode: 0,
+    description:
+      "The classic Mandelbrot set. Zoom into the boundary to discover infinite self-similar spirals and minibrots.",
+  },
+  {
+    key: "julia",
+    label: "Julia",
+    glMode: 1,
+    description:
+      "Julia set — shape evolves as the animation parameter c changes. In Mandelbrot mode, Shift+click any point to pin its Julia set.",
+  },
+  {
+    key: "burning",
+    label: "Burning Ship",
+    glMode: 2,
+    description:
+      "The Burning Ship fractal. Absolute-value iterations create asymmetric ship-like structures with fiery detail.",
+  },
+  {
+    key: "newton",
+    label: "Newton",
+    glMode: 3,
+    description:
+      "Newton fractal for z³−1=0. Each colour marks which of the three roots Newton-Raphson converges to from that point.",
+  },
+  {
+    key: "tricorn",
+    label: "Tricorn",
+    glMode: 4,
+    description:
+      "The Tricorn (Mandelbar) set. Complex conjugate iterations produce three-armed symmetry and distinctive antenna structures.",
+  },
+  {
+    key: "multibrot",
+    label: "Multibrot",
+    glMode: 5,
+    description:
+      "Multibrot set (degree 3): z → z³ + c. Three-fold symmetry and seahorse-like spirals emerge from the cubic iteration.",
+  },
 ] as const;
 
 type FractalKey = (typeof FRACTAL_MODES)[number]["key"];
@@ -188,8 +235,8 @@ const PALETTES = ["Fire", "Ocean", "Neon", "Twilight", "Aurora"];
 const PALETTE_GRADIENTS = [
   "linear-gradient(to right, #ff6600, #cc1100, #220000, #cc4400, #ff8800)", // Fire
   "linear-gradient(to right, #0022bb, #0099cc, #00eeff, #00ccaa, #0022bb)", // Ocean
-  "linear-gradient(to right, #ff0088, #44ff00, #ffee00, #ff0088)",           // Neon
-  "linear-gradient(to right, #1133bb, #6611bb, #cc1177, #1133bb)",           // Twilight
+  "linear-gradient(to right, #ff0088, #44ff00, #ffee00, #ff0088)", // Neon
+  "linear-gradient(to right, #1133bb, #6611bb, #cc1177, #1133bb)", // Twilight
   "linear-gradient(to right, #00ee55, #88bb00, #bb22aa, #1188dd, #00ee55)", // Aurora
 ];
 
@@ -330,6 +377,25 @@ const PRESETS: Preset[] = [
     center: { x: -1.755, y: 0.0 },
     zoom: 45,
   },
+  // ── Multibrot (degree 3) ──
+  {
+    name: "Multibrot Overview",
+    mode: "multibrot",
+    center: { x: 0.0, y: 0.0 },
+    zoom: 0.35,
+  },
+  {
+    name: "Multibrot: Seahorse Valley",
+    mode: "multibrot",
+    center: { x: 0.36, y: 0.6 },
+    zoom: 8.0,
+  },
+  {
+    name: "Multibrot: Deep Spiral",
+    mode: "multibrot",
+    center: { x: -1.15, y: 0.28 },
+    zoom: 28.0,
+  },
 ];
 
 // ─── Zoom formatting ──────────────────────────────────────────────────────────
@@ -341,7 +407,7 @@ function formatMag(zoom: number): string {
   if (mag >= 1e9) return `${(mag / 1e9).toFixed(2)}B×`;
   if (mag >= 1e6) return `${(mag / 1e6).toFixed(2)}M×`;
   if (mag >= 1e3) return `${(mag / 1e3).toFixed(1)}K×`;
-  if (mag >= 10)  return `${Math.round(mag)}×`;
+  if (mag >= 10) return `${Math.round(mag)}×`;
   return `${mag.toFixed(1)}×`;
 }
 
@@ -354,27 +420,32 @@ const JULIA_ORBIT_SPEED = 0.004; // radians per frame (≈ 1571 frames per full 
 
 export default function FractalsPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const glRef     = useRef<WebGLRenderingContext | null>(null);
-  const progRef   = useRef<WebGLProgram | null>(null);
-  const rafRef    = useRef<number>(0);
+  const glRef = useRef<WebGLRenderingContext | null>(null);
+  const progRef = useRef<WebGLProgram | null>(null);
+  const rafRef = useRef<number>(0);
   const needsDrawRef = useRef(true);
 
   // View state – stored in refs so animation loop reads latest without re-render
-  const centerRef  = useRef({ x: -0.5, y: 0.0 });
-  const zoomRef    = useRef(0.35);
+  const centerRef = useRef({ x: -0.5, y: 0.0 });
+  const zoomRef = useRef(0.35);
   const maxIterRef = useRef(200);
-  const modeRef    = useRef<FractalKey>("mandelbrot");
-  const palRef     = useRef(1); // ocean default
+  const modeRef = useRef<FractalKey>("mandelbrot");
+  const palRef = useRef(1); // ocean default
 
   // Animation state
-  const juliaAngleRef  = useRef(0.0);
-  const colorShiftRef  = useRef(0.0);
-  const playingRef     = useRef(false);
-  const dirRef         = useRef(1); // +1 forward, -1 backward
-  const animSpeedRef   = useRef(1.0); // animation speed multiplier
+  const juliaAngleRef = useRef(0.0);
+  const colorShiftRef = useRef(0.0);
+  const playingRef = useRef(false);
+  const dirRef = useRef(1); // +1 forward, -1 backward
+  const animSpeedRef = useRef(1.0); // animation speed multiplier
 
   // Drag state
-  const dragRef = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
+  const dragRef = useRef<{
+    x: number;
+    y: number;
+    cx: number;
+    cy: number;
+  } | null>(null);
 
   // Pinch-to-zoom state (tracks all active pointers and the last pinch distance)
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
@@ -395,19 +466,26 @@ export default function FractalsPage() {
   const currentPresetIdxRef = useRef(0);
 
   // Navigation history — back/forward through deliberate jumps (double-click, preset, shift+click)
-  type NavEntry = { center: { x: number; y: number }; zoom: number; mode: FractalKey };
-  const backStackRef    = useRef<NavEntry[]>([]);
+  type NavEntry = {
+    center: { x: number; y: number };
+    zoom: number;
+    mode: FractalKey;
+  };
+  const backStackRef = useRef<NavEntry[]>([]);
   const forwardStackRef = useRef<NavEntry[]>([]);
 
   // React state (for UI re-render only)
-  const [mode, setMode]         = useState<FractalKey>("mandelbrot");
-  const [palette, setPalette]   = useState(1);
-  const [playing, setPlaying]   = useState(false);
-  const [maxIter, setMaxIter]   = useState(200);
+  const [mode, setMode] = useState<FractalKey>("mandelbrot");
+  const [palette, setPalette] = useState(1);
+  const [playing, setPlaying] = useState(false);
+  const [maxIter, setMaxIter] = useState(200);
   const [juliaAngle, setJuliaAngle] = useState(0);
   const [animSpeed, setAnimSpeed] = useState(1.0);
-  const [copied, setCopied]     = useState(false);
-  const [mouseCoords, setMouseCoords] = useState<{ re: number; im: number } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [mouseCoords, setMouseCoords] = useState<{
+    re: number;
+    im: number;
+  } | null>(null);
   const [showPresets, setShowPresets] = useState(false);
   const [savedBookmark, setSavedBookmark] = useState(false);
   // 0–1 fractional hue offset; mirrors colorShiftRef so the slider stays in sync
@@ -429,19 +507,24 @@ export default function FractalsPage() {
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
   }, [favorites]);
   const [zoomLevel, setZoomLevel] = useState(zoomRef.current);
-  const [centerDisplay, setCenterDisplay] = useState({ x: centerRef.current.x, y: centerRef.current.y });
+  const [centerDisplay, setCenterDisplay] = useState({
+    x: centerRef.current.x,
+    y: centerRef.current.y,
+  });
   const [hintVisible, setHintVisible] = useState(true);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Preset name toast — shown briefly when cycling presets with [ / ]
   const [presetToast, setPresetToast] = useState<string | null>(null);
-  const presetToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const presetToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   // Mode description toast — shown briefly when switching fractal type
   const [modeToast, setModeToast] = useState<string | null>(null);
   const modeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Navigation history state (for button enabled/disabled)
-  const [canGoBack,    setCanGoBack]    = useState(false);
+  const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
 
   // Coordinate editing state — lets the user click the center display and type exact coordinates
@@ -451,7 +534,10 @@ export default function FractalsPage() {
 
   // Direct Julia c parameter (overrides angle-based orbit when set by shift+click)
   const juliaCDirectRef = useRef<{ x: number; y: number } | null>(null);
-  const [juliaCDirect, setJuliaCDirect] = useState<{ x: number; y: number } | null>(null);
+  const [juliaCDirect, setJuliaCDirect] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Show hint for 6 s after the page loads, then fade it away.
   // Re-show it briefly whenever the user interacts so they can rediscover controls.
@@ -478,9 +564,13 @@ export default function FractalsPage() {
   // ── Fullscreen toggle ────────────────────────────────────────────────────────
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {/* not available */});
+      document.documentElement.requestFullscreen().catch(() => {
+        /* not available */
+      });
     } else {
-      document.exitFullscreen().catch(() => {/* not available */});
+      document.exitFullscreen().catch(() => {
+        /* not available */
+      });
     }
   }, []);
 
@@ -488,10 +578,11 @@ export default function FractalsPage() {
     resetHintTimer();
     return () => {
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
-      if (presetToastTimerRef.current) clearTimeout(presetToastTimerRef.current);
+      if (presetToastTimerRef.current)
+        clearTimeout(presetToastTimerRef.current);
       if (modeToastTimerRef.current) clearTimeout(modeToastTimerRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Fullscreen change listener ───────────────────────────────────────────────
@@ -500,14 +591,21 @@ export default function FractalsPage() {
       setIsFullscreen(document.fullscreenElement !== null);
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
   // ── Init WebGL ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const gl = canvas.getContext("webgl", { antialias: false, preserveDrawingBuffer: true });
-    if (!gl) { console.error("WebGL not supported"); return; }
+    const gl = canvas.getContext("webgl", {
+      antialias: false,
+      preserveDrawingBuffer: true,
+    });
+    if (!gl) {
+      console.error("WebGL not supported");
+      return;
+    }
     glRef.current = gl;
 
     const prog = buildProgram(gl);
@@ -517,7 +615,11 @@ export default function FractalsPage() {
     // Full-screen quad
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
+      gl.STATIC_DRAW,
+    );
     const loc = gl.getAttribLocation(prog, "a_pos");
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
@@ -531,17 +633,23 @@ export default function FractalsPage() {
     if (!hash) return;
     try {
       const p = new URLSearchParams(hash);
-      const cx  = parseFloat(p.get("cx") ?? "");
-      const cy  = parseFloat(p.get("cy") ?? "");
-      const z   = parseFloat(p.get("z")  ?? "");
-      const m   = p.get("m") as FractalKey | null;
-      const pal = parseInt(p.get("p")    ?? "");
-      const mi  = parseInt(p.get("mi")   ?? "");
-      const ja  = parseFloat(p.get("ja") ?? "");
-      const cs  = parseFloat(p.get("cs") ?? "");
+      const cx = parseFloat(p.get("cx") ?? "");
+      const cy = parseFloat(p.get("cy") ?? "");
+      const z = parseFloat(p.get("z") ?? "");
+      const m = p.get("m") as FractalKey | null;
+      const pal = parseInt(p.get("p") ?? "");
+      const mi = parseInt(p.get("mi") ?? "");
+      const ja = parseFloat(p.get("ja") ?? "");
+      const cs = parseFloat(p.get("cs") ?? "");
 
-      if (!isNaN(cx) && !isNaN(cy)) { centerRef.current = { x: cx, y: cy }; setCenterDisplay({ x: cx, y: cy }); }
-      if (!isNaN(z) && z > 0) { zoomRef.current = z; setZoomLevel(z); }
+      if (!isNaN(cx) && !isNaN(cy)) {
+        centerRef.current = { x: cx, y: cy };
+        setCenterDisplay({ x: cx, y: cy });
+      }
+      if (!isNaN(z) && z > 0) {
+        zoomRef.current = z;
+        setZoomLevel(z);
+      }
       if (m && FRACTAL_MODES.some((fm) => fm.key === m)) {
         modeRef.current = m;
         setMode(m);
@@ -570,7 +678,7 @@ export default function FractalsPage() {
 
   // ── Draw ────────────────────────────────────────────────────────────────────
   const draw = useCallback(() => {
-    const gl   = glRef.current;
+    const gl = glRef.current;
     const prog = progRef.current;
     const canvas = canvasRef.current;
     if (!gl || !prog || !canvas) return;
@@ -579,10 +687,15 @@ export default function FractalsPage() {
     const H = canvas.height;
     gl.viewport(0, 0, W, H);
 
-    const glMode = FRACTAL_MODES.find(m => m.key === modeRef.current)?.glMode ?? 0;
+    const glMode =
+      FRACTAL_MODES.find((m) => m.key === modeRef.current)?.glMode ?? 0;
     // Use direct c value (from shift+click) if available, otherwise orbit-based
-    const cx = juliaCDirectRef.current?.x ?? Math.cos(juliaAngleRef.current) * JULIA_ORBIT_R;
-    const cy = juliaCDirectRef.current?.y ?? Math.sin(juliaAngleRef.current) * JULIA_ORBIT_R;
+    const cx =
+      juliaCDirectRef.current?.x ??
+      Math.cos(juliaAngleRef.current) * JULIA_ORBIT_R;
+    const cy =
+      juliaCDirectRef.current?.y ??
+      Math.sin(juliaAngleRef.current) * JULIA_ORBIT_R;
 
     const u = (name: string) => gl.getUniformLocation(prog, name);
     gl.uniform2f(u("u_res"), W, H);
@@ -607,7 +720,8 @@ export default function FractalsPage() {
       if (!running) return;
 
       if (playingRef.current) {
-        juliaAngleRef.current += JULIA_ORBIT_SPEED * dirRef.current * animSpeedRef.current;
+        juliaAngleRef.current +=
+          JULIA_ORBIT_SPEED * dirRef.current * animSpeedRef.current;
         colorShiftRef.current += 0.0004 * dirRef.current * animSpeedRef.current;
         setJuliaAngle(juliaAngleRef.current); // update display
         setColorShift(((colorShiftRef.current % 1) + 1) % 1); // keep slider in sync
@@ -617,14 +731,18 @@ export default function FractalsPage() {
       // ── Fly-to animation (smooth preset transitions) ──
       if (flyAnimRef.current) {
         const anim = flyAnimRef.current;
-        const progress = Math.min(1, (Date.now() - anim.startTime) / anim.duration);
+        const progress = Math.min(
+          1,
+          (Date.now() - anim.startTime) / anim.duration,
+        );
         // Ease in-out cubic
-        const ease = progress < 0.5
-          ? 4 * progress * progress * progress
-          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        const ease =
+          progress < 0.5
+            ? 4 * progress * progress * progress
+            : 1 - Math.pow(-2 * progress + 2, 3) / 2;
         // Interpolate zoom in log-space so large zoom changes feel proportional
         const logFrom = Math.log(anim.fromZoom);
-        const logTo   = Math.log(anim.toZoom);
+        const logTo = Math.log(anim.toZoom);
         zoomRef.current = Math.exp(logFrom + (logTo - logFrom) * ease);
         // Interpolate center in fractal coordinates
         centerRef.current = {
@@ -643,7 +761,10 @@ export default function FractalsPage() {
     };
 
     rafRef.current = requestAnimationFrame(loop);
-    return () => { running = false; cancelAnimationFrame(rafRef.current); };
+    return () => {
+      running = false;
+      cancelAnimationFrame(rafRef.current);
+    };
   }, [draw]);
 
   // ── Resize observer ─────────────────────────────────────────────────────────
@@ -651,7 +772,7 @@ export default function FractalsPage() {
     const canvas = canvasRef.current!;
     const ro = new ResizeObserver(() => {
       const dpr = window.devicePixelRatio || 1;
-      canvas.width  = canvas.offsetWidth  * dpr;
+      canvas.width = canvas.offsetWidth * dpr;
       canvas.height = canvas.offsetHeight * dpr;
       needsDrawRef.current = true;
     });
@@ -663,7 +784,11 @@ export default function FractalsPage() {
   const pushNavHistory = useCallback(() => {
     backStackRef.current = [
       ...backStackRef.current,
-      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
+      {
+        center: { ...centerRef.current },
+        zoom: zoomRef.current,
+        mode: modeRef.current,
+      },
     ];
     forwardStackRef.current = [];
     setCanGoBack(true);
@@ -676,10 +801,17 @@ export default function FractalsPage() {
     const target = backStackRef.current[backStackRef.current.length - 1];
     backStackRef.current = backStackRef.current.slice(0, -1);
     forwardStackRef.current = [
-      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
+      {
+        center: { ...centerRef.current },
+        zoom: zoomRef.current,
+        mode: modeRef.current,
+      },
       ...forwardStackRef.current,
     ];
-    if (target.mode !== modeRef.current) { modeRef.current = target.mode; setMode(target.mode); }
+    if (target.mode !== modeRef.current) {
+      modeRef.current = target.mode;
+      setMode(target.mode);
+    }
     flyAnimRef.current = {
       fromCenter: { ...centerRef.current },
       fromZoom: zoomRef.current,
@@ -702,9 +834,16 @@ export default function FractalsPage() {
     forwardStackRef.current = forwardStackRef.current.slice(1);
     backStackRef.current = [
       ...backStackRef.current,
-      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
+      {
+        center: { ...centerRef.current },
+        zoom: zoomRef.current,
+        mode: modeRef.current,
+      },
     ];
-    if (target.mode !== modeRef.current) { modeRef.current = target.mode; setMode(target.mode); }
+    if (target.mode !== modeRef.current) {
+      modeRef.current = target.mode;
+      setMode(target.mode);
+    }
     flyAnimRef.current = {
       fromCenter: { ...centerRef.current },
       fromZoom: zoomRef.current,
@@ -735,25 +874,37 @@ export default function FractalsPage() {
       switch (e.key) {
         case "ArrowLeft":
           e.preventDefault();
-          centerRef.current = { ...centerRef.current, x: centerRef.current.x - panStep };
+          centerRef.current = {
+            ...centerRef.current,
+            x: centerRef.current.x - panStep,
+          };
           setCenterDisplay({ ...centerRef.current });
           needsDrawRef.current = true;
           break;
         case "ArrowRight":
           e.preventDefault();
-          centerRef.current = { ...centerRef.current, x: centerRef.current.x + panStep };
+          centerRef.current = {
+            ...centerRef.current,
+            x: centerRef.current.x + panStep,
+          };
           setCenterDisplay({ ...centerRef.current });
           needsDrawRef.current = true;
           break;
         case "ArrowUp":
           e.preventDefault();
-          centerRef.current = { ...centerRef.current, y: centerRef.current.y + panStep };
+          centerRef.current = {
+            ...centerRef.current,
+            y: centerRef.current.y + panStep,
+          };
           setCenterDisplay({ ...centerRef.current });
           needsDrawRef.current = true;
           break;
         case "ArrowDown":
           e.preventDefault();
-          centerRef.current = { ...centerRef.current, y: centerRef.current.y - panStep };
+          centerRef.current = {
+            ...centerRef.current,
+            y: centerRef.current.y - panStep,
+          };
           setCenterDisplay({ ...centerRef.current });
           needsDrawRef.current = true;
           break;
@@ -828,9 +979,9 @@ export default function FractalsPage() {
           const shareParams = new URLSearchParams({
             cx: centerRef.current.x.toString(),
             cy: centerRef.current.y.toString(),
-            z:  zoomRef.current.toString(),
-            m:  modeRef.current,
-            p:  palRef.current.toString(),
+            z: zoomRef.current.toString(),
+            m: modeRef.current,
+            p: palRef.current.toString(),
             mi: maxIterRef.current.toString(),
             ja: juliaAngleRef.current.toString(),
             cs: colorShiftRef.current.toString(),
@@ -838,10 +989,15 @@ export default function FractalsPage() {
           const shareHash = shareParams.toString();
           window.history.replaceState(null, "", `#${shareHash}`);
           const shareUrl = `${window.location.origin}${window.location.pathname}#${shareHash}`;
-          navigator.clipboard.writeText(shareUrl).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          }).catch(() => {/* clipboard unavailable */});
+          navigator.clipboard
+            .writeText(shareUrl)
+            .then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            })
+            .catch(() => {
+              /* clipboard unavailable */
+            });
           break;
         }
         case "d":
@@ -852,7 +1008,8 @@ export default function FractalsPage() {
           const canvas = canvasRef.current;
           if (!canvas) break;
           // preserveDrawingBuffer: true guarantees the last rendered frame is still available
-          const paletteName = PALETTES[palRef.current]?.toLowerCase() ?? "custom";
+          const paletteName =
+            PALETTES[palRef.current]?.toLowerCase() ?? "custom";
           const filename = `fractal-${modeRef.current}-${paletteName}-${Date.now()}.png`;
           const link = document.createElement("a");
           link.href = canvas.toDataURL("image/png");
@@ -879,13 +1036,44 @@ export default function FractalsPage() {
           const nextMode = modeKeys[(currentIdx + 1) % modeKeys.length];
           modeRef.current = nextMode;
           setMode(nextMode);
-          if (nextMode === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: -0.5, y: 0 }); }
-          if (nextMode === "julia")      { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.45; setZoomLevel(0.45); setCenterDisplay({ x: 0.0, y: 0 }); }
-          if (nextMode === "burning")    { centerRef.current = { x: -0.4, y: 0.6 }; zoomRef.current = 0.4; setZoomLevel(0.4); setCenterDisplay({ x: -0.4, y: 0.6 }); }
-          if (nextMode === "newton")     { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.5; setZoomLevel(0.5); setCenterDisplay({ x: 0.0, y: 0 }); }
-          if (nextMode === "tricorn")    { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: 0.0, y: 0 }); }
+          if (nextMode === "mandelbrot") {
+            centerRef.current = { x: -0.5, y: 0 };
+            zoomRef.current = 0.35;
+            setZoomLevel(0.35);
+            setCenterDisplay({ x: -0.5, y: 0 });
+          }
+          if (nextMode === "julia") {
+            centerRef.current = { x: 0.0, y: 0 };
+            zoomRef.current = 0.45;
+            setZoomLevel(0.45);
+            setCenterDisplay({ x: 0.0, y: 0 });
+          }
+          if (nextMode === "burning") {
+            centerRef.current = { x: -0.4, y: 0.6 };
+            zoomRef.current = 0.4;
+            setZoomLevel(0.4);
+            setCenterDisplay({ x: -0.4, y: 0.6 });
+          }
+          if (nextMode === "newton") {
+            centerRef.current = { x: 0.0, y: 0 };
+            zoomRef.current = 0.5;
+            setZoomLevel(0.5);
+            setCenterDisplay({ x: 0.0, y: 0 });
+          }
+          if (nextMode === "tricorn") {
+            centerRef.current = { x: 0.0, y: 0 };
+            zoomRef.current = 0.35;
+            setZoomLevel(0.35);
+            setCenterDisplay({ x: 0.0, y: 0 });
+          }
+          if (nextMode === "multibrot") {
+            centerRef.current = { x: 0.0, y: 0 };
+            zoomRef.current = 0.35;
+            setZoomLevel(0.35);
+            setCenterDisplay({ x: 0.0, y: 0 });
+          }
           needsDrawRef.current = true;
-          const nextModeInfo = FRACTAL_MODES.find(f => f.key === nextMode);
+          const nextModeInfo = FRACTAL_MODES.find((f) => f.key === nextMode);
           if (nextModeInfo) showModeToast(nextModeInfo.description);
           break;
         }
@@ -896,7 +1084,8 @@ export default function FractalsPage() {
           break;
         case "[": {
           e.preventDefault();
-          const prevIdx = (currentPresetIdxRef.current - 1 + PRESETS.length) % PRESETS.length;
+          const prevIdx =
+            (currentPresetIdxRef.current - 1 + PRESETS.length) % PRESETS.length;
           currentPresetIdxRef.current = prevIdx;
           applyPreset(PRESETS[prevIdx]);
           showPresetToast(PRESETS[prevIdx].name);
@@ -935,66 +1124,92 @@ export default function FractalsPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [resetHintTimer, toggleFullscreen, showPresetToast, showModeToast, goBack, goForward]); // all refs and state setters are stable; these callbacks are also stable
+  }, [
+    resetHintTimer,
+    toggleFullscreen,
+    showPresetToast,
+    showModeToast,
+    goBack,
+    goForward,
+  ]); // all refs and state setters are stable; these callbacks are also stable
 
   // ── Pointer events (pan + pinch-to-zoom) ────────────────────────────────────
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    // ── Shift+click in Mandelbrot mode → explore Julia set for this c value ──
-    if (e.shiftKey && modeRef.current === "mandelbrot" && pointersRef.current.size === 0) {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        const W = rect.width;
-        const H = rect.height;
-        const minDim = Math.min(W, H);
-        const c = {
-          x: (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x,
-          y: -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y,
-        };
-        // Record current position in navigation history before switching to Julia
-        pushNavHistory();
-        juliaCDirectRef.current = c;
-        setJuliaCDirect(c);
-        colorShiftRef.current = 0;
-        setColorShift(0);
-        dirRef.current = 1;
-        playingRef.current = false;
-        setPlaying(false);
-        modeRef.current = "julia";
-        setMode("julia");
-        flyAnimRef.current = {
-          fromCenter: { ...centerRef.current },
-          fromZoom: zoomRef.current,
-          toCenter: { x: 0, y: 0 },
-          toZoom: 0.45,
-          startTime: Date.now(),
-          duration: 800,
-        };
-        needsDrawRef.current = true;
-        resetHintTimer();
-        return; // don't start a drag
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // ── Shift+click in Mandelbrot mode → explore Julia set for this c value ──
+      if (
+        e.shiftKey &&
+        modeRef.current === "mandelbrot" &&
+        pointersRef.current.size === 0
+      ) {
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const rect = canvas.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const mouseY = e.clientY - rect.top;
+          const W = rect.width;
+          const H = rect.height;
+          const minDim = Math.min(W, H);
+          const c = {
+            x:
+              (mouseX - W / 2) / (minDim * zoomRef.current) +
+              centerRef.current.x,
+            y:
+              -(mouseY - H / 2) / (minDim * zoomRef.current) +
+              centerRef.current.y,
+          };
+          // Record current position in navigation history before switching to Julia
+          pushNavHistory();
+          juliaCDirectRef.current = c;
+          setJuliaCDirect(c);
+          colorShiftRef.current = 0;
+          setColorShift(0);
+          dirRef.current = 1;
+          playingRef.current = false;
+          setPlaying(false);
+          modeRef.current = "julia";
+          setMode("julia");
+          flyAnimRef.current = {
+            fromCenter: { ...centerRef.current },
+            fromZoom: zoomRef.current,
+            toCenter: { x: 0, y: 0 },
+            toZoom: 0.45,
+            startTime: Date.now(),
+            duration: 800,
+          };
+          needsDrawRef.current = true;
+          resetHintTimer();
+          return; // don't start a drag
+        }
       }
-    }
 
-    // Cancel any in-progress fly animation so the user takes control immediately
-    flyAnimRef.current = null;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      // Cancel any in-progress fly animation so the user takes control immediately
+      flyAnimRef.current = null;
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    if (pointersRef.current.size === 1) {
-      // Single finger — start a pan
-      dragRef.current = { x: e.clientX, y: e.clientY, cx: centerRef.current.x, cy: centerRef.current.y };
-      lastPinchDistRef.current = null;
-    } else {
-      // Second finger arrived — cancel pan and initialise pinch-to-zoom
-      dragRef.current = null;
-      const pts = [...pointersRef.current.values()];
-      lastPinchDistRef.current = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-    }
-    resetHintTimer();
-  }, [resetHintTimer, pushNavHistory]);
+      if (pointersRef.current.size === 1) {
+        // Single finger — start a pan
+        dragRef.current = {
+          x: e.clientX,
+          y: e.clientY,
+          cx: centerRef.current.x,
+          cy: centerRef.current.y,
+        };
+        lastPinchDistRef.current = null;
+      } else {
+        // Second finger arrived — cancel pan and initialise pinch-to-zoom
+        dragRef.current = null;
+        const pts = [...pointersRef.current.values()];
+        lastPinchDistRef.current = Math.hypot(
+          pts[1].x - pts[0].x,
+          pts[1].y - pts[0].y,
+        );
+      }
+      resetHintTimer();
+    },
+    [resetHintTimer, pushNavHistory],
+  );
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1011,12 +1226,18 @@ export default function FractalsPage() {
           // Zoom centred on the midpoint between the two fingers
           const midX = (pts[0].x + pts[1].x) / 2 - rect.left;
           const midY = (pts[0].y + pts[1].y) / 2 - rect.top;
-          const W = rect.width, H = rect.height;
+          const W = rect.width,
+            H = rect.height;
           const minDim = Math.min(W, H);
           // Fractal-space point currently under the pinch midpoint
-          const fractalX =  (midX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
-          const fractalY = -(midY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
-          const newZoom = Math.max(0.05, Math.min(1e8, zoomRef.current * factor));
+          const fractalX =
+            (midX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
+          const fractalY =
+            -(midY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
+          const newZoom = Math.max(
+            0.05,
+            Math.min(1e8, zoomRef.current * factor),
+          );
           // Shift center so the same fractal point stays under the pinch midpoint
           centerRef.current = {
             x: fractalX - (midX - W / 2) / (minDim * newZoom),
@@ -1034,10 +1255,14 @@ export default function FractalsPage() {
     // ── Single-pointer pan (existing logic) ───────────────────────────────────
     if (!dragRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
-    const scale  = 1 / (Math.min(canvas.offsetWidth, canvas.offsetHeight) * zoomRef.current);
+    const scale =
+      1 / (Math.min(canvas.offsetWidth, canvas.offsetHeight) * zoomRef.current);
     const dx = (e.clientX - dragRef.current.x) * scale;
     const dy = (e.clientY - dragRef.current.y) * scale;
-    centerRef.current = { x: dragRef.current.cx - dx, y: dragRef.current.cy + dy };
+    centerRef.current = {
+      x: dragRef.current.cx - dx,
+      y: dragRef.current.cy + dy,
+    };
     needsDrawRef.current = true;
   }, []);
 
@@ -1052,7 +1277,12 @@ export default function FractalsPage() {
       // One finger lifted — transition back to single-pointer pan from the current position
       lastPinchDistRef.current = null;
       const [pt] = [...pointersRef.current.values()];
-      dragRef.current = { x: pt.x, y: pt.y, cx: centerRef.current.x, cy: centerRef.current.y };
+      dragRef.current = {
+        x: pt.x,
+        y: pt.y,
+        cx: centerRef.current.x,
+        cy: centerRef.current.y,
+      };
     }
   }, []);
 
@@ -1066,8 +1296,10 @@ export default function FractalsPage() {
     const W = rect.width;
     const H = rect.height;
     const minDim = Math.min(W, H);
-    const re = (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
-    const im = -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
+    const re =
+      (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
+    const im =
+      -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
     setMouseCoords({ re, im });
   }, []);
 
@@ -1076,85 +1308,120 @@ export default function FractalsPage() {
   }, []);
 
   // ── Double-click to zoom in (4×) centred on clicked fractal point ───────────
-  const onDoubleClick = useCallback((e: React.MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const W = rect.width;
-    const H = rect.height;
-    const minDim = Math.min(W, H);
+  const onDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const W = rect.width;
+      const H = rect.height;
+      const minDim = Math.min(W, H);
 
-    // Fractal-space coordinate currently under the cursor
-    const fractalX =  (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
-    const fractalY = -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
+      // Fractal-space coordinate currently under the cursor
+      const fractalX =
+        (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
+      const fractalY =
+        -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
 
-    // Record current position in navigation history before jumping
-    pushNavHistory();
+      // Record current position in navigation history before jumping
+      pushNavHistory();
 
-    // Smoothly fly 4× into that point using the shared fly animation system
-    flyAnimRef.current = {
-      fromCenter: { ...centerRef.current },
-      fromZoom: zoomRef.current,
-      toCenter: { x: fractalX, y: fractalY },
-      toZoom: Math.min(1e8, zoomRef.current * 4),
-      startTime: Date.now(),
-      duration: 500,
-    };
-    needsDrawRef.current = true;
-    resetHintTimer();
-  }, [resetHintTimer, pushNavHistory]);
+      // Smoothly fly 4× into that point using the shared fly animation system
+      flyAnimRef.current = {
+        fromCenter: { ...centerRef.current },
+        fromZoom: zoomRef.current,
+        toCenter: { x: fractalX, y: fractalY },
+        toZoom: Math.min(1e8, zoomRef.current * 4),
+        startTime: Date.now(),
+        duration: 500,
+      };
+      needsDrawRef.current = true;
+      resetHintTimer();
+    },
+    [resetHintTimer, pushNavHistory],
+  );
 
   // ── Wheel (zoom to cursor) ───────────────────────────────────────────────────
-  const onWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    // Cancel any in-progress fly animation so the user takes control immediately
-    flyAnimRef.current = null;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const onWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      // Cancel any in-progress fly animation so the user takes control immediately
+      flyAnimRef.current = null;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
 
-    const factor = e.deltaY > 0 ? 0.85 : 1 / 0.85;
-    const newZoom = Math.max(0.05, Math.min(1e8, zoomRef.current * factor));
+      const factor = e.deltaY > 0 ? 0.85 : 1 / 0.85;
+      const newZoom = Math.max(0.05, Math.min(1e8, zoomRef.current * factor));
 
-    // Keep the fractal point under the cursor fixed while zooming.
-    // Use CSS dimensions (offsetWidth/Height) consistent with the pan handler.
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const W = rect.width;
-    const H = rect.height;
-    const minDim = Math.min(W, H);
+      // Keep the fractal point under the cursor fixed while zooming.
+      // Use CSS dimensions (offsetWidth/Height) consistent with the pan handler.
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const W = rect.width;
+      const H = rect.height;
+      const minDim = Math.min(W, H);
 
-    // Fractal coordinate currently under the cursor (before zoom changes)
-    const fractalX =  (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
-    const fractalY = -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
+      // Fractal coordinate currently under the cursor (before zoom changes)
+      const fractalX =
+        (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
+      const fractalY =
+        -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
 
-    // Shift center so that same fractal point stays under the cursor after zoom
-    centerRef.current = {
-      x: fractalX - (mouseX - W / 2) / (minDim * newZoom),
-      y: fractalY + (mouseY - H / 2) / (minDim * newZoom),
-    };
+      // Shift center so that same fractal point stays under the cursor after zoom
+      centerRef.current = {
+        x: fractalX - (mouseX - W / 2) / (minDim * newZoom),
+        y: fractalY + (mouseY - H / 2) / (minDim * newZoom),
+      };
 
-    zoomRef.current = newZoom;
-    setZoomLevel(newZoom);
-    setCenterDisplay({ ...centerRef.current });
-    needsDrawRef.current = true;
-    resetHintTimer();
-  }, [resetHintTimer]);
+      zoomRef.current = newZoom;
+      setZoomLevel(newZoom);
+      setCenterDisplay({ ...centerRef.current });
+      needsDrawRef.current = true;
+      resetHintTimer();
+    },
+    [resetHintTimer],
+  );
 
   // ── UI handlers ─────────────────────────────────────────────────────────────
   const setModeUI = (m: FractalKey) => {
     modeRef.current = m;
     setMode(m);
     // Reset view to nice defaults per mode
-    if (m === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 };    zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: -0.5, y: 0 }); }
-    if (m === "julia")      { centerRef.current = { x:  0.0, y: 0 };    zoomRef.current = 0.45; setZoomLevel(0.45); setCenterDisplay({ x: 0.0,  y: 0 }); }
-    if (m === "burning")    { centerRef.current = { x: -0.4, y: 0.6 };  zoomRef.current = 0.4;  setZoomLevel(0.4);  setCenterDisplay({ x: -0.4, y: 0.6 }); }
-    if (m === "newton")     { centerRef.current = { x:  0.0, y: 0 };    zoomRef.current = 0.5;  setZoomLevel(0.5);  setCenterDisplay({ x: 0.0,  y: 0 }); }
-    if (m === "tricorn")    { centerRef.current = { x:  0.0, y: 0 };    zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: 0.0,  y: 0 }); }
+    if (m === "mandelbrot") {
+      centerRef.current = { x: -0.5, y: 0 };
+      zoomRef.current = 0.35;
+      setZoomLevel(0.35);
+      setCenterDisplay({ x: -0.5, y: 0 });
+    }
+    if (m === "julia") {
+      centerRef.current = { x: 0.0, y: 0 };
+      zoomRef.current = 0.45;
+      setZoomLevel(0.45);
+      setCenterDisplay({ x: 0.0, y: 0 });
+    }
+    if (m === "burning") {
+      centerRef.current = { x: -0.4, y: 0.6 };
+      zoomRef.current = 0.4;
+      setZoomLevel(0.4);
+      setCenterDisplay({ x: -0.4, y: 0.6 });
+    }
+    if (m === "newton") {
+      centerRef.current = { x: 0.0, y: 0 };
+      zoomRef.current = 0.5;
+      setZoomLevel(0.5);
+      setCenterDisplay({ x: 0.0, y: 0 });
+    }
+    if (m === "tricorn") {
+      centerRef.current = { x: 0.0, y: 0 };
+      zoomRef.current = 0.35;
+      setZoomLevel(0.35);
+      setCenterDisplay({ x: 0.0, y: 0 });
+    }
     needsDrawRef.current = true;
-    const modeInfo = FRACTAL_MODES.find(f => f.key === m);
+    const modeInfo = FRACTAL_MODES.find((f) => f.key === m);
     if (modeInfo) showModeToast(modeInfo.description);
   };
 
@@ -1169,7 +1436,7 @@ export default function FractalsPage() {
     juliaCDirectRef.current = null;
     setJuliaCDirect(null);
     playingRef.current = !playingRef.current;
-    setPlaying(p => !p);
+    setPlaying((p) => !p);
   };
 
   const stepFrame = (dir: number) => {
@@ -1177,8 +1444,8 @@ export default function FractalsPage() {
     juliaCDirectRef.current = null;
     setJuliaCDirect(null);
     dirRef.current = dir;
-    juliaAngleRef.current += JULIA_ORBIT_SPEED * 8 * dir;
-    colorShiftRef.current += 0.0004 * 8 * dir;
+    juliaAngleRef.current += JULIA_ORBIT_SPEED * 8 * dir * animSpeedRef.current;
+    colorShiftRef.current += 0.0004 * 8 * dir * animSpeedRef.current;
     setJuliaAngle(juliaAngleRef.current);
     setColorShift(((colorShiftRef.current % 1) + 1) % 1);
     needsDrawRef.current = true;
@@ -1189,15 +1456,21 @@ export default function FractalsPage() {
     juliaCDirectRef.current = null;
     setJuliaCDirect(null);
     dirRef.current = d;
-    if (!playingRef.current) { playingRef.current = true; setPlaying(true); }
+    if (!playingRef.current) {
+      playingRef.current = true;
+      setPlaying(true);
+    }
   };
 
   const reset = () => {
     juliaCDirectRef.current = null;
     setJuliaCDirect(null);
-    playingRef.current = false; setPlaying(false);
-    juliaAngleRef.current = 0;  setJuliaAngle(0);
-    colorShiftRef.current = 0;  setColorShift(0);
+    playingRef.current = false;
+    setPlaying(false);
+    juliaAngleRef.current = 0;
+    setJuliaAngle(0);
+    colorShiftRef.current = 0;
+    setColorShift(0);
     dirRef.current = 1;
     // Clear navigation history on full reset
     backStackRef.current = [];
@@ -1211,6 +1484,11 @@ export default function FractalsPage() {
     maxIterRef.current = v;
     setMaxIter(v);
     needsDrawRef.current = true;
+  };
+
+  const updateAnimSpeed = (v: number) => {
+    animSpeedRef.current = v;
+    setAnimSpeed(v);
   };
 
   const applyPreset = (preset: Preset) => {
@@ -1262,9 +1540,9 @@ export default function FractalsPage() {
     const params = new URLSearchParams({
       cx: centerRef.current.x.toString(),
       cy: centerRef.current.y.toString(),
-      z:  zoomRef.current.toString(),
-      m:  modeRef.current,
-      p:  palRef.current.toString(),
+      z: zoomRef.current.toString(),
+      m: modeRef.current,
+      p: palRef.current.toString(),
       mi: maxIterRef.current.toString(),
       ja: juliaAngleRef.current.toString(),
       cs: colorShiftRef.current.toString(),
@@ -1272,10 +1550,15 @@ export default function FractalsPage() {
     const hash = params.toString();
     window.history.replaceState(null, "", `#${hash}`);
     const url = `${window.location.origin}${window.location.pathname}#${hash}`;
-    navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {/* clipboard not available */});
+    navigator.clipboard
+      .writeText(url)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        /* clipboard not available */
+      });
   }, []);
 
   const saveImage = useCallback(() => {
@@ -1293,7 +1576,9 @@ export default function FractalsPage() {
 
   /** Save the current view as a personal bookmark in localStorage. */
   const saveBookmark = useCallback(() => {
-    const modeName = FRACTAL_MODES.find((m) => m.key === modeRef.current)?.label ?? modeRef.current;
+    const modeName =
+      FRACTAL_MODES.find((m) => m.key === modeRef.current)?.label ??
+      modeRef.current;
     const mag = formatMag(zoomRef.current);
     const name = `${modeName} · ${mag}`;
     const newFav: FavoritePreset = {
@@ -1343,14 +1628,15 @@ export default function FractalsPage() {
 
       {/* ── Controls overlay ── */}
       <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3 pointer-events-none">
-
         {/* Mode description toast — briefly describes the active fractal type */}
         <div
           className="text-white/90 text-[11px] text-center bg-black/70 backdrop-blur-sm px-4 py-2 rounded-lg pointer-events-none max-w-xs leading-snug"
           style={{
             transition: "opacity 400ms ease, transform 400ms ease",
             opacity: modeToast ? 1 : 0,
-            transform: modeToast ? "scale(1) translateY(0)" : "scale(0.95) translateY(4px)",
+            transform: modeToast
+              ? "scale(1) translateY(0)"
+              : "scale(0.95) translateY(4px)",
           }}
           aria-live="polite"
           aria-atomic="true"
@@ -1366,7 +1652,6 @@ export default function FractalsPage() {
         )}
 
         <div className="flex gap-3 items-center flex-wrap justify-center pointer-events-auto">
-
           {/* Fractal mode pills */}
           <div className="flex bg-black/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
             {FRACTAL_MODES.map((m) => (
@@ -1538,18 +1823,28 @@ export default function FractalsPage() {
                   </div>
                 )}
                 {/* Built-in preset groups */}
-                {(["mandelbrot", "julia", "burning", "newton", "tricorn"] as FractalKey[]).map((groupKey) => {
-                  const groupPresets = PRESETS.filter((p) => p.mode === groupKey);
+                {(
+                  [
+                    "mandelbrot",
+                    "julia",
+                    "burning",
+                    "newton",
+                    "tricorn",
+                  ] as FractalKey[]
+                ).map((groupKey) => {
+                  const groupPresets = PRESETS.filter(
+                    (p) => p.mode === groupKey,
+                  );
                   const groupLabel =
                     groupKey === "mandelbrot"
                       ? "Mandelbrot"
                       : groupKey === "julia"
-                      ? "Julia"
-                      : groupKey === "burning"
-                      ? "Burning Ship"
-                      : groupKey === "newton"
-                      ? "Newton"
-                      : "Tricorn";
+                        ? "Julia"
+                        : groupKey === "burning"
+                          ? "Burning Ship"
+                          : groupKey === "newton"
+                            ? "Newton"
+                            : "Tricorn";
                   return (
                     <div key={groupKey}>
                       <div className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-white/30">
@@ -1628,7 +1923,9 @@ export default function FractalsPage() {
           {/* Fullscreen */}
           <button
             onClick={toggleFullscreen}
-            title={isFullscreen ? "Exit fullscreen (F)" : "Enter fullscreen (F)"}
+            title={
+              isFullscreen ? "Exit fullscreen (F)" : "Enter fullscreen (F)"
+            }
             className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-xl text-white/60 hover:text-white transition-colors"
           >
             {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
@@ -1648,7 +1945,9 @@ export default function FractalsPage() {
             onChange={(e) => updateMaxIter(Number(e.target.value))}
             className="w-28 accent-white/70"
           />
-          <span className="text-white/60 text-xs w-8 text-right">{maxIter}</span>
+          <span className="text-white/60 text-xs w-8 text-right">
+            {maxIter}
+          </span>
 
           <div className="w-px h-4 bg-white/20 mx-1" />
 
@@ -1668,6 +1967,28 @@ export default function FractalsPage() {
             }}
             className="w-28 accent-white/70"
           />
+
+          <div className="w-px h-4 bg-white/20 mx-1" />
+
+          {/* Animation speed multiplier */}
+          <span className="text-white/50 text-xs">spd</span>
+          <div className="flex rounded-lg overflow-hidden border border-white/10">
+            {([0.5, 1, 2, 4] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => updateAnimSpeed(s)}
+                title={`Animation speed: ${s}×`}
+                className={[
+                  "px-2 py-0.5 text-[11px] font-mono transition-colors",
+                  animSpeed === s
+                    ? "bg-white/25 text-white"
+                    : "text-white/40 hover:text-white/80 hover:bg-white/10",
+                ].join(" ")}
+              >
+                {s}×
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1687,7 +2008,9 @@ export default function FractalsPage() {
             }
             setIsEditingCoords(false);
           }}
-          onKeyDown={(e) => { if (e.key === "Escape") setIsEditingCoords(false); }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setIsEditingCoords(false);
+          }}
         >
           <span className="text-white/30 mr-1 shrink-0">ctr</span>
           <input
@@ -1732,16 +2055,24 @@ export default function FractalsPage() {
               setIsEditingCoords(true);
             }
           }}
-          title={!mouseCoords ? "Click to navigate to specific coordinates" : undefined}
+          title={
+            !mouseCoords
+              ? "Click to navigate to specific coordinates"
+              : undefined
+          }
         >
           {mouseCoords ? (
             <>
-              {mouseCoords.re.toFixed(6)}{mouseCoords.im >= 0 ? " + " : " − "}{Math.abs(mouseCoords.im).toFixed(6)}i
+              {mouseCoords.re.toFixed(6)}
+              {mouseCoords.im >= 0 ? " + " : " − "}
+              {Math.abs(mouseCoords.im).toFixed(6)}i
             </>
           ) : (
             <span className="text-white/40">
               <span className="text-white/25 mr-1">ctr</span>
-              {centerDisplay.x.toFixed(6)}{centerDisplay.y >= 0 ? " + " : " − "}{Math.abs(centerDisplay.y).toFixed(6)}i
+              {centerDisplay.x.toFixed(6)}
+              {centerDisplay.y >= 0 ? " + " : " − "}
+              {Math.abs(centerDisplay.y).toFixed(6)}i
             </span>
           )}
         </div>
@@ -1779,8 +2110,8 @@ export default function FractalsPage() {
           {mode === "mandelbrot"
             ? "drag to pan · scroll to zoom · double-click to zoom in · shift+click for Julia set"
             : "drag to pan · scroll to zoom · pinch to zoom · double-click to zoom in"}
-          <br />
-          ← → ↑ ↓ pan · +/− zoom · space play · m mode · p palette · [ ] presets · r reset · s share · d save · f fullscreen
+          <br />← → ↑ ↓ pan · +/− zoom · space play · m mode · p palette · [ ]
+          presets · r reset · s share · d save · f fullscreen
         </div>
       </div>
     </div>

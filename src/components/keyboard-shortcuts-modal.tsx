@@ -75,7 +75,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["+"], description: "Zoom in" },
       { keys: ["-"], description: "Zoom out" },
       { keys: ["Space"], description: "Play / pause animation" },
-      { keys: ["M"], description: "Cycle fractal mode (Mandelbrot → Julia → Burning Ship → Newton → Tricorn)" },
+      { keys: ["M"], description: "Cycle fractal mode (Mandelbrot → Julia → Burning Ship → Newton → Tricorn → Multibrot)" },
       { keys: ["P"], description: "Cycle colour palette" },
       { keys: ["R"], description: "Reset view" },
       { keys: ["S"], description: "Copy shareable link" },
