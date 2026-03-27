@@ -10,7 +10,7 @@ import {
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 import { type FC, memo, useState } from "react";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
@@ -130,15 +130,29 @@ const defaultComponents = memoizeMarkdownComponents({
       {...props}
     />
   ),
-  a: ({ className, ...props }) => (
-    <a
-      className={cn(
-        "aui-md-a text-primary underline underline-offset-2 hover:text-primary/80",
-        className,
-      )}
-      {...props}
-    />
-  ),
+  a: ({ className, href, children, ...props }) => {
+    const isExternal =
+      typeof href === "string" &&
+      (href.startsWith("http://") || href.startsWith("https://"));
+    return (
+      <a
+        href={href}
+        className={cn(
+          "aui-md-a text-primary underline underline-offset-2 hover:text-primary/80 inline-flex items-baseline gap-0.5",
+          className,
+        )}
+        {...(isExternal
+          ? { target: "_blank", rel: "noopener noreferrer" }
+          : {})}
+        {...props}
+      >
+        {children}
+        {isExternal && (
+          <ExternalLinkIcon className="inline-block size-3 shrink-0 translate-y-px opacity-50" />
+        )}
+      </a>
+    );
+  },
   blockquote: ({ className, ...props }) => (
     <blockquote
       className={cn(
