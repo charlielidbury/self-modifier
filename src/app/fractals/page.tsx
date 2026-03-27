@@ -1117,6 +1117,15 @@ export default function FractalsPage() {
           needsDrawRef.current = true;
           break;
         }
+        case "x":
+        case "X": {
+          // Surprise Me — jump to a random preset location
+          e.preventDefault();
+          const randomIdx = Math.floor(Math.random() * PRESETS.length);
+          applyPreset(PRESETS[randomIdx]);
+          showPresetToast(PRESETS[randomIdx].name);
+          break;
+        }
       }
       // Any fractal-control key resets the hint fade timer
       resetHintTimer();

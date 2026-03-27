@@ -13,6 +13,16 @@ import {
   Search,
   Plus,
   Clock,
+  RefreshCw,
+  Lightbulb,
+  Copy,
+  ExternalLink,
+  Play,
+  RotateCcw,
+  Download,
+  Link,
+  Camera,
+  Shuffle,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -142,6 +152,153 @@ function useCommands(): Command[] {
               );
             },
             keywords: ["create", "fresh", "conversation"],
+          },
+        ]
+      : []),
+    // ── Chess page commands ────────────────────────────────────────────────────
+    ...(pathname === "/chess"
+      ? [
+          {
+            id: "chess-new-game",
+            label: "New Chess Game",
+            hint: "N",
+            icon: <Plus size={16} />,
+            group: "Chess",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "n" }));
+            },
+            keywords: ["start", "reset", "restart"],
+          },
+          {
+            id: "chess-flip",
+            label: "Flip Board",
+            hint: "F",
+            icon: <RefreshCw size={16} />,
+            group: "Chess",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+            },
+            keywords: ["rotate", "perspective", "mirror", "black", "white"],
+          },
+          {
+            id: "chess-hint",
+            label: "Show Move Hint",
+            hint: "H",
+            icon: <Lightbulb size={16} />,
+            group: "Chess",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "h" }));
+            },
+            keywords: ["help", "best", "suggestion", "engine"],
+          },
+          {
+            id: "chess-copy-pgn",
+            label: "Copy Game as PGN",
+            hint: "G",
+            icon: <Copy size={16} />,
+            group: "Chess",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "g" }));
+            },
+            keywords: ["export", "share", "clipboard", "notation"],
+          },
+          {
+            id: "chess-lichess",
+            label: "Open in Lichess Analysis",
+            hint: "L",
+            icon: <ExternalLink size={16} />,
+            group: "Chess",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "l" }));
+            },
+            keywords: ["analyze", "analysis", "external", "engine"],
+          },
+        ]
+      : []),
+    // ── Fractals page commands ─────────────────────────────────────────────────
+    ...(pathname === "/fractals"
+      ? [
+          {
+            id: "fractals-toggle-animation",
+            label: "Toggle Fractal Animation",
+            hint: "Space",
+            icon: <Play size={16} />,
+            group: "Fractals",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+            },
+            keywords: ["play", "pause", "animate", "julia", "stop"],
+          },
+          {
+            id: "fractals-reset",
+            label: "Reset Fractal View",
+            hint: "R",
+            icon: <RotateCcw size={16} />,
+            group: "Fractals",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
+            },
+            keywords: ["center", "zoom", "default", "home"],
+          },
+          {
+            id: "fractals-save-png",
+            label: "Save Fractal as PNG",
+            hint: "D",
+            icon: <Download size={16} />,
+            group: "Fractals",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "d" }));
+            },
+            keywords: ["image", "export", "screenshot", "download", "picture"],
+          },
+          {
+            id: "fractals-share",
+            label: "Copy Fractal Share Link",
+            hint: "S",
+            icon: <Link size={16} />,
+            group: "Fractals",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "s" }));
+            },
+            keywords: ["url", "clipboard", "share", "link", "permalink"],
+          },
+          {
+            id: "fractals-surprise",
+            label: "Surprise Me — Random Preset",
+            hint: "X",
+            icon: <Shuffle size={16} />,
+            group: "Fractals",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }));
+            },
+            keywords: ["random", "shuffle", "explore", "jump", "preset", "teleport"],
+          },
+        ]
+      : []),
+    // ── Minecraft page commands ────────────────────────────────────────────────
+    ...(pathname === "/minecraft"
+      ? [
+          {
+            id: "minecraft-reset",
+            label: "Reset Minecraft View",
+            hint: "R",
+            icon: <RotateCcw size={16} />,
+            group: "Minecraft",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
+            },
+            keywords: ["camera", "orbit", "default", "home"],
+          },
+          {
+            id: "minecraft-screenshot",
+            label: "Save Minecraft Screenshot",
+            hint: "S",
+            icon: <Camera size={16} />,
+            group: "Minecraft",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "s" }));
+            },
+            keywords: ["image", "png", "export", "download", "picture"],
           },
         ]
       : []),

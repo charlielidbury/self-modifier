@@ -55,6 +55,9 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["C"], description: "Swap player colour — White ↔ Black (vs AI mode)" },
       { keys: ["G"], description: "Copy game as PGN to clipboard" },
       { keys: ["L"], description: "Open current position in Lichess analysis" },
+      { keys: ["←"], description: "Step back one move in history (enters review mode)" },
+      { keys: ["→"], description: "Step forward one move in history (exits review mode at end)" },
+      { keys: ["Esc"], description: "Return to live position (while in review mode)" },
     ],
   },
   {
@@ -88,12 +91,14 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["Shift", "I"], description: "Decrease max iterations (−50)" },
       { keys: ["⌫"], description: "Navigate back in view history" },
       { keys: ["Shift", "⌫"], description: "Navigate forward in view history" },
+      { keys: ["X"], description: "Surprise Me — jump to a random preset location" },
     ],
   },
   {
     title: "Global",
     rows: [
       { keys: ["?"], description: "Show keyboard shortcuts" },
+      { keys: ["⌘", "K"], description: "Open command palette" },
       { keys: ["Alt", "T"], description: "Toggle dark / light mode" },
     ],
   },
