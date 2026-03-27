@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
 import { Trash2, MessageSquare, Pencil } from "lucide-react";
 import type { SessionInfo, ChatMessage } from "@/lib/types";
 import type { AgentStatus } from "@/lib/agent";
@@ -42,6 +42,21 @@ function formatRelativeTime(timestamp: number, now: number): string {
     month: "short",
     day: "numeric",
   });
+}
+
+/** Categorise a timestamp into a display group relative to `now`. */
+function getSessionGroup(timestamp: number, now: number): string {
+  const msPerDay = 86_400_000;
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const todayStart = today.getTime();
+  const yesterdayStart = todayStart - msPerDay;
+  const weekStart = todayStart - 6 * msPerDay;
+
+  if (timestamp >= todayStart) return "Today";
+  if (timestamp >= yesterdayStart) return "Yesterday";
+  if (timestamp >= weekStart) return "This Week";
+  return "Older";
 }
 
 type SessionsSidebarProps = {
@@ -468,12 +483,25 @@ export function SessionsSidebar({
             const isActive = activeSessionId === s.sessionId;
             const isKbdFocused = kbdFocusIndex === idx;
             const isRenaming = renamingSessionId === s.sessionId;
+
+            // Date group header — only shown when not actively searching
+            const group = !searchQuery ? getSessionGroup(s.lastModified, now) : null;
+            const prevGroup = !searchQuery && idx > 0
+              ? getSessionGroup(filteredSessions[idx - 1].lastModified, now)
+              : null;
+            const showGroupHeader = group !== null && group !== prevGroup;
+
             return (
+              <Fragment key={s.sessionId}>
+                {showGroupHeader && (
+                  <div className="px-4 pt-3 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500 select-none">
+                    {group}
+                  </div>
+                )}
               <div
-                key={s.sessionId}
                 ref={(el) => { itemRefs.current[idx] = el; }}
                 className={[
-                  "group relative flex items-center text-sm transition-colors",
+                  "group relative flex items-center text-sm transition-colors mx-1 rounded-md",
                   isActive
                     ? "bg-neutral-200 dark:bg-neutral-700"
                     : isKbdFocused
@@ -542,6 +570,7 @@ export function SessionsSidebar({
                   </>
                 )}
               </div>
+              </Fragment>
             );
           })}
           {sessions.length === 0 ? (
