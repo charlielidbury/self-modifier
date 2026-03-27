@@ -683,6 +683,159 @@ function StatCard({ icon, label, value, sub, color }: {
   );
 }
 
+// ── File hotspots (most-modified files) ─────────────────────────────────────
+
+type FileHotspot = {
+  path: string;
+  changes: number;
+  additions: number;
+  deletions: number;
+  commitCount: number;
+  lastModified: string;
+};
+
+/** Color for a file path based on its directory. */
+function hotspotColor(filePath: string): string {
+  if (filePath.startsWith("src/components/")) return "bg-blue-400";
+  if (filePath.startsWith("src/app/api/")) return "bg-violet-400";
+  if (filePath.startsWith("src/app/")) return "bg-emerald-400";
+  if (filePath.startsWith("src/lib/")) return "bg-amber-400";
+  if (filePath.startsWith("src/hooks/")) return "bg-cyan-400";
+  if (filePath.endsWith(".css")) return "bg-pink-400";
+  if (filePath.endsWith(".json")) return "bg-orange-400";
+  if (filePath.endsWith(".md")) return "bg-gray-400";
+  return "bg-white/40";
+}
+
+function hotspotColorText(filePath: string): string {
+  if (filePath.startsWith("src/components/")) return "text-blue-400/70";
+  if (filePath.startsWith("src/app/api/")) return "text-violet-400/70";
+  if (filePath.startsWith("src/app/")) return "text-emerald-400/70";
+  if (filePath.startsWith("src/lib/")) return "text-amber-400/70";
+  if (filePath.startsWith("src/hooks/")) return "text-cyan-400/70";
+  if (filePath.endsWith(".css")) return "text-pink-400/70";
+  return "text-white/40";
+}
+
+function FileHotspotsChart() {
+  const [hotspots, setHotspots] = useState<FileHotspot[]>([]);
+  const [totalFiles, setTotalFiles] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch("/api/self-improve/hotspots");
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { files: FileHotspot[]; totalFiles: number };
+        setHotspots(data.files);
+        setTotalFiles(data.totalFiles);
+      } catch { /* ignore */ }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="px-3 py-4 flex items-center justify-center gap-2">
+        <Loader2 size={10} className="text-white/20 animate-spin" />
+        <span className="text-[10px] text-white/20">Loading hotspots…</span>
+      </div>
+    );
+  }
+
+  if (hotspots.length === 0) {
+    return null;
+  }
+
+  const maxChanges = hotspots[0]?.changes ?? 1;
+  const visibleCount = expanded ? hotspots.length : Math.min(8, hotspots.length);
+  const visible = hotspots.slice(0, visibleCount);
+
+  return (
+    <div className="border-t border-white/[0.06]">
+      {/* Section header */}
+      <div className="px-3 pt-2.5 pb-1.5 flex items-center gap-1.5">
+        <FileCode size={10} className="text-white/25" />
+        <span className="text-[9px] uppercase tracking-wider text-white/30 font-semibold">
+          File Hotspots
+        </span>
+        <span className="text-[9px] text-white/15 ml-auto">
+          {totalFiles} files touched
+        </span>
+      </div>
+
+      {/* Bar chart */}
+      <div className="px-3 pb-1 space-y-[3px]">
+        {visible.map((file) => {
+          const filename = file.path.split("/").pop() ?? file.path;
+          const dir = file.path.includes("/")
+            ? file.path.slice(0, file.path.lastIndexOf("/") + 1)
+            : "";
+          const pct = Math.max(3, (file.changes / maxChanges) * 100);
+          const barColor = hotspotColor(file.path);
+          const textColor = hotspotColorText(file.path);
+
+          return (
+            <div key={file.path} className="group/hotspot">
+              {/* File name row */}
+              <div className="flex items-center gap-1.5 mb-[1px]">
+                <span className="text-[8px] text-white/15 truncate max-w-[100px]" title={dir}>
+                  {dir}
+                </span>
+                <span className={`text-[9px] font-medium truncate ${textColor}`} title={file.path}>
+                  {filename}
+                </span>
+                <span className="text-[8px] text-white/15 ml-auto flex-shrink-0 flex items-center gap-1.5 font-mono tabular-nums">
+                  <span className="text-emerald-400/50">+{file.additions}</span>
+                  <span className="text-red-400/50">−{file.deletions}</span>
+                  <span className="text-white/20">{file.commitCount}×</span>
+                </span>
+              </div>
+              {/* Bar */}
+              <div className="h-[4px] bg-white/[0.04] rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${barColor} opacity-50 group-hover/hotspot:opacity-80 transition-opacity duration-150`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Show more / less */}
+      {hotspots.length > 8 && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="w-full py-1.5 text-center text-[9px] text-white/20 hover:text-white/40 transition-colors"
+        >
+          {expanded ? "Show less" : `Show all ${hotspots.length} files`}
+        </button>
+      )}
+
+      {/* Legend */}
+      <div className="px-3 pb-2 flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+        {[
+          ["src/components/", "bg-blue-400", "Components"],
+          ["src/app/api/", "bg-violet-400", "API"],
+          ["src/app/", "bg-emerald-400", "Pages"],
+          ["src/lib/", "bg-amber-400", "Lib"],
+        ].map(([, color, label]) => (
+          <div key={label} className="flex items-center gap-1">
+            <span className={`inline-block w-1.5 h-1.5 rounded-sm ${color} opacity-50`} />
+            <span className="text-[8px] text-white/20">{label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Full stats panel content. */
 function StatsPanel({ commits }: { commits: Commit[] }) {
   const totalAdds = commits.reduce((sum, c) => sum + (c.additions ?? 0), 0);
@@ -767,6 +920,9 @@ function StatsPanel({ commits }: { commits: Commit[] }) {
           color="text-red-400/70"
         />
       </div>
+
+      {/* File hotspots */}
+      <FileHotspotsChart />
     </div>
   );
 }
