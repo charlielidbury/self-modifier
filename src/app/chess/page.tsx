@@ -998,21 +998,57 @@ export default function ChessPage() {
     else playChessSound("move");
   }, [pendingPromotion, board, status, lastMove, moveHistory, playChessSound]);
 
-  // Copy game moves as PGN to clipboard
+  // Copy game moves as standard PGN to clipboard (with headers)
   const copyPGN = useCallback(() => {
     if (moveHistory.length === 0) return;
-    let pgn = "";
+
+    // ── PGN Header tags ───────────────────────────────────────────────────────
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, "0")}.${String(today.getDate()).padStart(2, "0")}`;
+
+    const whiteName = vsAI
+      ? (playerColor === "w" ? "Player" : `AI (${difficulty})`)
+      : "White";
+    const blackName = vsAI
+      ? (playerColor === "b" ? "Player" : `AI (${difficulty})`)
+      : "Black";
+
+    // Standard result token
+    let result = "*";
+    if (status.includes("White wins") || status.includes("on time") && status.startsWith("White")) result = "1-0";
+    else if (status.includes("Black wins") || status.includes("on time") && status.startsWith("Black")) result = "0-1";
+    else if (status.includes("Stalemate")) result = "1/2-1/2";
+
+    let pgn = `[Event "Casual Game"]\n`;
+    pgn += `[Date "${dateStr}"]\n`;
+    pgn += `[White "${whiteName}"]\n`;
+    pgn += `[Black "${blackName}"]\n`;
+    pgn += `[Result "${result}"]\n`;
+
+    // Include opening name if one was detected
+    const detectedOpening = getOpeningName(moveHistory);
+    if (detectedOpening) {
+      pgn += `[Opening "${detectedOpening}"]\n`;
+    }
+
+    pgn += "\n";
+
+    // ── Move text ─────────────────────────────────────────────────────────────
+    const moveParts: string[] = [];
     for (let i = 0; i < moveHistory.length; i += 2) {
       const moveNum = Math.floor(i / 2) + 1;
-      pgn += `${moveNum}. ${moveHistory[i]}`;
-      if (moveHistory[i + 1]) pgn += ` ${moveHistory[i + 1]}`;
-      if (i + 2 < moveHistory.length) pgn += " ";
+      let pair = `${moveNum}. ${moveHistory[i]}`;
+      if (moveHistory[i + 1]) pair += ` ${moveHistory[i + 1]}`;
+      moveParts.push(pair);
     }
+    pgn += moveParts.join(" ");
+    if (result !== "*") pgn += ` ${result}`;
+
     navigator.clipboard.writeText(pgn).then(() => {
       setPgnCopied(true);
       setTimeout(() => setPgnCopied(false), 2000);
     });
-  }, [moveHistory]);
+  }, [moveHistory, vsAI, playerColor, difficulty, status]);
 
   // Copy current board position as FEN to the clipboard
   const copyFEN = useCallback(() => {
