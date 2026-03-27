@@ -156,7 +156,7 @@ const ThreadWelcome: FC = () => {
   );
 };
 
-const HARDCODED_SUGGESTIONS: {
+type Suggestion = {
   prompt: string;
   title: string;
   description: string;
@@ -164,7 +164,9 @@ const HARDCODED_SUGGESTIONS: {
   accentBg: string;
   accentText: string;
   hoverBorder: string;
-}[] = [
+};
+
+const SUGGESTION_POOL: Suggestion[] = [
   {
     prompt: "What pages and features does this app have?",
     title: "Explore the app",
@@ -201,12 +203,79 @@ const HARDCODED_SUGGESTIONS: {
     accentText: "text-violet-600 dark:text-violet-400",
     hoverBorder: "hover:border-violet-400/40 dark:hover:border-violet-500/40",
   },
+  {
+    prompt: "Find and fix any bugs or robustness issues you can spot in the codebase",
+    title: "Hunt for bugs",
+    description: "Spot and squash issues",
+    icon: Code2Icon,
+    accentBg: "bg-red-500/10 dark:bg-red-500/15",
+    accentText: "text-red-600 dark:text-red-400",
+    hoverBorder: "hover:border-red-400/40 dark:hover:border-red-500/40",
+  },
+  {
+    prompt: "Explain how the AI chat streaming and session management work in this app",
+    title: "How does chat work?",
+    description: "Deep-dive into streaming sessions",
+    icon: LayoutDashboardIcon,
+    accentBg: "bg-cyan-500/10 dark:bg-cyan-500/15",
+    accentText: "text-cyan-600 dark:text-cyan-400",
+    hoverBorder: "hover:border-cyan-400/40 dark:hover:border-cyan-500/40",
+  },
+  {
+    prompt: "Add a new keyboard shortcut or improve the existing keyboard navigation",
+    title: "Improve keyboard UX",
+    description: "Make navigation faster",
+    icon: LightbulbIcon,
+    accentBg: "bg-orange-500/10 dark:bg-orange-500/15",
+    accentText: "text-orange-600 dark:text-orange-400",
+    hoverBorder: "hover:border-orange-400/40 dark:hover:border-orange-500/40",
+  },
+  {
+    prompt: "How does the Self-Improve agent work? Explain the architecture end-to-end",
+    title: "How does Self-Improve work?",
+    description: "Understand the AI improvement loop",
+    icon: SparklesIcon,
+    accentBg: "bg-emerald-500/10 dark:bg-emerald-500/15",
+    accentText: "text-emerald-600 dark:text-emerald-400",
+    hoverBorder: "hover:border-emerald-400/40 dark:hover:border-emerald-500/40",
+  },
+  {
+    prompt: "Review the fractal explorer and suggest one new fractal type or visual feature to add",
+    title: "Enhance the fractals",
+    description: "New fractals or visual features",
+    icon: Code2Icon,
+    accentBg: "bg-fuchsia-500/10 dark:bg-fuchsia-500/15",
+    accentText: "text-fuchsia-600 dark:text-fuchsia-400",
+    hoverBorder: "hover:border-fuchsia-400/40 dark:hover:border-fuchsia-500/40",
+  },
+  {
+    prompt: "What accessibility improvements could be made to this app?",
+    title: "Improve accessibility",
+    description: "Make the app more inclusive",
+    icon: LightbulbIcon,
+    accentBg: "bg-sky-500/10 dark:bg-sky-500/15",
+    accentText: "text-sky-600 dark:text-sky-400",
+    hoverBorder: "hover:border-sky-400/40 dark:hover:border-sky-500/40",
+  },
 ];
 
+/** Randomly pick `n` items from `arr` without replacement. */
+function pickRandom<T>(arr: T[], n: number): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, n);
+}
+
 const ThreadSuggestions: FC = () => {
+  // Pick 4 random suggestions once when the welcome screen first mounts.
+  const suggestions = useMemo(() => pickRandom(SUGGESTION_POOL, 4), []);
+
   return (
     <div className="aui-thread-welcome-suggestions grid w-full @md:grid-cols-2 gap-2 pb-4">
-      {HARDCODED_SUGGESTIONS.map((s, i) => (
+      {suggestions.map((s, i) => (
         <div
           key={i}
           className={cn(
