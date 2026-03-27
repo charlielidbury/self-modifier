@@ -214,17 +214,6 @@ export function Navbar() {
   return (
     <TooltipProvider delayDuration={600}>
       <nav className="h-12 flex-none border-b border-border bg-background flex items-center px-4 gap-1 relative z-10">
-        <span className="font-semibold text-sm mr-2 sm:mr-4 text-foreground/70 select-none flex items-center gap-1.5">
-          <span
-            className="size-2 rounded-full flex-shrink-0"
-            style={{
-              backgroundColor: PAGE_DOT_COLORS[pathname] ?? "#737373",
-              transition: "background-color 300ms cubic-bezier(0.4,0,0.2,1)",
-              boxShadow: `0 0 6px 1px ${PAGE_DOT_COLORS[pathname] ?? "#737373"}55`,
-            }}
-            aria-hidden="true"
-          />
-        </span>
 
         {/* Live neural pulse — shows self-improve agent heartbeat */}
         <NeuralPulse />
