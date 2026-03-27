@@ -35,6 +35,7 @@ import {
   Sparkles,
   Mountain,
   FlaskConical,
+  Brain,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -221,6 +222,14 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/reaction"),
       keywords: ["reaction", "diffusion", "gray-scott", "turing", "pattern", "chemical", "morphogenesis", "spots", "stripes"],
+    },
+    {
+      id: "nav-neural",
+      label: "Go to Neural Network",
+      icon: <Brain size={16} />,
+      group: "Navigation",
+      action: () => router.push("/neural"),
+      keywords: ["neural", "network", "nn", "brain", "machine learning", "ml", "backpropagation", "classifier", "train", "playground"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {

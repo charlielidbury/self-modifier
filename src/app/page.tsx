@@ -16,6 +16,7 @@ import {
   Sparkles,
   Mountain,
   FlaskConical,
+  Brain,
   ArrowRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -186,6 +187,17 @@ const cards: CardInfo[] = [
     borderColor: "hover:border-cyan-400/40",
     glowColor: "rgba(6,182,212,0.15)",
     category: "Simulation",
+  },
+  {
+    href: "/neural",
+    label: "Neural Network",
+    description: "Build, train, and visualise neural networks learning to classify — pure backpropagation in real time.",
+    Icon: Brain,
+    color: "text-yellow-500",
+    bgColor: "bg-yellow-500/10 dark:bg-yellow-500/15",
+    borderColor: "hover:border-yellow-500/40",
+    glowColor: "rgba(234,179,8,0.15)",
+    category: "AI",
   },
 ];
 
