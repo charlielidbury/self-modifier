@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp, Dna } from "lucide-react";
+import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp, Dna, Music } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Tooltip,
@@ -20,6 +20,7 @@ const tabs = [
   { href: "/fractals", label: "Fractals", Icon: Infinity, shortcut: "Alt+4" },
   { href: "/evolution", label: "Evolution", Icon: TrendingUp, shortcut: "Alt+5" },
   { href: "/life", label: "Life", Icon: Dna, shortcut: "Alt+6" },
+  { href: "/synth", label: "Synth", Icon: Music, shortcut: "Alt+7" },
 ];
 
 // Per-page accent colours for the sliding pill background and active tab text.
@@ -31,6 +32,7 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/fractals":  { pill: "bg-violet-500/15 dark:bg-violet-500/20", text: "text-violet-700 dark:text-violet-300" },
   "/evolution": { pill: "bg-rose-500/15 dark:bg-rose-500/20",   text: "text-rose-700 dark:text-rose-300" },
   "/life":      { pill: "bg-teal-500/15 dark:bg-teal-500/20",   text: "text-teal-700 dark:text-teal-300" },
+  "/synth":     { pill: "bg-pink-500/15 dark:bg-pink-500/20",   text: "text-pink-700 dark:text-pink-300" },
 };
 
 // Actual color values used for the animated brand accent dot (inline style so
@@ -42,6 +44,7 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/fractals":  "#8b5cf6", // violet-500
   "/evolution": "#f43f5e", // rose-500
   "/life":      "#14b8a6", // teal-500
+  "/synth":     "#ec4899", // pink-500
 };
 
 // Subtle ambient glow applied to the sliding pill so the active tab feels alive.
@@ -53,6 +56,7 @@ const PAGE_PILL_GLOWS: Record<string, string> = {
   "/fractals":  "0 0 14px 3px rgba(139,92,246,0.22)",
   "/evolution": "0 0 14px 3px rgba(244,63,94,0.22)",
   "/life":      "0 0 14px 3px rgba(20,184,166,0.22)",
+  "/synth":     "0 0 14px 3px rgba(236,72,153,0.22)",
 };
 
 // Browser tab titles per page.
@@ -63,6 +67,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/fractals":  "Fractals — Self-Modifier",
   "/evolution": "Evolution — Self-Modifier",
   "/life":      "Life — Self-Modifier",
+  "/synth":     "Synth — Self-Modifier",
 };
 
 export function Navbar() {
@@ -83,7 +88,7 @@ export function Navbar() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!e.altKey) return;
-      const index = ["1", "2", "3", "4", "5", "6"].indexOf(e.key);
+      const index = ["1", "2", "3", "4", "5", "6", "7"].indexOf(e.key);
       if (index === -1) return;
       e.preventDefault();
       router.push(tabs[index].href);

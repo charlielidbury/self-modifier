@@ -30,6 +30,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["Alt", "4"], description: "Go to Fractals" },
       { keys: ["Alt", "5"], description: "Go to Evolution" },
       { keys: ["Alt", "6"], description: "Go to Life" },
+      { keys: ["Alt", "7"], description: "Go to Synth" },
     ],
   },
   {
@@ -106,6 +107,15 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["Click"], description: "Draw / erase cells" },
       { keys: ["Shift", "Drag"], description: "Pan the grid" },
       { keys: ["Esc"], description: "Cancel pattern placement" },
+    ],
+  },
+  {
+    title: "Synth",
+    rows: [
+      { keys: ["A", "–", "'"], description: "Play notes (piano layout)" },
+      { keys: ["W", "E", "T", "Y", "U", "O", "P"], description: "Play sharps / flats" },
+      { keys: ["Z"], description: "Octave down" },
+      { keys: ["X"], description: "Octave up" },
     ],
   },
   {

@@ -26,6 +26,7 @@ import {
   TrendingUp,
   Dna,
   SkipForward,
+  Music,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -136,6 +137,15 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/life"),
       keywords: ["conway", "game", "cellular", "automata", "simulation", "cells"],
+    },
+    {
+      id: "nav-synth",
+      label: "Go to Synth",
+      hint: "Alt+7",
+      icon: <Music size={16} />,
+      group: "Navigation",
+      action: () => router.push("/synth"),
+      keywords: ["synthesizer", "music", "audio", "piano", "sound", "instrument", "keys"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {
