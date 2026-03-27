@@ -44,13 +44,22 @@ import { useMemo, useState, type FC, type ElementType } from "react";
 export const Thread: FC = () => {
   return (
     <ThreadPrimitive.Root
-      className="aui-root aui-thread-root @container flex h-full flex-col bg-background"
+      className="aui-root aui-thread-root @container flex h-full flex-col bg-background relative overflow-hidden"
       style={{
         ["--thread-max-width" as string]: "44rem",
         ["--composer-radius" as string]: "24px",
         ["--composer-padding" as string]: "10px",
       }}
     >
+      {/* Thin shimmer bar shown while the AI is generating a response */}
+      <AuiIf condition={(s) => s.thread.isRunning}>
+        <div
+          className="fade-in animate-in fill-mode-both duration-300 absolute top-0 left-0 right-0 h-0.5 overflow-hidden z-20 text-primary/50"
+          aria-hidden="true"
+        >
+          <div className="ai-progress-bar-shimmer" />
+        </div>
+      </AuiIf>
       <ThreadPrimitive.Viewport
         turnAnchor="top"
         className="aui-thread-viewport relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth px-4 pt-4"

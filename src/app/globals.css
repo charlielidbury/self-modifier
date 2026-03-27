@@ -108,6 +108,21 @@ body {
     box-shadow 250ms ease !important;
 }
 
+/* Indeterminate progress bar for AI generation */
+@keyframes ai-progress-shimmer {
+  0%   { left: -55%; width: 55%; }
+  55%  { left: 100%; width: 55%; }
+  100% { left: 100%; width: 55%; }
+}
+
+.ai-progress-bar-shimmer {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: currentColor;
+  animation: ai-progress-shimmer 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 @keyframes confettiFall {
   from {
     transform: translateY(-16px) rotate(0deg);
