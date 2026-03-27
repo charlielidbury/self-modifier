@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp, Dna, Music, Orbit, Waves } from "lucide-react";
+import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp, Dna, Music, Orbit, Waves, Atom } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Tooltip,
@@ -25,6 +25,7 @@ const PAGE_HUES: Record<string, number> = {
   "/synth":     330, // pink
   "/gravity":    24, // warm orange
   "/waves":     195, // cyan
+  "/particles":  82, // lime
 };
 
 const tabs = [
@@ -37,6 +38,7 @@ const tabs = [
   { href: "/synth", label: "Synth", Icon: Music, shortcut: "Alt+7" },
   { href: "/gravity", label: "Gravity", Icon: Orbit, shortcut: "Alt+8" },
   { href: "/waves", label: "Waves", Icon: Waves, shortcut: "Alt+9" },
+  { href: "/particles", label: "Particles", Icon: Atom, shortcut: "Alt+0" },
 ];
 
 // Per-page accent colours for the sliding pill background and active tab text.
@@ -51,6 +53,7 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/synth":     { pill: "bg-pink-500/15 dark:bg-pink-500/20",   text: "text-pink-700 dark:text-pink-300" },
   "/gravity":   { pill: "bg-orange-500/15 dark:bg-orange-500/20", text: "text-orange-700 dark:text-orange-300" },
   "/waves":     { pill: "bg-cyan-500/15 dark:bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
+  "/particles": { pill: "bg-lime-500/15 dark:bg-lime-500/20", text: "text-lime-700 dark:text-lime-300" },
 };
 
 // Actual color values used for the animated brand accent dot (inline style so
@@ -65,6 +68,7 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/synth":     "#ec4899", // pink-500
   "/gravity":   "#f97316", // orange-500
   "/waves":     "#06b6d4", // cyan-500
+  "/particles": "#84cc16", // lime-500
 };
 
 // Subtle ambient glow applied to the sliding pill so the active tab feels alive.
@@ -79,6 +83,7 @@ const PAGE_PILL_GLOWS: Record<string, string> = {
   "/synth":     "0 0 14px 3px rgba(236,72,153,0.22)",
   "/gravity":   "0 0 14px 3px rgba(249,115,22,0.22)",
   "/waves":     "0 0 14px 3px rgba(6,182,212,0.22)",
+  "/particles": "0 0 14px 3px rgba(132,204,22,0.22)",
 };
 
 // Browser tab titles per page.
@@ -92,6 +97,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/synth":     "Synth — Self-Modifier",
   "/gravity":   "Gravity — Self-Modifier",
   "/waves":     "Waves — Self-Modifier",
+  "/particles": "Particles — Self-Modifier",
 };
 
 export function Navbar() {
@@ -120,7 +126,7 @@ export function Navbar() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!e.altKey) return;
-      const index = ["1", "2", "3", "4", "5", "6", "7", "8", "9"].indexOf(e.key);
+      const index = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].indexOf(e.key);
       if (index === -1) return;
       e.preventDefault();
       router.push(tabs[index].href);

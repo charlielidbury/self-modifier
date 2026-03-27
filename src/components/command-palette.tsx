@@ -29,6 +29,7 @@ import {
   Music,
   Orbit,
   Waves,
+  Atom,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -166,6 +167,15 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/waves"),
       keywords: ["wave", "interference", "ripple", "simulation", "physics", "water", "sound"],
+    },
+    {
+      id: "nav-particles",
+      label: "Go to Particles",
+      hint: "Alt+0",
+      icon: <Atom size={16} />,
+      group: "Navigation",
+      action: () => router.push("/particles"),
+      keywords: ["particle", "life", "emergence", "chemistry", "artificial", "simulation", "swarm"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {

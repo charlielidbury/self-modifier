@@ -82,6 +82,15 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+/* ── Fade out utility ─────────────────────────────────────────────────────── */
+@keyframes fade-out-delayed {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.animate-fade-out {
+  animation: fade-out-delayed 6s ease forwards;
+}
+
 /* ── Page transitions: directional crossfade ──────────────────────────────────
    When navigating between tabs the outgoing page slides+fades in the direction
    of travel while the incoming page slides+fades in from the opposite side.
