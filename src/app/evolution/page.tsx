@@ -17,6 +17,7 @@ import {
   Wrench,
   Sparkles,
   ArrowUpRight,
+  RefreshCw,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -429,9 +430,11 @@ function ActivitySparkline({ commits }: { commits: Commit[] }) {
 export default function EvolutionPage() {
   const [commits, setCommits] = useState<Commit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [, setTick] = useState(0);
 
-  useEffect(() => {
+  const fetchCommits = useCallback((isManual = false) => {
+    if (isManual) setRefreshing(true);
     fetch("/api/self-improve/commits")
       .then(async (res) => {
         if (!res.ok) throw new Error("Failed");
@@ -439,14 +442,42 @@ export default function EvolutionPage() {
       })
       .then((data) => setCommits(data.commits))
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        if (isManual) setRefreshing(false);
+      });
   }, []);
+
+  // Initial load
+  useEffect(() => {
+    fetchCommits();
+  }, [fetchCommits]);
+
+  // Auto-refresh commits every 60 seconds
+  useEffect(() => {
+    const iv = setInterval(() => fetchCommits(), 60_000);
+    return () => clearInterval(iv);
+  }, [fetchCommits]);
 
   // Refresh time-ago labels every 30s
   useEffect(() => {
     const iv = setInterval(() => setTick((t) => t + 1), 30_000);
     return () => clearInterval(iv);
   }, []);
+
+  // "R" keyboard shortcut to manually refresh
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "r" && e.key !== "R") return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+      e.preventDefault();
+      fetchCommits(true);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [fetchCommits]);
 
   // Compute stats
   const timeSpan = useMemo(() => {
@@ -494,6 +525,18 @@ export default function EvolutionPage() {
             <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">
               Evolution
             </h1>
+            <button
+              onClick={() => fetchCommits(true)}
+              disabled={refreshing}
+              title="Refresh commit history (R)"
+              aria-label="Refresh commit history"
+              className="ml-1 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw
+                size={14}
+                className={refreshing ? "animate-spin" : ""}
+              />
+            </button>
           </div>
           <p className="text-muted-foreground text-sm md:text-base max-w-lg">
             A living record of every self-improvement. Each node marks a moment

@@ -96,6 +96,12 @@ const SECTIONS: ShortcutSection[] = [
     ],
   },
   {
+    title: "Evolution",
+    rows: [
+      { keys: ["R"], description: "Refresh commit history" },
+    ],
+  },
+  {
     title: "Global",
     rows: [
       { keys: ["?"], description: "Show keyboard shortcuts" },
