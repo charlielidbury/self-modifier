@@ -11,10 +11,9 @@ export type GitCommit = {
 export async function GET() {
   try {
     // %H = full hash, %h = short hash, %s = subject, %aI = author date ISO, %an = author name
-    // Use a non-pipe delimiter that won't appear in commit messages
-    const SEP = "\x00";
+    // Use git's %x00 format specifier for null byte delimiter (can't embed \x00 in JS string for execSync)
     const raw = execSync(
-      `git log --format="%H${SEP}%h${SEP}%s${SEP}%aI${SEP}%an" -30`,
+      `git log --format="%H%x00%h%x00%s%x00%aI%x00%an" -30`,
       { encoding: "utf-8", cwd: process.cwd() }
     ).trim();
 
@@ -24,7 +23,7 @@ export async function GET() {
       .split("\n")
       .filter(Boolean)
       .map((line) => {
-        const parts = line.split(SEP);
+        const parts = line.split("\x00");
         return {
           hash: parts[0] ?? "",
           shortHash: parts[1] ?? "",
