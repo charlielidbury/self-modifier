@@ -8,6 +8,11 @@ import {
   GitCommit,
   Loader2,
   Check,
+  FileCode,
+  Plus,
+  Minus,
+  ChevronRight,
+  X,
 } from "lucide-react";
 
 type AgentStatus = {
@@ -22,6 +27,21 @@ type Commit = {
   message: string;
   date: string;
   author: string;
+};
+
+type DiffFile = {
+  path: string;
+  additions: number;
+  deletions: number;
+  patch: string;
+};
+
+type CommitDiff = {
+  hash: string;
+  message: string;
+  files: DiffFile[];
+  totalAdditions: number;
+  totalDeletions: number;
 };
 
 function timeAgo(iso: string): string {
@@ -39,6 +59,197 @@ function elapsed(iso: string): string {
   return `${m}m ${s % 60}s`;
 }
 
+// ── Diff viewer sub-components ─────────────────────────────────────────────────
+
+function DiffLine({ line }: { line: string }) {
+  if (line.startsWith("+") && !line.startsWith("+++")) {
+    return (
+      <div className="diff-line-add px-2 py-0 font-mono text-[10px] leading-[18px] text-emerald-300 bg-emerald-500/10 whitespace-pre overflow-x-auto">
+        {line}
+      </div>
+    );
+  }
+  if (line.startsWith("-") && !line.startsWith("---")) {
+    return (
+      <div className="diff-line-del px-2 py-0 font-mono text-[10px] leading-[18px] text-red-300 bg-red-500/10 whitespace-pre overflow-x-auto">
+        {line}
+      </div>
+    );
+  }
+  if (line.startsWith("@@")) {
+    return (
+      <div className="px-2 py-0 font-mono text-[10px] leading-[18px] text-blue-300/60 bg-blue-500/5 whitespace-pre overflow-x-auto">
+        {line}
+      </div>
+    );
+  }
+  return (
+    <div className="px-2 py-0 font-mono text-[10px] leading-[18px] text-white/40 whitespace-pre overflow-x-auto">
+      {line}
+    </div>
+  );
+}
+
+function FileDiffView({
+  file,
+  defaultExpanded,
+}: {
+  file: DiffFile;
+  defaultExpanded: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const filename = file.path.split("/").pop() ?? file.path;
+  const dir = file.path.includes("/")
+    ? file.path.slice(0, file.path.lastIndexOf("/") + 1)
+    : "";
+
+  // Parse the patch to get only the diff body lines (skip the header)
+  const patchLines = (file.patch || "")
+    .split("\n")
+    .filter((line) => {
+      // Skip the diff --git header, index line, and --- / +++ lines
+      if (line.startsWith("diff --git")) return false;
+      if (line.startsWith("index ")) return false;
+      if (line.startsWith("--- ")) return false;
+      if (line.startsWith("+++ ")) return false;
+      if (line.startsWith("new file mode")) return false;
+      if (line.startsWith("deleted file mode")) return false;
+      if (line.startsWith("\\ No newline")) return false;
+      return true;
+    });
+
+  return (
+    <div className="border-t border-white/5">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-white/5 transition-colors group/file"
+      >
+        <ChevronRight
+          size={10}
+          className={`text-white/30 transition-transform duration-150 flex-shrink-0 ${expanded ? "rotate-90" : ""}`}
+        />
+        <FileCode size={11} className="text-white/30 flex-shrink-0" />
+        <span className="text-[10px] text-white/30 truncate">{dir}</span>
+        <span className="text-[10px] text-white/70 font-medium truncate">
+          {filename}
+        </span>
+        <span className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+          {file.additions > 0 && (
+            <span className="text-[9px] text-emerald-400 font-mono flex items-center gap-0.5">
+              <Plus size={8} />
+              {file.additions}
+            </span>
+          )}
+          {file.deletions > 0 && (
+            <span className="text-[9px] text-red-400 font-mono flex items-center gap-0.5">
+              <Minus size={8} />
+              {file.deletions}
+            </span>
+          )}
+        </span>
+      </button>
+      {expanded && patchLines.length > 0 && (
+        <div className="max-h-48 overflow-y-auto bg-black/20 border-t border-white/5">
+          {patchLines.map((line, i) => (
+            <DiffLine key={i} line={line} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommitDiffPanel({
+  hash,
+  onClose,
+}: {
+  hash: string;
+  onClose: () => void;
+}) {
+  const [diff, setDiff] = useState<CommitDiff | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch(`/api/self-improve/commits/${hash}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Failed to fetch diff");
+        return res.json() as Promise<CommitDiff>;
+      })
+      .then(setDiff)
+      .catch(() => setError("Could not load diff"))
+      .finally(() => setLoading(false));
+  }, [hash]);
+
+  return (
+    <div className="diff-panel-in">
+      {/* Header */}
+      <div className="px-3 py-2 flex items-center justify-between border-b border-white/10 bg-white/[0.02]">
+        <div className="flex items-center gap-2 min-w-0">
+          <GitCommit size={11} className="text-white/40 flex-shrink-0" />
+          <span className="text-[10px] font-mono text-white/40 flex-shrink-0">
+            {hash.slice(0, 7)}
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-0.5 text-white/30 hover:text-white/70 transition-colors flex-shrink-0"
+        >
+          <X size={12} />
+        </button>
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div className="py-8 flex items-center justify-center gap-2">
+          <Loader2 size={12} className="text-white/30 animate-spin" />
+          <span className="text-[11px] text-white/30">Loading diff…</span>
+        </div>
+      ) : error ? (
+        <div className="py-6 text-center text-[11px] text-red-400/70">
+          {error}
+        </div>
+      ) : diff ? (
+        <>
+          {/* Summary bar */}
+          <div className="px-3 py-1.5 flex items-center gap-3 text-[10px] text-white/40 border-b border-white/5">
+            <span>
+              {diff.files.length} file{diff.files.length !== 1 ? "s" : ""}
+            </span>
+            {diff.totalAdditions > 0 && (
+              <span className="text-emerald-400/70 font-mono flex items-center gap-0.5">
+                <Plus size={8} />
+                {diff.totalAdditions}
+              </span>
+            )}
+            {diff.totalDeletions > 0 && (
+              <span className="text-red-400/70 font-mono flex items-center gap-0.5">
+                <Minus size={8} />
+                {diff.totalDeletions}
+              </span>
+            )}
+          </div>
+
+          {/* File list with inline diffs */}
+          <div className="max-h-72 overflow-y-auto">
+            {diff.files.map((file, i) => (
+              <FileDiffView
+                key={file.path}
+                file={file}
+                defaultExpanded={i === 0 && diff.files.length <= 5}
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
 export function SelfImproveToggle() {
   const [status, setStatus] = useState<AgentStatus>({
     enabled: false,
@@ -49,6 +260,9 @@ export function SelfImproveToggle() {
   const [expanded, setExpanded] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [, setTick] = useState(0); // force re-render for live times
+
+  // Which commit hash is currently showing its diff (null = none)
+  const [viewingDiff, setViewingDiff] = useState<string | null>(null);
 
   // Panel animation state — keeps the element in the DOM during the exit animation.
   const [showPanel, setShowPanel] = useState(false);
@@ -65,6 +279,7 @@ export function SelfImproveToggle() {
       panelCloseTimerRef.current = setTimeout(() => {
         setShowPanel(false);
         setPanelClosing(false);
+        setViewingDiff(null); // close diff when collapsing panel
       }, 170);
     }
     return () => {
@@ -185,61 +400,78 @@ export function SelfImproveToggle() {
             </div>
           )}
 
-          {/* Header */}
-          <div className="px-4 py-2.5 border-b border-white/10 flex items-center gap-2">
-            <GitCommit size={12} className="text-white/40" />
-            <p className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">
-              Recent Commits
-            </p>
-          </div>
+          {/* Diff viewer (replaces commit list when viewing a specific commit) */}
+          {viewingDiff ? (
+            <CommitDiffPanel
+              hash={viewingDiff}
+              onClose={() => setViewingDiff(null)}
+            />
+          ) : (
+            <>
+              {/* Header */}
+              <div className="px-4 py-2.5 border-b border-white/10 flex items-center gap-2">
+                <GitCommit size={12} className="text-white/40" />
+                <p className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">
+                  Recent Commits
+                </p>
+              </div>
 
-          {/* Commits list */}
-          <div className="max-h-64 overflow-y-auto divide-y divide-white/5">
-            {commits.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-white/30">
-                No commits yet.
-                {!status.enabled && (
-                  <span className="block mt-1 text-white/20">
-                    Turn on Self-Improve to get started.
-                  </span>
+              {/* Commits list */}
+              <div className="max-h-64 overflow-y-auto divide-y divide-white/5">
+                {commits.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-xs text-white/30">
+                    No commits yet.
+                    {!status.enabled && (
+                      <span className="block mt-1 text-white/20">
+                        Turn on Self-Improve to get started.
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  commits.map((c) => {
+                    const isCopied = copiedHash === c.hash;
+                    return (
+                      <div key={c.hash} className="px-4 py-2.5 flex gap-3 items-start hover:bg-white/5 transition-colors group/commit">
+                        <button
+                          onClick={() => copyHash(c.hash)}
+                          title={isCopied ? "Copied!" : `Copy full hash: ${c.hash}`}
+                          className={[
+                            "text-[10px] font-mono mt-0.5 flex-shrink-0 pt-px rounded px-0.5 -mx-0.5",
+                            "transition-colors duration-150 cursor-pointer",
+                            isCopied
+                              ? "text-emerald-400"
+                              : "text-white/30 hover:text-white/70",
+                          ].join(" ")}
+                        >
+                          {isCopied ? (
+                            <Check size={10} className="inline" />
+                          ) : (
+                            c.shortHash
+                          )}
+                        </button>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs text-white/80 leading-snug truncate" title={c.message}>
+                            {c.message}
+                          </p>
+                          <p className="text-[10px] text-white/30 mt-0.5">
+                            {timeAgo(c.date)}
+                            {c.author ? ` · ${c.author}` : ""}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setViewingDiff(c.hash)}
+                          title="View changes"
+                          className="mt-0.5 p-1 rounded text-white/20 hover:text-white/60 hover:bg-white/10 transition-colors opacity-0 group-hover/commit:opacity-100 flex-shrink-0"
+                        >
+                          <FileCode size={12} />
+                        </button>
+                      </div>
+                    );
+                  })
                 )}
               </div>
-            ) : (
-              commits.map((c) => {
-                const isCopied = copiedHash === c.hash;
-                return (
-                  <div key={c.hash} className="px-4 py-2.5 flex gap-3 items-start hover:bg-white/5 transition-colors group/commit">
-                    <button
-                      onClick={() => copyHash(c.hash)}
-                      title={isCopied ? "Copied!" : `Copy full hash: ${c.hash}`}
-                      className={[
-                        "text-[10px] font-mono mt-0.5 flex-shrink-0 pt-px rounded px-0.5 -mx-0.5",
-                        "transition-colors duration-150 cursor-pointer",
-                        isCopied
-                          ? "text-emerald-400"
-                          : "text-white/30 hover:text-white/70",
-                      ].join(" ")}
-                    >
-                      {isCopied ? (
-                        <Check size={10} className="inline" />
-                      ) : (
-                        c.shortHash
-                      )}
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs text-white/80 leading-snug truncate" title={c.message}>
-                        {c.message}
-                      </p>
-                      <p className="text-[10px] text-white/30 mt-0.5">
-                        {timeAgo(c.date)}
-                        {c.author ? ` · ${c.author}` : ""}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+            </>
+          )}
         </div>
       )}
 
