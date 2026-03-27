@@ -19,6 +19,11 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import {
+  getToolTriggerInfo,
+  ToolArgsRenderer,
+  ToolResultRenderer,
+} from "./tool-renderers";
 
 const ANIMATION_DURATION = 200;
 
@@ -100,11 +105,13 @@ function formatElapsedMs(ms: number): string {
 
 function ToolFallbackTrigger({
   toolName,
+  argsText,
   status,
   className,
   ...props
 }: React.ComponentProps<typeof CollapsibleTrigger> & {
   toolName: string;
+  argsText?: string;
   status?: ToolCallMessagePartStatus;
 }) {
   const statusType = status?.type ?? "complete";
@@ -112,8 +119,10 @@ function ToolFallbackTrigger({
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
 
-  const Icon = statusIconMap[statusType];
-  const label = isCancelled ? "Cancelled tool" : "Used tool";
+  const triggerInfo = getToolTriggerInfo(toolName, argsText);
+  const StatusIcon = statusIconMap[statusType];
+  const ToolIcon = triggerInfo.icon;
+  const label = isCancelled ? "Cancelled" : toolName;
 
   // Track elapsed time while the tool is running; capture final duration on completion.
   const startTimeRef = useRef<number | null>(null);
@@ -155,23 +164,43 @@ function ToolFallbackTrigger({
       )}
       {...props}
     >
-      <Icon
-        data-slot="tool-fallback-trigger-icon"
+      {isRunning ? (
+        <StatusIcon
+          data-slot="tool-fallback-trigger-icon"
+          className="aui-tool-fallback-trigger-icon size-4 shrink-0 animate-spin"
+        />
+      ) : (
+        <StatusIcon
+          data-slot="tool-fallback-trigger-status-icon"
+          className={cn(
+            "size-3.5 shrink-0",
+            statusType === "complete" && "text-green-500/60",
+            isCancelled && "text-muted-foreground",
+            statusType === "incomplete" && !isCancelled && "text-red-500/60",
+          )}
+        />
+      )}
+      <ToolIcon
+        data-slot="tool-fallback-trigger-tool-icon"
         className={cn(
-          "aui-tool-fallback-trigger-icon size-4 shrink-0",
-          isCancelled && "text-muted-foreground",
-          isRunning && "animate-spin",
+          "size-4 shrink-0 text-muted-foreground/70",
+          isCancelled && "text-muted-foreground/40",
         )}
       />
       <span
         data-slot="tool-fallback-trigger-label"
         className={cn(
-          "aui-tool-fallback-trigger-label-wrapper relative inline-block grow text-left leading-none",
+          "aui-tool-fallback-trigger-label-wrapper relative inline-flex items-baseline gap-1.5 grow text-left leading-none min-w-0",
           isCancelled && "text-muted-foreground line-through",
         )}
       >
-        <span>
-          {label}: <b>{toolName}</b>
+        <span className="truncate">
+          <span className="text-muted-foreground/80">{label}</span>
+          {" "}
+          <b className="text-foreground/90 font-medium">{triggerInfo.label}</b>
+          {triggerInfo.detail && (
+            <span className="text-muted-foreground/60 ml-1">{triggerInfo.detail}</span>
+          )}
         </span>
         {isRunning && (
           <span
@@ -179,7 +208,9 @@ function ToolFallbackTrigger({
             data-slot="tool-fallback-trigger-shimmer"
             className="aui-tool-fallback-trigger-shimmer shimmer pointer-events-none absolute inset-0 motion-reduce:animate-none"
           >
-            {label}: <b>{toolName}</b>
+            <span className="text-muted-foreground/80">{label}</span>
+            {" "}
+            <b className="font-medium">{triggerInfo.label}</b>
           </span>
         )}
       </span>
@@ -370,14 +401,16 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
     <ToolFallbackRoot
       className={cn(isCancelled && "border-muted-foreground/30 bg-muted/30")}
     >
-      <ToolFallbackTrigger toolName={toolName} status={status} />
+      <ToolFallbackTrigger toolName={toolName} argsText={argsText} status={status} />
       <ToolFallbackContent>
         <ToolFallbackError status={status} />
-        <ToolFallbackArgs
+        <ToolArgsRenderer
+          toolName={toolName}
           argsText={argsText}
-          className={cn(isCancelled && "opacity-60")}
         />
-        {!isCancelled && <ToolFallbackResult result={result} />}
+        {!isCancelled && (
+          <ToolResultRenderer toolName={toolName} result={result} />
+        )}
       </ToolFallbackContent>
     </ToolFallbackRoot>
   );
