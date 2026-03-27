@@ -17,6 +17,7 @@ import {
   Mountain,
   FlaskConical,
   Brain,
+  BarChart3,
   ArrowRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -199,6 +200,17 @@ const cards: CardInfo[] = [
     borderColor: "hover:border-yellow-500/40",
     glowColor: "rgba(234,179,8,0.15)",
     category: "AI",
+  },
+  {
+    href: "/sorting",
+    label: "Sorting Visualizer",
+    description: "Watch eight classic sorting algorithms race through arrays in real-time with colour-coded bars and sound.",
+    Icon: BarChart3,
+    color: "text-sky-500",
+    bgColor: "bg-sky-500/10 dark:bg-sky-500/15",
+    borderColor: "hover:border-sky-500/40",
+    glowColor: "rgba(14,165,233,0.15)",
+    category: "Algorithms",
   },
 ];
 

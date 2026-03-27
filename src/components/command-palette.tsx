@@ -36,6 +36,7 @@ import {
   Mountain,
   FlaskConical,
   Brain,
+  BarChart3,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -230,6 +231,14 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/neural"),
       keywords: ["neural", "network", "nn", "brain", "machine learning", "ml", "backpropagation", "classifier", "train", "playground"],
+    },
+    {
+      id: "nav-sorting",
+      label: "Go to Sorting Visualizer",
+      icon: <BarChart3 size={16} />,
+      group: "Navigation",
+      action: () => router.push("/sorting"),
+      keywords: ["sort", "sorting", "algorithm", "bubble", "merge", "quick", "heap", "visualizer", "bars", "comparison"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {

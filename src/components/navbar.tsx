@@ -19,6 +19,7 @@ import {
   Mountain,
   FlaskConical,
   Brain,
+  BarChart3,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -51,6 +52,7 @@ const PAGE_HUES: Record<string, number> = {
   "/terrain":   142, // emerald
   "/reaction":  190, // cyan-teal
   "/neural":     45, // yellow
+  "/sorting":   210, // steel blue
 };
 
 // Mapping from route to page label + icon (used for the breadcrumb-style indicator).
@@ -71,6 +73,7 @@ const PAGE_INFO: Record<string, { label: string; Icon: LucideIcon }> = {
   "/terrain":   { label: "Terrain",   Icon: Mountain },
   "/reaction":  { label: "Reaction",  Icon: FlaskConical },
   "/neural":    { label: "Neural Net", Icon: Brain },
+  "/sorting":   { label: "Sorting",    Icon: BarChart3 },
 };
 
 // Per-page accent colours for the active page indicator.
@@ -91,6 +94,7 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/terrain":   { pill: "bg-emerald-500/15 dark:bg-emerald-500/20", text: "text-emerald-700 dark:text-emerald-300" },
   "/reaction":  { pill: "bg-cyan-500/15 dark:bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
   "/neural":    { pill: "bg-yellow-500/15 dark:bg-yellow-500/20", text: "text-yellow-700 dark:text-yellow-300" },
+  "/sorting":   { pill: "bg-sky-500/15 dark:bg-sky-500/20", text: "text-sky-700 dark:text-sky-300" },
 };
 
 // Actual color values used for the animated brand accent dot.
@@ -111,6 +115,7 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/terrain":   "#10b981",
   "/reaction":  "#06b6d4",
   "/neural":    "#eab308",
+  "/sorting":   "#0ea5e9",
 };
 
 // Browser tab titles per page.
@@ -130,6 +135,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/attractor": "Attractor — Self-Modifier",
   "/terrain":   "Terrain — Self-Modifier",
   "/reaction":  "Reaction — Self-Modifier",
+  "/sorting":   "Sorting — Self-Modifier",
 };
 
 // Alt+number quick-nav targets (kept so the global keyboard shortcuts still work).
