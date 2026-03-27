@@ -32,6 +32,7 @@ import {
   Atom,
   Fan,
   Sparkles,
+  Mountain,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -194,6 +195,14 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/attractor"),
       keywords: ["strange", "attractor", "lorenz", "chaos", "particles", "3d", "rossler", "aizawa", "thomas"],
+    },
+    {
+      id: "nav-terrain",
+      label: "Go to Terrain",
+      icon: <Mountain size={16} />,
+      group: "Navigation",
+      action: () => router.push("/terrain"),
+      keywords: ["terrain", "procedural", "landscape", "perlin", "noise", "3d", "mountains", "heightmap", "generation"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {
