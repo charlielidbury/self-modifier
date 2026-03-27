@@ -14,8 +14,11 @@ import {
   Link,
   Check,
   Bookmark,
+  BookmarkPlus,
+  X,
   Maximize2,
   Minimize2,
+  Palette,
 } from "lucide-react";
 
 // ─── WebGL Shaders ────────────────────────────────────────────────────────────
@@ -142,6 +145,11 @@ type Preset = {
   zoom: number;
   juliaAngle?: number;
 };
+
+/** A user-saved bookmark extends Preset with a stable unique id. */
+type FavoritePreset = Preset & { id: string };
+
+const FAVORITES_KEY = "fractal-favorites";
 
 const PRESETS: Preset[] = [
   // ── Mandelbrot ──
@@ -291,11 +299,39 @@ export default function FractalsPage() {
   const [copied, setCopied]     = useState(false);
   const [mouseCoords, setMouseCoords] = useState<{ re: number; im: number } | null>(null);
   const [showPresets, setShowPresets] = useState(false);
+  const [savedBookmark, setSavedBookmark] = useState(false);
+  // 0–1 fractional hue offset; mirrors colorShiftRef so the slider stays in sync
+  const [colorShift, setColorShift] = useState(0);
+
+  // ── User bookmarks (persisted in localStorage) ───────────────────────────────
+  const [favorites, setFavorites] = useState<FavoritePreset[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(FAVORITES_KEY);
+      return raw ? (JSON.parse(raw) as FavoritePreset[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Persist favorites to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+  }, [favorites]);
   const [zoomLevel, setZoomLevel] = useState(zoomRef.current);
   const [centerDisplay, setCenterDisplay] = useState({ x: centerRef.current.x, y: centerRef.current.y });
   const [hintVisible, setHintVisible] = useState(true);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Coordinate editing state — lets the user click the center display and type exact coordinates
+  const [isEditingCoords, setIsEditingCoords] = useState(false);
+  const [editRe, setEditRe] = useState("");
+  const [editIm, setEditIm] = useState("");
+
+  // Direct Julia c parameter (overrides angle-based orbit when set by shift+click)
+  const juliaCDirectRef = useRef<{ x: number; y: number } | null>(null);
+  const [juliaCDirect, setJuliaCDirect] = useState<{ x: number; y: number } | null>(null);
 
   // Show hint for 6 s after the page loads, then fade it away.
   // Re-show it briefly whenever the user interacts so they can rediscover controls.
@@ -401,8 +437,9 @@ export default function FractalsPage() {
     gl.viewport(0, 0, W, H);
 
     const glMode = FRACTAL_MODES.find(m => m.key === modeRef.current)?.glMode ?? 0;
-    const cx = Math.cos(juliaAngleRef.current) * JULIA_ORBIT_R;
-    const cy = Math.sin(juliaAngleRef.current) * JULIA_ORBIT_R;
+    // Use direct c value (from shift+click) if available, otherwise orbit-based
+    const cx = juliaCDirectRef.current?.x ?? Math.cos(juliaAngleRef.current) * JULIA_ORBIT_R;
+    const cy = juliaCDirectRef.current?.y ?? Math.sin(juliaAngleRef.current) * JULIA_ORBIT_R;
 
     const u = (name: string) => gl.getUniformLocation(prog, name);
     gl.uniform2f(u("u_res"), W, H);
@@ -430,6 +467,7 @@ export default function FractalsPage() {
         juliaAngleRef.current += JULIA_ORBIT_SPEED * dirRef.current;
         colorShiftRef.current += 0.0004 * dirRef.current;
         setJuliaAngle(juliaAngleRef.current); // update display
+        setColorShift(((colorShiftRef.current % 1) + 1) % 1); // keep slider in sync
         needsDrawRef.current = true;
       }
 
@@ -541,6 +579,7 @@ export default function FractalsPage() {
           juliaAngleRef.current = 0;
           setJuliaAngle(0);
           colorShiftRef.current = 0;
+          setColorShift(0);
           dirRef.current = 1;
           const m = modeRef.current;
           if (m === "mandelbrot") {
@@ -609,6 +648,8 @@ export default function FractalsPage() {
         case "m":
         case "M": {
           e.preventDefault();
+          juliaCDirectRef.current = null;
+          setJuliaCDirect(null);
           const modeKeys = FRACTAL_MODES.map((f) => f.key) as FractalKey[];
           const currentIdx = modeKeys.indexOf(modeRef.current);
           const nextMode = modeKeys[(currentIdx + 1) % modeKeys.length];
@@ -636,6 +677,43 @@ export default function FractalsPage() {
 
   // ── Pointer events (pan + pinch-to-zoom) ────────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    // ── Shift+click in Mandelbrot mode → explore Julia set for this c value ──
+    if (e.shiftKey && modeRef.current === "mandelbrot" && pointersRef.current.size === 0) {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const W = rect.width;
+        const H = rect.height;
+        const minDim = Math.min(W, H);
+        const c = {
+          x: (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x,
+          y: -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y,
+        };
+        juliaCDirectRef.current = c;
+        setJuliaCDirect(c);
+        colorShiftRef.current = 0;
+        setColorShift(0);
+        dirRef.current = 1;
+        playingRef.current = false;
+        setPlaying(false);
+        modeRef.current = "julia";
+        setMode("julia");
+        flyAnimRef.current = {
+          fromCenter: { ...centerRef.current },
+          fromZoom: zoomRef.current,
+          toCenter: { x: 0, y: 0 },
+          toZoom: 0.45,
+          startTime: Date.now(),
+          duration: 800,
+        };
+        needsDrawRef.current = true;
+        resetHintTimer();
+        return; // don't start a drag
+      }
+    }
+
     // Cancel any in-progress fly animation so the user takes control immediately
     flyAnimRef.current = null;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -816,27 +894,39 @@ export default function FractalsPage() {
   };
 
   const togglePlay = () => {
+    // Resume animation → clear any direct Julia c override (animation uses orbit)
+    juliaCDirectRef.current = null;
+    setJuliaCDirect(null);
     playingRef.current = !playingRef.current;
     setPlaying(p => !p);
   };
 
   const stepFrame = (dir: number) => {
+    // Stepping advances the orbit angle → clear direct c override
+    juliaCDirectRef.current = null;
+    setJuliaCDirect(null);
     dirRef.current = dir;
     juliaAngleRef.current += JULIA_ORBIT_SPEED * 8 * dir;
     colorShiftRef.current += 0.0004 * 8 * dir;
     setJuliaAngle(juliaAngleRef.current);
+    setColorShift(((colorShiftRef.current % 1) + 1) % 1);
     needsDrawRef.current = true;
   };
 
   const setDir = (d: number) => {
+    // Starting animation → clear direct c override
+    juliaCDirectRef.current = null;
+    setJuliaCDirect(null);
     dirRef.current = d;
     if (!playingRef.current) { playingRef.current = true; setPlaying(true); }
   };
 
   const reset = () => {
+    juliaCDirectRef.current = null;
+    setJuliaCDirect(null);
     playingRef.current = false; setPlaying(false);
     juliaAngleRef.current = 0;  setJuliaAngle(0);
-    colorShiftRef.current = 0;
+    colorShiftRef.current = 0;  setColorShift(0);
     dirRef.current = 1;
     setModeUI(modeRef.current); // re-centres view
   };
@@ -848,7 +938,9 @@ export default function FractalsPage() {
   };
 
   const applyPreset = (preset: Preset) => {
-    // Stop Julia/color animation
+    // Stop Julia/color animation and clear any direct c override
+    juliaCDirectRef.current = null;
+    setJuliaCDirect(null);
     playingRef.current = false;
     setPlaying(false);
 
@@ -859,6 +951,7 @@ export default function FractalsPage() {
     juliaAngleRef.current = angle;
     setJuliaAngle(angle);
     colorShiftRef.current = 0;
+    setColorShift(0);
     dirRef.current = 1;
 
     // Fly smoothly to the preset view instead of snapping
@@ -907,8 +1000,35 @@ export default function FractalsPage() {
     link.click();
   }, [draw]);
 
-  const juliaCx = (Math.cos(juliaAngle) * JULIA_ORBIT_R).toFixed(4);
-  const juliaCy = (Math.sin(juliaAngle) * JULIA_ORBIT_R).toFixed(4);
+  /** Save the current view as a personal bookmark in localStorage. */
+  const saveBookmark = useCallback(() => {
+    const modeName = FRACTAL_MODES.find((m) => m.key === modeRef.current)?.label ?? modeRef.current;
+    const mag = formatMag(zoomRef.current);
+    const name = `${modeName} · ${mag}`;
+    const newFav: FavoritePreset = {
+      id: Date.now().toString(),
+      name,
+      mode: modeRef.current,
+      center: { ...centerRef.current },
+      zoom: zoomRef.current,
+      juliaAngle: juliaAngleRef.current,
+    };
+    setFavorites((prev) => [newFav, ...prev]);
+    setSavedBookmark(true);
+    setTimeout(() => setSavedBookmark(false), 2000);
+  }, []);
+
+  /** Delete a saved bookmark by id. */
+  const deleteBookmark = useCallback((id: string) => {
+    setFavorites((prev) => prev.filter((f) => f.id !== id));
+  }, []);
+
+  const juliaCx = juliaCDirect
+    ? juliaCDirect.x.toFixed(4)
+    : (Math.cos(juliaAngle) * JULIA_ORBIT_R).toFixed(4);
+  const juliaCy = juliaCDirect
+    ? juliaCDirect.y.toFixed(4)
+    : (Math.sin(juliaAngle) * JULIA_ORBIT_R).toFixed(4);
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-black select-none">
@@ -1044,8 +1164,37 @@ export default function FractalsPage() {
             </button>
 
             {showPresets && (
-              <div className="absolute bottom-full mb-2 right-0 w-52 bg-black/80 backdrop-blur border border-white/15 rounded-xl overflow-hidden shadow-xl z-10">
-                {/* Group heading helper */}
+              <div className="absolute bottom-full mb-2 right-0 w-56 bg-black/80 backdrop-blur border border-white/15 rounded-xl overflow-hidden shadow-xl z-10 max-h-96 overflow-y-auto">
+                {/* User bookmarks section (shown first, when any are saved) */}
+                {favorites.length > 0 && (
+                  <div>
+                    <div className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-yellow-400/60">
+                      My Bookmarks
+                    </div>
+                    {favorites.map((fav) => (
+                      <div key={fav.id} className="flex items-center group">
+                        <button
+                          onClick={() => applyPreset(fav)}
+                          className="flex-1 text-left px-3 py-1.5 text-xs text-white/70 hover:text-white hover:bg-white/10 transition-colors truncate"
+                        >
+                          {fav.name}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteBookmark(fav.id);
+                          }}
+                          title="Delete bookmark"
+                          className="pr-2 py-1.5 text-white/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+                    <div className="border-t border-white/10 my-1" />
+                  </div>
+                )}
+                {/* Built-in preset groups */}
                 {(["mandelbrot", "julia", "burning"] as FractalKey[]).map((groupKey) => {
                   const groupPresets = PRESETS.filter((p) => p.mode === groupKey);
                   const groupLabel =
@@ -1074,6 +1223,27 @@ export default function FractalsPage() {
               </div>
             )}
           </div>
+
+          {/* Save current view as a personal bookmark */}
+          <button
+            onClick={saveBookmark}
+            title="Bookmark this view (appears in Presets → My Bookmarks)"
+            className={[
+              "flex items-center gap-1.5 px-2.5 py-2 backdrop-blur border rounded-xl text-xs font-medium transition-all duration-200",
+              savedBookmark
+                ? "bg-yellow-500/30 border-yellow-400/40 text-yellow-300"
+                : "bg-black/50 border-white/10 text-white/60 hover:text-white",
+            ].join(" ")}
+          >
+            {savedBookmark ? (
+              <>
+                <Check size={13} />
+                <span>Saved!</span>
+              </>
+            ) : (
+              <BookmarkPlus size={13} />
+            )}
+          </button>
 
           {/* Save as PNG */}
           <button
@@ -1118,8 +1288,8 @@ export default function FractalsPage() {
           </button>
         </div>
 
-        {/* Max iterations slider */}
-        <div className="flex items-center gap-2 bg-black/40 backdrop-blur border border-white/10 rounded-xl px-4 py-2 pointer-events-auto">
+        {/* Sliders row: iterations + color shift */}
+        <div className="flex items-center gap-3 bg-black/40 backdrop-blur border border-white/10 rounded-xl px-4 py-2 pointer-events-auto">
           <Infinity size={12} className="text-white/50" />
           <span className="text-white/50 text-xs w-6">iter</span>
           <input
@@ -1129,25 +1299,106 @@ export default function FractalsPage() {
             step={50}
             value={maxIter}
             onChange={(e) => updateMaxIter(Number(e.target.value))}
-            className="w-32 accent-white/70"
+            className="w-28 accent-white/70"
           />
           <span className="text-white/60 text-xs w-8 text-right">{maxIter}</span>
+
+          <div className="w-px h-4 bg-white/20 mx-1" />
+
+          <Palette size={12} className="text-white/50" />
+          <span className="text-white/50 text-xs w-6">hue</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={colorShift}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              colorShiftRef.current = v;
+              setColorShift(v);
+              needsDrawRef.current = true;
+            }}
+            className="w-28 accent-white/70"
+          />
         </div>
       </div>
 
-      {/* ── Coordinate display — shows mouse position while hovering, center otherwise ── */}
-      <div className="absolute top-3 left-4 text-white/60 text-xs font-mono bg-black/50 backdrop-blur px-3 py-1.5 rounded-lg pointer-events-none tabular-nums">
-        {mouseCoords ? (
-          <>
-            {mouseCoords.re.toFixed(6)}{mouseCoords.im >= 0 ? " + " : " − "}{Math.abs(mouseCoords.im).toFixed(6)}i
-          </>
-        ) : (
-          <span className="text-white/40">
-            <span className="text-white/25 mr-1">ctr</span>
-            {centerDisplay.x.toFixed(6)}{centerDisplay.y >= 0 ? " + " : " − "}{Math.abs(centerDisplay.y).toFixed(6)}i
-          </span>
-        )}
-      </div>
+      {/* ── Coordinate display — shows mouse position while hovering, center otherwise.
+           Clicking the center display opens an inline editor to jump to exact coordinates. ── */}
+      {isEditingCoords ? (
+        <form
+          className="absolute top-3 left-4 flex items-center gap-1 bg-black/70 backdrop-blur px-3 py-1.5 rounded-lg pointer-events-auto text-xs font-mono border border-white/25"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const re = parseFloat(editRe);
+            const im = parseFloat(editIm);
+            if (!isNaN(re) && !isNaN(im)) {
+              centerRef.current = { x: re, y: im };
+              setCenterDisplay({ x: re, y: im });
+              needsDrawRef.current = true;
+            }
+            setIsEditingCoords(false);
+          }}
+          onKeyDown={(e) => { if (e.key === "Escape") setIsEditingCoords(false); }}
+        >
+          <span className="text-white/30 mr-1 shrink-0">ctr</span>
+          <input
+            type="text"
+            value={editRe}
+            onChange={(e) => setEditRe(e.target.value)}
+            className="w-24 bg-transparent text-white outline-none border-b border-white/30 tabular-nums"
+            autoFocus
+            placeholder="0.000000"
+            aria-label="Real part"
+          />
+          <span className="text-white/50 mx-0.5 shrink-0">+</span>
+          <input
+            type="text"
+            value={editIm}
+            onChange={(e) => setEditIm(e.target.value)}
+            className="w-24 bg-transparent text-white outline-none border-b border-white/30 tabular-nums"
+            placeholder="0.000000"
+            aria-label="Imaginary part"
+          />
+          <span className="text-white/50 shrink-0">i</span>
+          <button
+            type="submit"
+            className="ml-1.5 text-white/50 hover:text-white transition-colors shrink-0"
+            title="Go to coordinates (Enter)"
+          >
+            ↵
+          </button>
+        </form>
+      ) : (
+        <div
+          className={[
+            "absolute top-3 left-4 text-white/60 text-xs font-mono bg-black/50 backdrop-blur px-3 py-1.5 rounded-lg tabular-nums",
+            !mouseCoords
+              ? "pointer-events-auto cursor-pointer hover:bg-black/65 hover:text-white/80 transition-colors"
+              : "pointer-events-none",
+          ].join(" ")}
+          onClick={() => {
+            if (!mouseCoords) {
+              setEditRe(centerDisplay.x.toFixed(6));
+              setEditIm(centerDisplay.y.toFixed(6));
+              setIsEditingCoords(true);
+            }
+          }}
+          title={!mouseCoords ? "Click to navigate to specific coordinates" : undefined}
+        >
+          {mouseCoords ? (
+            <>
+              {mouseCoords.re.toFixed(6)}{mouseCoords.im >= 0 ? " + " : " − "}{Math.abs(mouseCoords.im).toFixed(6)}i
+            </>
+          ) : (
+            <span className="text-white/40">
+              <span className="text-white/25 mr-1">ctr</span>
+              {centerDisplay.x.toFixed(6)}{centerDisplay.y >= 0 ? " + " : " − "}{Math.abs(centerDisplay.y).toFixed(6)}i
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── Zoom level + Hint ── */}
       <div className="absolute top-3 right-4 flex flex-col items-end gap-1.5 pointer-events-none">
@@ -1161,9 +1412,11 @@ export default function FractalsPage() {
             opacity: hintVisible ? 1 : 0,
           }}
         >
-          drag to pan · scroll to zoom · pinch to zoom · double-click to zoom in
+          {mode === "mandelbrot"
+            ? "drag to pan · scroll to zoom · double-click to zoom in · shift+click for Julia set"
+            : "drag to pan · scroll to zoom · pinch to zoom · double-click to zoom in"}
           <br />
-          ← → ↑ ↓ pan · +/− zoom · space play · m mode · p palette · r reset · s share · d save
+          ← → ↑ ↓ pan · +/− zoom · space play · m mode · p palette · r reset · s share · d save · f fullscreen
         </div>
       </div>
     </div>
