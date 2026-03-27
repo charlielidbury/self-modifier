@@ -125,6 +125,17 @@ const BOARD_THEMES = [
 
 type BoardThemeName = (typeof BOARD_THEMES)[number]["name"];
 
+// ── Time controls ─────────────────────────────────────────────────────────────
+const TIME_CONTROLS = [
+  { label: "∞",   seconds: 0   },
+  { label: "1m",  seconds: 60  },
+  { label: "3m",  seconds: 180 },
+  { label: "5m",  seconds: 300 },
+  { label: "10m", seconds: 600 },
+] as const;
+
+type TimeControlLabel = (typeof TIME_CONTROLS)[number]["label"];
+
 // ── Chess opening book ────────────────────────────────────────────────────────
 // Entries are listed from most-specific to least-specific so the greedy search
 // naturally picks the longest matching line.
@@ -354,6 +365,7 @@ export default function ChessPage() {
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [difficulty, setDifficulty] = useState<DifficultyLabel>("Hard");
   const [vsAI, setVsAI] = useState(true);
+  const [playerColor, setPlayerColor] = useState<Color>("w");
   const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
   const [flipped, setFlipped] = useState(false);
   const [pendingPromotion, setPendingPromotion] = useState<{
@@ -386,6 +398,11 @@ export default function ChessPage() {
   const [hint, setHint] = useState<[[number, number], [number, number]] | null>(null);
   const [isHinting, setIsHinting] = useState(false);
   const [boardTheme, setBoardTheme] = useState<BoardThemeName>("Classic");
+
+  // ── Time control ──────────────────────────────────────────────────────────
+  const [timeControl, setTimeControl] = useState<TimeControlLabel>("∞");
+  // Ref so the clock interval always reads the latest value without re-subscribing
+  const timeControlSecondsRef = useRef(0);
 
   // ── Confetti state ────────────────────────────────────────────────────────
   const [showConfetti, setShowConfetti] = useState(false);
@@ -471,22 +488,34 @@ export default function ChessPage() {
   // Record a result once per game (vs AI only)
   useEffect(() => {
     if (!vsAI || statsCountedRef.current) return;
-    if (status.includes("White wins")) {
+    const playerWins = playerColor === "w" ? status.includes("White wins") : status.includes("Black wins");
+    const playerLoses = playerColor === "w" ? status.includes("Black wins") : status.includes("White wins");
+    if (playerWins) {
       statsCountedRef.current = true;
       setStats((s) => ({ ...s, wins: s.wins + 1 }));
-    } else if (status.includes("Black wins")) {
+    } else if (playerLoses) {
       statsCountedRef.current = true;
       setStats((s) => ({ ...s, losses: s.losses + 1 }));
     } else if (status.includes("Stalemate")) {
       statsCountedRef.current = true;
       setStats((s) => ({ ...s, draws: s.draws + 1 }));
     }
-  }, [status, vsAI]);
+  }, [status, vsAI, playerColor]);
 
   // ── Game clocks ───────────────────────────────────────────────────────────
-  const [whiteTime, setWhiteTime] = useState(0); // ms elapsed
-  const [blackTime, setBlackTime] = useState(0); // ms elapsed
+  // ms: elapsed when unlimited (0-based), remaining when timed (tc*1000-based)
+  const [whiteTime, setWhiteTime] = useState(0);
+  const [blackTime, setBlackTime] = useState(0);
   const turnStartRef = useRef<number>(Date.now()); // timestamp when current turn began
+
+  // Sync ref and reset clocks whenever the time control setting changes
+  useEffect(() => {
+    const tc = TIME_CONTROLS.find((t) => t.label === timeControl)?.seconds ?? 0;
+    timeControlSecondsRef.current = tc;
+    setWhiteTime(tc > 0 ? tc * 1000 : 0);
+    setBlackTime(tc > 0 ? tc * 1000 : 0);
+    turnStartRef.current = Date.now();
+  }, [timeControl]);
 
   // Reset the turn-start timestamp whenever the active player changes
   useEffect(() => {
@@ -495,44 +524,65 @@ export default function ChessPage() {
 
   // Tick the active player's clock every 100 ms while the game is live
   useEffect(() => {
-    const gameOver = status.includes("Checkmate") || status.includes("Stalemate");
+    const gameOver = status.includes("Checkmate") || status.includes("Stalemate") || status.includes("on time");
     if (gameOver) return;
     const id = setInterval(() => {
       const elapsed = Date.now() - turnStartRef.current;
-      if (turn === "w") {
-        setWhiteTime((t) => t + elapsed);
+      const tc = timeControlSecondsRef.current;
+      if (tc > 0) {
+        // Countdown mode — subtract elapsed from the active player's clock
+        if (turn === "w") {
+          setWhiteTime((t) => Math.max(0, t - elapsed));
+        } else {
+          setBlackTime((t) => Math.max(0, t - elapsed));
+        }
       } else {
-        setBlackTime((t) => t + elapsed);
+        // Count-up mode — track elapsed time (existing behaviour)
+        if (turn === "w") {
+          setWhiteTime((t) => t + elapsed);
+        } else {
+          setBlackTime((t) => t + elapsed);
+        }
       }
       turnStartRef.current = Date.now();
     }, 100);
     return () => clearInterval(id);
   }, [turn, status]);
 
+  // Detect when a player runs out of time
+  useEffect(() => {
+    const tc = TIME_CONTROLS.find((t) => t.label === timeControl)?.seconds ?? 0;
+    if (tc === 0 || isGameOver) return;
+    if (whiteTime === 0) setStatus("Black wins on time! ⏱");
+    if (blackTime === 0) setStatus("White wins on time! ⏱");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [whiteTime, blackTime]);
+
   const isGameOver =
-    status.includes("Checkmate") || status.includes("Stalemate");
+    status.includes("Checkmate") || status.includes("Stalemate") || status.includes("on time");
 
   // Auto-scroll move history to bottom when moves are added
   useEffect(() => {
     historyEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [moveHistory]);
 
-  // ── Engine move (black) ──────────────────────────────────────────────────
+  // ── Engine move ───────────────────────────────────────────────────────────
   useEffect(() => {
-    if (turn !== "b" || isGameOver || isThinking || !vsAI) return;
+    const aiColor: Color = playerColor === "w" ? "b" : "w";
+    if (turn !== aiColor || isGameOver || isThinking || !vsAI) return;
 
     setIsThinking(true);
     const depth = DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3;
     // Yield to the browser so the board re-renders before we block the thread.
     const id = setTimeout(() => {
-      const move = getBestMove(board, "b", depth);
+      const move = getBestMove(board, aiColor, depth);
       if (move) {
         const next = applyMove(board, move.fr, move.fc, move.tr, move.tc);
-        const san = toSAN(board, move.fr, move.fc, move.tr, move.tc, next, "b");
-        const newStatus = getStatus(next, "b");
+        const san = toSAN(board, move.fr, move.fc, move.tr, move.tc, next, aiColor);
+        const newStatus = getStatus(next, aiColor);
         const wasCapture = board[move.tr][move.tc] !== null;
         setBoard(next);
-        setTurn("w");
+        setTurn(playerColor);
         setStatus(newStatus);
         setLastMove([[move.fr, move.fc], [move.tr, move.tc]]);
         setMoveHistory((h) => [...h, san]);
@@ -547,7 +597,7 @@ export default function ChessPage() {
 
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turn, board, difficulty, vsAI]);
+  }, [turn, board, difficulty, vsAI, playerColor]);
 
   // ── Undo ──────────────────────────────────────────────────────────────────
   const undo = useCallback(() => {
@@ -566,12 +616,12 @@ export default function ChessPage() {
     });
   }, []);
 
-  // Show a hint: compute best white move and highlight it briefly
+  // Show a hint: compute best move for the player and highlight it briefly
   const showHint = useCallback(() => {
-    if (!vsAI || isGameOver || isThinking || turn !== "w" || isHinting) return;
+    if (!vsAI || isGameOver || isThinking || turn !== playerColor || isHinting) return;
     setIsHinting(true);
     setTimeout(() => {
-      const move = getBestMove(board, "w", 3);
+      const move = getBestMove(board, playerColor, 3);
       if (move) {
         setHint([[move.fr, move.fc], [move.tr, move.tc]]);
         // Auto-clear hint after 3 seconds
@@ -579,7 +629,7 @@ export default function ChessPage() {
       }
       setIsHinting(false);
     }, 30);
-  }, [board, isGameOver, isThinking, turn, isHinting, vsAI]);
+  }, [board, isGameOver, isThinking, turn, isHinting, vsAI, playerColor]);
 
   // Keyboard shortcuts: Ctrl+Z = undo, N = new game, F = flip board
   useEffect(() => {
@@ -637,6 +687,11 @@ export default function ChessPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undo, isThinking, undoStack.length, showHint]);
 
+  // ── Auto-flip board when player color changes ─────────────────────────────
+  useEffect(() => {
+    setFlipped(playerColor === "b");
+  }, [playerColor]);
+
   // ── Confetti on checkmate ─────────────────────────────────────────────────
   useEffect(() => {
     if (!status.includes("Checkmate")) return;
@@ -652,7 +707,7 @@ export default function ChessPage() {
   // ── Player click ─────────────────────────────────────────────────────────
   const handleClick = useCallback(
     (r: number, c: number) => {
-      if (isGameOver || isThinking || (vsAI && turn !== "w")) return;
+      if (isGameOver || isThinking || (vsAI && turn !== playerColor)) return;
 
       const piece = board[r][c];
 
@@ -712,7 +767,7 @@ export default function ChessPage() {
         setLegalMoves(getLegalMoves(board, r, c));
       }
     },
-    [board, selected, legalMoves, turn, isGameOver, isThinking, vsAI, playChessSound]
+    [board, selected, legalMoves, turn, isGameOver, isThinking, vsAI, playerColor, playChessSound]
   );
 
   // ── Drag-and-drop piece movement ─────────────────────────────────────────
@@ -720,7 +775,7 @@ export default function ChessPage() {
     (r: number, c: number, e: React.MouseEvent) => {
       const piece = board[r][c];
       if (!piece || piece.color !== turn) return;
-      if (isGameOver || isThinking || (vsAI && turn !== "w")) return;
+      if (isGameOver || isThinking || (vsAI && turn !== playerColor)) return;
 
       e.preventDefault();
 
@@ -807,7 +862,7 @@ export default function ChessPage() {
       window.addEventListener("mouseup", onMouseUp);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [board, turn, isGameOver, isThinking, vsAI, flipped, status, lastMove, moveHistory, playChessSound]
+    [board, turn, isGameOver, isThinking, vsAI, playerColor, flipped, status, lastMove, moveHistory, playChessSound]
   );
 
   const reset = () => {
@@ -823,8 +878,9 @@ export default function ChessPage() {
     setPendingPromotion(null);
     setHint(null);
     setDragging(null);
-    setWhiteTime(0);
-    setBlackTime(0);
+    const tc = TIME_CONTROLS.find((t) => t.label === timeControl)?.seconds ?? 0;
+    setWhiteTime(tc > 0 ? tc * 1000 : 0);
+    setBlackTime(tc > 0 ? tc * 1000 : 0);
     turnStartRef.current = Date.now();
     statsCountedRef.current = false;
     // Clear any active confetti
@@ -1005,7 +1061,9 @@ export default function ChessPage() {
         ) : (
           <span className="text-sm text-muted-foreground">
             {vsAI
-              ? "⬜ Your turn (White)"
+              ? playerColor === "w"
+                ? "⬜ Your turn (White)"
+                : "⬛ Your turn (Black)"
               : turn === "w"
               ? "⬜ White's turn"
               : "⬛ Black's turn"}
@@ -1034,7 +1092,7 @@ export default function ChessPage() {
         </button>
         <button
           onClick={showHint}
-          disabled={!vsAI || isGameOver || isThinking || turn !== "w" || isHinting}
+          disabled={!vsAI || isGameOver || isThinking || turn !== playerColor || isHinting}
           title={vsAI ? "Show best move hint (H)" : "Hints only available in vs AI mode"}
           className="px-3 py-1 text-sm rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
@@ -1079,6 +1137,39 @@ export default function ChessPage() {
           </div>
         </div>
 
+        {/* Color selector — only relevant in vs AI mode */}
+        {vsAI && (
+        <div className="flex items-center gap-1.5 ml-2">
+          <span className="text-xs text-muted-foreground select-none">Play as:</span>
+          <div className="flex rounded-md overflow-hidden border border-border">
+            <button
+              onClick={() => setPlayerColor("w")}
+              title="Play as White (you move first)"
+              className={[
+                "px-2.5 py-1 text-xs font-medium transition-colors",
+                playerColor === "w"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground hover:bg-accent",
+              ].join(" ")}
+            >
+              ⬜ White
+            </button>
+            <button
+              onClick={() => setPlayerColor("b")}
+              title="Play as Black (AI moves first)"
+              className={[
+                "px-2.5 py-1 text-xs font-medium transition-colors",
+                playerColor === "b"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground hover:bg-accent",
+              ].join(" ")}
+            >
+              ⬛ Black
+            </button>
+          </div>
+        </div>
+        )}
+
         {/* Difficulty selector — only relevant in vs AI mode */}
         {vsAI && (
         <div className="flex items-center gap-1.5 ml-2">
@@ -1101,6 +1192,27 @@ export default function ChessPage() {
           </div>
         </div>
         )}
+
+        {/* Time control selector */}
+        <div className="flex items-center gap-1.5 ml-2">
+          <span className="text-xs text-muted-foreground select-none">Time:</span>
+          <div className="flex rounded-md overflow-hidden border border-border">
+            {TIME_CONTROLS.map(({ label }) => (
+              <button
+                key={label}
+                onClick={() => setTimeControl(label)}
+                className={[
+                  "px-2 py-1 text-xs font-medium transition-colors",
+                  timeControl === label
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-accent",
+                ].join(" ")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Board theme selector */}
         <div className="flex items-center gap-1.5 ml-2">
@@ -1160,19 +1272,6 @@ export default function ChessPage() {
             </div>
           </div>
 
-          {/* Rank labels — spacer at top aligns them with the board squares */}
-          <div className="flex flex-col">
-            <div className="h-7 mb-1" aria-hidden="true" />
-            {(flipped ? [...RANKS].reverse() : RANKS).map((rank) => (
-              <div
-                key={rank}
-                className="w-5 h-14 flex items-center justify-center text-xs text-muted-foreground select-none"
-              >
-                {rank}
-              </div>
-            ))}
-          </div>
-
           <div className="flex flex-col">
             {/* Top captures row: black side when normal, white side when flipped */}
             <div className="flex items-center h-7 gap-0.5 mb-1 min-h-7">
@@ -1194,7 +1293,9 @@ export default function ChessPage() {
                 <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px] flex items-center justify-center z-30">
                   <div className="bg-background/95 border border-border rounded-2xl shadow-2xl px-8 py-6 flex flex-col items-center gap-3 mx-4">
                     <span className="text-4xl select-none" aria-hidden="true">
-                      {status.includes("White wins")
+                      {status.includes("on time")
+                        ? "⏱"
+                        : status.includes("White wins")
                         ? "♔"
                         : status.includes("Black wins")
                         ? "♚"
@@ -1270,6 +1371,24 @@ export default function ChessPage() {
                         {isCapture && (
                           <div className="absolute inset-0 ring-4 ring-inset ring-black/30 pointer-events-none z-10" />
                         )}
+                        {/* Rank label — shown on the left edge of the board only */}
+                        {((!flipped && c === 0) || (flipped && c === 7)) && (
+                          <span
+                            className="absolute top-0.5 left-0.5 text-[10px] leading-none font-semibold select-none pointer-events-none z-10"
+                            style={{ color: isLight ? activeTheme.dark : activeTheme.light }}
+                          >
+                            {8 - r}
+                          </span>
+                        )}
+                        {/* File label — shown on the bottom row of the board only */}
+                        {((!flipped && r === 7) || (flipped && r === 0)) && (
+                          <span
+                            className="absolute bottom-0.5 right-0.5 text-[10px] leading-none font-semibold select-none pointer-events-none z-10"
+                            style={{ color: isLight ? activeTheme.dark : activeTheme.light }}
+                          >
+                            {FILES[c]}
+                          </span>
+                        )}
                         {/* Piece — hidden while being dragged (ghost follows cursor) */}
                         {piece && !isDragSource && (
                           <span
@@ -1285,18 +1404,6 @@ export default function ChessPage() {
                       </div>
                     );
                   })}
-                </div>
-              ))}
-            </div>
-
-            {/* File labels */}
-            <div className="flex mt-1">
-              {(flipped ? [...FILES].reverse() : FILES).map((file) => (
-                <div
-                  key={file}
-                  className="w-14 flex items-center justify-center text-xs text-muted-foreground select-none"
-                >
-                  {file}
                 </div>
               ))}
             </div>
@@ -1324,7 +1431,9 @@ export default function ChessPage() {
             className={[
               "flex items-center justify-between px-3 py-1.5 rounded-lg border text-sm font-mono font-semibold transition-colors",
               turn === "b" && !isGameOver
-                ? "bg-neutral-800 dark:bg-neutral-700 text-white border-neutral-600 shadow-inner"
+                ? blackTime < 30000 && timeControlSecondsRef.current > 0
+                  ? "bg-red-900/60 text-red-100 border-red-700 shadow-inner"
+                  : "bg-neutral-800 dark:bg-neutral-700 text-white border-neutral-600 shadow-inner"
                 : "bg-card text-muted-foreground border-border opacity-60",
             ].join(" ")}
           >
@@ -1438,7 +1547,9 @@ export default function ChessPage() {
             className={[
               "flex items-center justify-between px-3 py-1.5 rounded-lg border text-sm font-mono font-semibold transition-colors",
               turn === "w" && !isGameOver
-                ? "bg-white dark:bg-neutral-200 text-neutral-900 border-neutral-300 shadow-inner"
+                ? whiteTime < 30000 && timeControlSecondsRef.current > 0
+                  ? "bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-100 border-red-300 dark:border-red-700 shadow-inner"
+                  : "bg-white dark:bg-neutral-200 text-neutral-900 border-neutral-300 shadow-inner"
                 : "bg-card text-muted-foreground border-border opacity-60",
             ].join(" ")}
           >
@@ -1450,7 +1561,7 @@ export default function ChessPage() {
 
       <p className="text-xs text-muted-foreground">
         {vsAI
-          ? `You play White · Engine plays Black (depth ${DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3})`
+          ? `You play ${playerColor === "w" ? "White" : "Black"} · Engine plays ${playerColor === "w" ? "Black" : "White"} (depth ${DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3})`
           : "Two-player mode · White vs Black (same device)"}
       </p>
 
