@@ -1130,11 +1130,25 @@ type GenomeData = {
   parentId: string | null;
 };
 
+type EvolutionSnapshotData = {
+  generation: number;
+  timestamp: string;
+  avgFitness: number;
+  bestFitness: number;
+  worstFitness: number;
+  dominantFocus: string;
+  focusDistribution: Record<string, number>;
+  populationSize: number;
+  eliminated: number;
+  survivorIds: string[];
+};
+
 type GenePoolData = {
   genomes: GenomeData[];
   generationCount: number;
   activeGenomeId: string | null;
   totalSessions: number;
+  evolutionHistory: EvolutionSnapshotData[];
 };
 
 const FOCUS_COLORS: Record<string, string> = {
@@ -1257,6 +1271,211 @@ function GenomeCard({
           {genome.id.slice(0, 6)}
         </span>
       </div>
+    </div>
+  );
+}
+
+// ── Fitness Evolution Timeline ─────────────────────────────────────────────
+
+const FOCUS_STROKE_COLORS: Record<string, string> = {
+  "visual-polish": "#f472b6",
+  "code-quality": "#60a5fa",
+  "new-feature": "#34d399",
+  "ux-enhancement": "#fbbf24",
+  "meta-improvement": "#a78bfa",
+  "bug-fix": "#f87171",
+  performance: "#22d3ee",
+};
+
+function FitnessTimeline({ history }: { history: EvolutionSnapshotData[] }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
+  if (history.length < 2) {
+    return (
+      <div className="px-3 py-3 text-center">
+        <p className="text-[9px] text-white/20">
+          Fitness timeline appears after 2+ evolution cycles.
+        </p>
+        <p className="text-[8px] text-white/10 mt-0.5">
+          Evolution triggers every 3 sessions.
+        </p>
+      </div>
+    );
+  }
+
+  // Chart dimensions
+  const W = 320;
+  const H = 100;
+  const PAD_L = 6;
+  const PAD_R = 6;
+  const PAD_T = 12;
+  const PAD_B = 16;
+  const chartW = W - PAD_L - PAD_R;
+  const chartH = H - PAD_T - PAD_B;
+
+  // Compute ranges
+  const allValues = history.flatMap((h) => [h.bestFitness, h.worstFitness, h.avgFitness]);
+  const minVal = Math.min(0, ...allValues);
+  const maxVal = Math.max(1, ...allValues);
+  const range = maxVal - minVal || 1;
+
+  const xScale = (i: number) => PAD_L + (i / (history.length - 1)) * chartW;
+  const yScale = (v: number) => PAD_T + chartH - ((v - minVal) / range) * chartH;
+
+  // Build path strings
+  const buildPath = (getter: (s: EvolutionSnapshotData) => number) =>
+    history
+      .map((s, i) => `${i === 0 ? "M" : "L"}${xScale(i).toFixed(1)},${yScale(getter(s)).toFixed(1)}`)
+      .join(" ");
+
+  const bestPath = buildPath((s) => s.bestFitness);
+  const avgPath = buildPath((s) => s.avgFitness);
+  const worstPath = buildPath((s) => s.worstFitness);
+
+  // Build filled area between best and worst
+  const areaPath = [
+    ...history.map((s, i) => `${i === 0 ? "M" : "L"}${xScale(i).toFixed(1)},${yScale(s.bestFitness).toFixed(1)}`),
+    ...history.map((s, i) => `L${xScale(history.length - 1 - i).toFixed(1)},${yScale(history[history.length - 1 - i].worstFitness).toFixed(1)}`),
+    "Z",
+  ].join(" ");
+
+  // Zero line
+  const zeroY = yScale(0);
+
+  const hovered = hoveredIdx !== null ? history[hoveredIdx] : null;
+
+  return (
+    <div className="px-3 pt-2 pb-1">
+      {/* Chart header */}
+      <div className="flex items-center gap-2 mb-1.5">
+        <TrendingUp size={9} className="text-white/25" />
+        <span className="text-[9px] text-white/30 font-semibold uppercase tracking-wider">
+          Fitness Evolution
+        </span>
+        <div className="ml-auto flex items-center gap-2 text-[8px]">
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-px bg-emerald-400" />
+            <span className="text-white/20">best</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-px bg-violet-400" />
+            <span className="text-white/20">avg</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-px bg-white/20" />
+            <span className="text-white/20">worst</span>
+          </span>
+        </div>
+      </div>
+
+      {/* SVG Chart */}
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        style={{ height: "auto", maxHeight: 100 }}
+        onMouseLeave={() => setHoveredIdx(null)}
+      >
+        {/* Grid lines */}
+        <line x1={PAD_L} x2={W - PAD_R} y1={zeroY} y2={zeroY} stroke="white" strokeOpacity={0.08} strokeDasharray="2,2" />
+        <text x={PAD_L} y={zeroY - 2} fill="white" fillOpacity={0.12} fontSize={7}>0</text>
+
+        {/* Filled range area */}
+        <path d={areaPath} fill="white" fillOpacity={0.03} />
+
+        {/* Worst line */}
+        <path d={worstPath} fill="none" stroke="white" strokeOpacity={0.15} strokeWidth={1} />
+
+        {/* Avg line */}
+        <path d={avgPath} fill="none" stroke="#a78bfa" strokeOpacity={0.7} strokeWidth={1.5} />
+
+        {/* Best line */}
+        <path d={bestPath} fill="none" stroke="#34d399" strokeOpacity={0.8} strokeWidth={1.5} />
+
+        {/* Dominant focus dots on avg line */}
+        {history.map((s, i) => {
+          const color = FOCUS_STROKE_COLORS[s.dominantFocus] ?? "#a78bfa";
+          return (
+            <circle
+              key={i}
+              cx={xScale(i)}
+              cy={yScale(s.avgFitness)}
+              r={hoveredIdx === i ? 3.5 : 2}
+              fill={color}
+              fillOpacity={hoveredIdx === i ? 1 : 0.6}
+              stroke={hoveredIdx === i ? "white" : "none"}
+              strokeWidth={hoveredIdx === i ? 0.5 : 0}
+              className="transition-all duration-150"
+            />
+          );
+        })}
+
+        {/* Invisible hover targets */}
+        {history.map((_, i) => (
+          <rect
+            key={`hover-${i}`}
+            x={xScale(i) - chartW / history.length / 2}
+            y={PAD_T}
+            width={chartW / history.length}
+            height={chartH}
+            fill="transparent"
+            onMouseEnter={() => setHoveredIdx(i)}
+          />
+        ))}
+
+        {/* Hover crosshair */}
+        {hoveredIdx !== null && (
+          <line
+            x1={xScale(hoveredIdx)}
+            x2={xScale(hoveredIdx)}
+            y1={PAD_T}
+            y2={H - PAD_B}
+            stroke="white"
+            strokeOpacity={0.15}
+            strokeWidth={0.5}
+          />
+        )}
+
+        {/* Generation labels */}
+        {history.length <= 20
+          ? history.map((s, i) => (
+              <text
+                key={`label-${i}`}
+                x={xScale(i)}
+                y={H - 3}
+                fill="white"
+                fillOpacity={0.15}
+                fontSize={6}
+                textAnchor="middle"
+              >
+                {s.generation}
+              </text>
+            ))
+          : // Show only first, last, and a few intermediate labels
+            [0, Math.floor(history.length / 3), Math.floor((2 * history.length) / 3), history.length - 1].map((i) => (
+              <text
+                key={`label-${i}`}
+                x={xScale(i)}
+                y={H - 3}
+                fill="white"
+                fillOpacity={0.15}
+                fontSize={6}
+                textAnchor="middle"
+              >
+                {history[i].generation}
+              </text>
+            ))}
+      </svg>
+
+      {/* Hover tooltip */}
+      {hovered && (
+        <div className="mt-1 px-2 py-1.5 bg-white/[0.04] rounded-lg border border-white/[0.06] flex items-center gap-3 text-[9px]">
+          <span className="text-white/40 font-mono">Gen {hovered.generation}</span>
+          <span className="text-emerald-400/80">Best: {hovered.bestFitness > 0 ? "+" : ""}{hovered.bestFitness.toFixed(2)}</span>
+          <span className="text-violet-400/80">Avg: {hovered.avgFitness > 0 ? "+" : ""}{hovered.avgFitness.toFixed(2)}</span>
+          <span className="text-white/25">Worst: {hovered.worstFitness.toFixed(2)}</span>
+          <span className="ml-auto text-[8px]">{FOCUS_ICONS[hovered.dominantFocus] ?? "?"} {hovered.dominantFocus}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1398,6 +1617,13 @@ function GenomePanel() {
           ))}
         </div>
       </div>
+
+      {/* Fitness evolution timeline */}
+      {pool.evolutionHistory && pool.evolutionHistory.length > 0 && (
+        <div className="border-b border-white/[0.06]">
+          <FitnessTimeline history={pool.evolutionHistory} />
+        </div>
+      )}
 
       {/* Genome list */}
       <div className="max-h-72 overflow-y-auto">

@@ -54,6 +54,25 @@ export type Genome = {
   createdAt: string;
 };
 
+/** A snapshot of the gene pool taken at each evolution step. */
+export type EvolutionSnapshot = {
+  generation: number;
+  timestamp: string;
+  avgFitness: number;
+  bestFitness: number;
+  worstFitness: number;
+  /** Which focus strategy dominated this generation */
+  dominantFocus: FocusGene;
+  /** Focus distribution: how many genomes per focus */
+  focusDistribution: Partial<Record<FocusGene, number>>;
+  /** Population size */
+  populationSize: number;
+  /** How many genomes were eliminated this round */
+  eliminated: number;
+  /** IDs of genomes that survived */
+  survivorIds: string[];
+};
+
 export type GenePool = {
   genomes: Genome[];
   generationCount: number;
@@ -61,6 +80,8 @@ export type GenePool = {
   activeGenomeId: string | null;
   /** Total sessions ever run */
   totalSessions: number;
+  /** Historical snapshots from each evolution step */
+  evolutionHistory: EvolutionSnapshot[];
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -74,7 +95,13 @@ function readGenePool(): GenePool {
   try {
     const raw = fs.readFileSync(GENE_POOL_FILE, "utf-8");
     const data = JSON.parse(raw) as GenePool;
-    if (data.genomes && Array.isArray(data.genomes)) return data;
+    if (data.genomes && Array.isArray(data.genomes)) {
+      // Backwards compatibility: ensure evolutionHistory exists
+      if (!Array.isArray(data.evolutionHistory)) {
+        data.evolutionHistory = [];
+      }
+      return data;
+    }
   } catch {
     // File doesn't exist or is malformed — seed a new pool
   }
@@ -116,6 +143,7 @@ function seedPool(): GenePool {
     generationCount: 0,
     activeGenomeId: null,
     totalSessions: 0,
+    evolutionHistory: [],
   };
   writeGenePool(pool);
   return pool;
@@ -265,6 +293,49 @@ export function recordOutcome(
  * - Replace bottom performers with offspring of top performers
  * - Add a random immigrant for diversity
  */
+function takeSnapshot(pool: GenePool, eliminated: number, survivorIds: string[]): EvolutionSnapshot {
+  const fitnesses = pool.genomes
+    .filter((g) => g.timesUsed > 0)
+    .map((g) => g.fitness / g.timesUsed);
+
+  const avgFitness = fitnesses.length > 0
+    ? fitnesses.reduce((a, b) => a + b, 0) / fitnesses.length
+    : 0;
+  const bestFitness = fitnesses.length > 0 ? Math.max(...fitnesses) : 0;
+  const worstFitness = fitnesses.length > 0 ? Math.min(...fitnesses) : 0;
+
+  // Count focus distribution
+  const focusDistribution: Partial<Record<FocusGene, number>> = {};
+  for (const g of pool.genomes) {
+    focusDistribution[g.focus] = (focusDistribution[g.focus] ?? 0) + 1;
+  }
+
+  // Find dominant focus
+  let dominantFocus: FocusGene = "new-feature";
+  let maxCount = 0;
+  for (const [focus, count] of Object.entries(focusDistribution)) {
+    if (count! > maxCount) {
+      maxCount = count!;
+      dominantFocus = focus as FocusGene;
+    }
+  }
+
+  return {
+    generation: pool.generationCount,
+    timestamp: new Date().toISOString(),
+    avgFitness: Math.round(avgFitness * 100) / 100,
+    bestFitness: Math.round(bestFitness * 100) / 100,
+    worstFitness: Math.round(worstFitness * 100) / 100,
+    dominantFocus,
+    focusDistribution,
+    populationSize: pool.genomes.length,
+    eliminated,
+    survivorIds,
+  };
+}
+
+const MAX_HISTORY = 100; // Keep last 100 evolution snapshots
+
 function evolvePool(pool: GenePool): void {
   pool.generationCount += 1;
   const gen = pool.generationCount;
@@ -278,6 +349,15 @@ function evolvePool(pool: GenePool): void {
 
   const keepCount = Math.ceil(pool.genomes.length * 0.5); // Keep top 50%
   const survivors = scored.slice(0, keepCount).map((s) => s.genome);
+  const eliminatedCount = pool.genomes.length - keepCount;
+
+  // Record snapshot BEFORE replacing genomes
+  const snapshot = takeSnapshot(pool, eliminatedCount, survivors.map((s) => s.id));
+  pool.evolutionHistory.push(snapshot);
+  // Trim history to max size
+  if (pool.evolutionHistory.length > MAX_HISTORY) {
+    pool.evolutionHistory = pool.evolutionHistory.slice(-MAX_HISTORY);
+  }
 
   // Generate offspring to fill the pool
   const offspring: Genome[] = [];
