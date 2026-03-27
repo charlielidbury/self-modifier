@@ -34,11 +34,21 @@ const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
     copyToClipboard(code);
   };
 
+  // Count lines (trailing newline trimmed so it doesn't add a phantom line)
+  const lineCount = code ? code.trimEnd().split("\n").length : 0;
+
   return (
     <div className="aui-code-header-root mt-2.5 flex items-center justify-between rounded-t-lg border border-border/50 border-b-0 bg-muted/50 px-3 py-1.5 text-xs">
-      <span className="aui-code-header-language font-medium text-muted-foreground lowercase">
-        {language}
-      </span>
+      <div className="flex items-center gap-2">
+        <span className="aui-code-header-language font-medium text-muted-foreground lowercase">
+          {language}
+        </span>
+        {lineCount > 1 && (
+          <span className="text-muted-foreground/40 tabular-nums select-none">
+            {lineCount} lines
+          </span>
+        )}
+      </div>
       <TooltipIconButton tooltip="Copy" onClick={onCopy}>
         {!isCopied && <CopyIcon />}
         {isCopied && <CheckIcon />}
