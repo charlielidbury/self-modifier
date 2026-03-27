@@ -4,25 +4,15 @@ export async function register() {
     const { startTelegramPolling } = await import("./lib/telegram-poller");
     startTelegramPolling();
 
-    // Auto-resume self-improvement loop if it was enabled before a restart.
-    // The file .self-improve-state.json is the source of truth — if it says
-    // enabled: true, we start the loop. This means npm install, crashes, or
-    // any other restart will seamlessly resume the self-improve agent.
-    const { selfImproveState, startImprovementLoop } = await import(
-      "./lib/self-improve"
-    );
-    if (selfImproveState.enabled) {
-      console.log(
-        "[self-improve] State file says enabled — resuming improvement loop"
-      );
-      // Small delay to let the server finish booting before the agent
-      // starts making file edits and tool calls.
-      setTimeout(() => {
-        // Re-check in case it was disabled during the delay
-        if (selfImproveState.enabled) {
-          startImprovementLoop();
-        }
-      }, 3_000);
-    }
+    // Import all agent modules so they register themselves with the registry.
+    // Add new agent imports here as they're created.
+    await import("./lib/self-improve");
+
+    // Resume every agent whose file state says enabled: true.
+    // Small delay lets the server finish booting before agents start working.
+    const { resumeAllAgents } = await import("./lib/agent-registry");
+    setTimeout(() => {
+      resumeAllAgents();
+    }, 3_000);
   }
 }

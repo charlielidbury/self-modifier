@@ -1,6 +1,12 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import path from "path";
-import fs from "fs";
+import {
+  registerAgent,
+  isAgentEnabled,
+  setAgentEnabled,
+  getAgentState,
+  setAgentState,
+} from "./agent-registry";
 
 export type ImprovementEntry = {
   id: string;
@@ -21,42 +27,13 @@ export type ActivityEvent = {
 
 const MAX_ACTIVITY = 200;
 
-// ── File-based source of truth ──────────────────────────────────────────────
-// This file is the single source of truth for whether self-improve should be
-// running. If the process dies (npm install, crash, HMR), instrumentation.ts
-// reads this file on startup and resumes automatically.
+// ── Persisted state type (stored in .agent-state.json via registry) ─────────
 
-type StateFile = {
-  enabled: boolean;
+type SelfImprovePersistedState = {
   suggestion: string;
 };
 
-const STATE_FILE_PATH = path.join(process.cwd(), ".self-improve-state.json");
-
-function readStateFile(): StateFile {
-  try {
-    const raw = fs.readFileSync(STATE_FILE_PATH, "utf-8");
-    const parsed = JSON.parse(raw);
-    return {
-      enabled: Boolean(parsed.enabled),
-      suggestion: typeof parsed.suggestion === "string" ? parsed.suggestion : "",
-    };
-  } catch {
-    return { enabled: false, suggestion: "" };
-  }
-}
-
-function writeStateFile(state: StateFile): void {
-  try {
-    fs.writeFileSync(STATE_FILE_PATH, JSON.stringify(state, null, 2) + "\n");
-  } catch (err) {
-    console.error("[self-improve] Failed to write state file:", err);
-  }
-}
-
 // ── In-memory state (transient, survives HMR via globalThis) ────────────────
-// Activity buffer, entries list, and loop-alive flag are transient — they don't
-// need to survive a full process restart, only HMR reloads.
 
 type SelfImproveGlobal = {
   running: boolean;
@@ -82,24 +59,22 @@ if (!g.__selfImprove) {
 const inMemory: SelfImproveGlobal = g.__selfImprove;
 
 // ── Public accessors ────────────────────────────────────────────────────────
-// Provide a unified view that merges file-based and in-memory state, so the
-// rest of the codebase doesn't need to know about the split.
+// Unified view merging file-based (via registry) and in-memory state.
 
 export const selfImproveState = {
   get enabled(): boolean {
-    return readStateFile().enabled;
+    return isAgentEnabled("self-improve");
   },
   set enabled(value: boolean) {
-    const current = readStateFile();
-    writeStateFile({ ...current, enabled: value });
+    setAgentEnabled("self-improve", value);
   },
 
   get suggestion(): string {
-    return readStateFile().suggestion;
+    return getAgentState<SelfImprovePersistedState>("self-improve").suggestion;
   },
   set suggestion(value: string) {
-    const current = readStateFile();
-    writeStateFile({ ...current, suggestion: value });
+    const current = getAgentState<SelfImprovePersistedState>("self-improve");
+    setAgentState("self-improve", { ...current, suggestion: value });
   },
 
   get running(): boolean {
@@ -153,7 +128,10 @@ function pushActivity(
   };
   selfImproveState.activity.push(evt);
   if (selfImproveState.activity.length > MAX_ACTIVITY) {
-    selfImproveState.activity.splice(0, selfImproveState.activity.length - MAX_ACTIVITY);
+    selfImproveState.activity.splice(
+      0,
+      selfImproveState.activity.length - MAX_ACTIVITY
+    );
   }
 }
 
@@ -239,36 +217,62 @@ async function runOnce(): Promise<string> {
   })) {
     // Capture streaming events into the activity log
     if (msg.type === "stream_event") {
-      const event = (msg as { type: "stream_event"; event: { type: string; delta?: { type: string; text?: string; thinking?: string } } }).event;
+      const event = (msg as {
+        type: "stream_event";
+        event: {
+          type: string;
+          delta?: { type: string; text?: string; thinking?: string };
+        };
+      }).event;
       if (event.type === "content_block_delta" && event.delta) {
         if (event.delta.type === "text_delta" && event.delta.text) {
           pushActivity("text", event.delta.text);
-        } else if (event.delta.type === "thinking_delta" && event.delta.thinking) {
+        } else if (
+          event.delta.type === "thinking_delta" &&
+          event.delta.thinking
+        ) {
           pushActivity("thinking", event.delta.thinking);
         }
       }
     } else if (msg.type === "assistant") {
-      const assistantMsg = msg as { type: "assistant"; message?: { content?: Array<{ type: string; name?: string; input?: unknown }> } };
+      const assistantMsg = msg as {
+        type: "assistant";
+        message?: {
+          content?: Array<{ type: string; name?: string; input?: unknown }>;
+        };
+      };
       if (assistantMsg.message?.content) {
         for (const block of assistantMsg.message.content) {
           if (block.type === "tool_use" && block.name) {
-            const inputStr = typeof block.input === "string"
-              ? block.input
-              : JSON.stringify(block.input ?? {});
+            const inputStr =
+              typeof block.input === "string"
+                ? block.input
+                : JSON.stringify(block.input ?? {});
             pushActivity("tool_call", inputStr, block.name);
           }
         }
       }
     } else if (msg.type === "user") {
-      const userMsg = msg as { type: "user"; message?: { content?: unknown } };
-      if (userMsg.message && typeof userMsg.message.content !== "string" && Array.isArray(userMsg.message.content)) {
+      const userMsg = msg as {
+        type: "user";
+        message?: { content?: unknown };
+      };
+      if (
+        userMsg.message &&
+        typeof userMsg.message.content !== "string" &&
+        Array.isArray(userMsg.message.content)
+      ) {
         for (const block of userMsg.message.content) {
           if (typeof block === "object" && block !== null && "type" in block) {
-            const b = block as { type: string; content?: string | unknown[] };
+            const b = block as {
+              type: string;
+              content?: string | unknown[];
+            };
             if (b.type === "tool_result") {
-              const resultStr = typeof b.content === "string"
-                ? b.content
-                : JSON.stringify(b.content ?? "");
+              const resultStr =
+                typeof b.content === "string"
+                  ? b.content
+                  : JSON.stringify(b.content ?? "");
               pushActivity("tool_result", resultStr);
             }
           }
@@ -337,3 +341,10 @@ export function startImprovementLoop() {
     }
   })();
 }
+
+// ── Register with the agent registry ────────────────────────────────────────
+registerAgent({
+  name: "self-improve",
+  defaultState: { suggestion: "" } satisfies SelfImprovePersistedState,
+  start: () => startImprovementLoop(),
+});

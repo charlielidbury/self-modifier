@@ -3,5 +3,5 @@ node_modules/
 *.tsbuildinfo
 next-env.d.ts
 .playwright-mcp/
-.self-improve-state.json
+.agent-state.json
 
