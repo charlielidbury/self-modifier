@@ -1125,199 +1125,213 @@ export default function ChessPage() {
         )}
       </div>
 
-      {/* Status bar */}
-      <div className="flex items-center gap-3 min-h-8">
-        {isThinking && !isGameOver ? (
-          <span className="text-sm text-muted-foreground animate-pulse">
-            ♟ Engine thinking…
-          </span>
-        ) : status ? (
-          <span
-            className={`font-semibold text-sm px-3 py-1 rounded-full ${
-              isGameOver
-                ? "bg-primary text-primary-foreground"
-                : "bg-yellow-400/20 text-yellow-600 dark:text-yellow-400"
-            }`}
+      {/* Controls: two rows — actions on top, settings below */}
+      <div className="flex flex-col items-center gap-2">
+
+        {/* Row 1: Status + game-action buttons */}
+        <div className="flex items-center gap-3 min-h-8 flex-wrap justify-center">
+          {isThinking && !isGameOver ? (
+            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              ♟ Engine thinking
+              <span className="flex gap-0.5 items-center ml-0.5">
+                <span className="inline-block w-1 h-1 rounded-full bg-current" style={{ animation: "dot-bounce 1.2s ease-in-out infinite 0s" }} />
+                <span className="inline-block w-1 h-1 rounded-full bg-current" style={{ animation: "dot-bounce 1.2s ease-in-out infinite 0.2s" }} />
+                <span className="inline-block w-1 h-1 rounded-full bg-current" style={{ animation: "dot-bounce 1.2s ease-in-out infinite 0.4s" }} />
+              </span>
+            </span>
+          ) : status ? (
+            <span
+              className={`font-semibold text-sm px-3 py-1 rounded-full ${
+                isGameOver
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-yellow-400/20 text-yellow-600 dark:text-yellow-400"
+              }`}
+            >
+              {status}
+            </span>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              {vsAI
+                ? playerColor === "w"
+                  ? "⬜ Your turn (White)"
+                  : "⬛ Your turn (Black)"
+                : turn === "w"
+                ? "⬜ White's turn"
+                : "⬛ Black's turn"}
+            </span>
+          )}
+          <button
+            onClick={reset}
+            className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
           >
-            {status}
-          </span>
-        ) : (
-          <span className="text-sm text-muted-foreground">
-            {vsAI
-              ? playerColor === "w"
-                ? "⬜ Your turn (White)"
-                : "⬛ Your turn (Black)"
-              : turn === "w"
-              ? "⬜ White's turn"
-              : "⬛ Black's turn"}
-          </span>
-        )}
-        <button
-          onClick={reset}
-          className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
-        >
-          New Game
-        </button>
-        <button
-          onClick={undo}
-          disabled={undoStack.length === 0 || isThinking}
-          title="Undo last move (Ctrl+Z)"
-          className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          ↩ Undo
-        </button>
-        <button
-          onClick={() => setFlipped((f) => !f)}
-          title="Flip board (view from Black's side)"
-          className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
-        >
-          ⇅ Flip
-        </button>
-        <button
-          onClick={showHint}
-          disabled={!vsAI || isGameOver || isThinking || turn !== playerColor || isHinting}
-          title={vsAI ? "Show best move hint (H)" : "Hints only available in vs AI mode"}
-          className="px-3 py-1 text-sm rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {isHinting ? "…" : "💡 Hint"}
-        </button>
+            New Game
+          </button>
+          <button
+            onClick={undo}
+            disabled={undoStack.length === 0 || isThinking}
+            title="Undo last move (Ctrl+Z)"
+            className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            ↩ Undo
+          </button>
+          <button
+            onClick={() => setFlipped((f) => !f)}
+            title="Flip board (view from Black's side)"
+            className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
+          >
+            ⇅ Flip
+          </button>
+          <button
+            onClick={showHint}
+            disabled={!vsAI || isGameOver || isThinking || turn !== playerColor || isHinting}
+            title={vsAI ? "Show best move hint (H)" : "Hints only available in vs AI mode"}
+            className="px-3 py-1 text-sm rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isHinting ? "…" : "💡 Hint"}
+          </button>
 
-        {/* Sound toggle */}
-        <button
-          onClick={() => setSoundEnabled((s) => !s)}
-          title={soundEnabled ? "Mute sounds" : "Enable sounds"}
-          className="flex items-center justify-center w-8 h-8 rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
-        >
-          {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-        </button>
-
-        {/* Mode selector */}
-        <div className="flex items-center gap-1.5 ml-2">
-          <span className="text-xs text-muted-foreground select-none">Mode:</span>
-          <div className="flex rounded-md overflow-hidden border border-border">
-            <button
-              onClick={() => setVsAI(true)}
-              className={[
-                "px-2.5 py-1 text-xs font-medium transition-colors",
-                vsAI
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-accent",
-              ].join(" ")}
-            >
-              vs AI
-            </button>
-            <button
-              onClick={() => setVsAI(false)}
-              className={[
-                "px-2.5 py-1 text-xs font-medium transition-colors",
-                !vsAI
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-accent",
-              ].join(" ")}
-            >
-              2 Players
-            </button>
-          </div>
+          {/* Sound toggle */}
+          <button
+            onClick={() => setSoundEnabled((s) => !s)}
+            title={soundEnabled ? "Mute sounds" : "Enable sounds"}
+            className="flex items-center justify-center w-8 h-8 rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
+          >
+            {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+          </button>
         </div>
 
-        {/* Color selector — only relevant in vs AI mode */}
-        {vsAI && (
-        <div className="flex items-center gap-1.5 ml-2">
-          <span className="text-xs text-muted-foreground select-none">Play as:</span>
-          <div className="flex rounded-md overflow-hidden border border-border">
-            <button
-              onClick={() => setPlayerColor("w")}
-              title="Play as White (you move first)"
-              className={[
-                "px-2.5 py-1 text-xs font-medium transition-colors",
-                playerColor === "w"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-accent",
-              ].join(" ")}
-            >
-              ⬜ White
-            </button>
-            <button
-              onClick={() => setPlayerColor("b")}
-              title="Play as Black (AI moves first)"
-              className={[
-                "px-2.5 py-1 text-xs font-medium transition-colors",
-                playerColor === "b"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-accent",
-              ].join(" ")}
-            >
-              ⬛ Black
-            </button>
-          </div>
-        </div>
-        )}
+        {/* Row 2: Settings — mode, color, difficulty, time, board theme */}
+        <div className="flex items-center gap-3 flex-wrap justify-center">
 
-        {/* Difficulty selector — only relevant in vs AI mode */}
-        {vsAI && (
-        <div className="flex items-center gap-1.5 ml-2">
-          <span className="text-xs text-muted-foreground select-none">Difficulty:</span>
-          <div className="flex rounded-md overflow-hidden border border-border">
-            {DIFFICULTIES.map(({ label }) => (
+          {/* Mode selector */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground select-none">Mode:</span>
+            <div className="flex rounded-md overflow-hidden border border-border">
               <button
-                key={label}
-                onClick={() => setDifficulty(label)}
+                onClick={() => setVsAI(true)}
                 className={[
                   "px-2.5 py-1 text-xs font-medium transition-colors",
-                  difficulty === label
+                  vsAI
                     ? "bg-primary text-primary-foreground"
                     : "bg-secondary text-secondary-foreground hover:bg-accent",
                 ].join(" ")}
               >
-                {label}
+                vs AI
               </button>
-            ))}
-          </div>
-        </div>
-        )}
-
-        {/* Time control selector */}
-        <div className="flex items-center gap-1.5 ml-2">
-          <span className="text-xs text-muted-foreground select-none">Time:</span>
-          <div className="flex rounded-md overflow-hidden border border-border">
-            {TIME_CONTROLS.map(({ label }) => (
               <button
-                key={label}
-                onClick={() => setTimeControl(label)}
+                onClick={() => setVsAI(false)}
                 className={[
-                  "px-2 py-1 text-xs font-medium transition-colors",
-                  timeControl === label
+                  "px-2.5 py-1 text-xs font-medium transition-colors",
+                  !vsAI
                     ? "bg-primary text-primary-foreground"
                     : "bg-secondary text-secondary-foreground hover:bg-accent",
                 ].join(" ")}
               >
-                {label}
+                2 Players
               </button>
-            ))}
+            </div>
           </div>
-        </div>
 
-        {/* Board theme selector */}
-        <div className="flex items-center gap-1.5 ml-2">
-          <span className="text-xs text-muted-foreground select-none">Board:</span>
-          <div className="flex items-center gap-1">
-            {BOARD_THEMES.map(({ name, light, dark }) => (
+          {/* Color selector — only relevant in vs AI mode */}
+          {vsAI && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground select-none">Play as:</span>
+            <div className="flex rounded-md overflow-hidden border border-border">
               <button
-                key={name}
-                onClick={() => setBoardTheme(name)}
-                title={name}
+                onClick={() => setPlayerColor("w")}
+                title="Play as White (you move first)"
                 className={[
-                  "w-6 h-6 rounded-sm overflow-hidden border-2 transition-all",
-                  boardTheme === name
-                    ? "border-primary scale-110 shadow-sm"
-                    : "border-transparent hover:border-border",
+                  "px-2.5 py-1 text-xs font-medium transition-colors",
+                  playerColor === "w"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-accent",
                 ].join(" ")}
-                style={{
-                  background: `linear-gradient(135deg, ${light} 50%, ${dark} 50%)`,
-                }}
-              />
-            ))}
+              >
+                ⬜ White
+              </button>
+              <button
+                onClick={() => setPlayerColor("b")}
+                title="Play as Black (AI moves first)"
+                className={[
+                  "px-2.5 py-1 text-xs font-medium transition-colors",
+                  playerColor === "b"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-accent",
+                ].join(" ")}
+              >
+                ⬛ Black
+              </button>
+            </div>
           </div>
+          )}
+
+          {/* Difficulty selector — only relevant in vs AI mode */}
+          {vsAI && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground select-none">Difficulty:</span>
+            <div className="flex rounded-md overflow-hidden border border-border">
+              {DIFFICULTIES.map(({ label }) => (
+                <button
+                  key={label}
+                  onClick={() => setDifficulty(label)}
+                  className={[
+                    "px-2.5 py-1 text-xs font-medium transition-colors",
+                    difficulty === label
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-secondary-foreground hover:bg-accent",
+                  ].join(" ")}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          )}
+
+          {/* Time control selector */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground select-none">Time:</span>
+            <div className="flex rounded-md overflow-hidden border border-border">
+              {TIME_CONTROLS.map(({ label }) => (
+                <button
+                  key={label}
+                  onClick={() => setTimeControl(label)}
+                  className={[
+                    "px-2 py-1 text-xs font-medium transition-colors",
+                    timeControl === label
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-secondary-foreground hover:bg-accent",
+                  ].join(" ")}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Board theme selector */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground select-none">Board:</span>
+            <div className="flex items-center gap-1">
+              {BOARD_THEMES.map(({ name, light, dark }) => (
+                <button
+                  key={name}
+                  onClick={() => setBoardTheme(name)}
+                  title={name}
+                  className={[
+                    "w-6 h-6 rounded-sm overflow-hidden border-2 transition-all",
+                    boardTheme === name
+                      ? "border-primary scale-110 shadow-sm"
+                      : "border-transparent hover:border-border",
+                  ].join(" ")}
+                  style={{
+                    background: `linear-gradient(135deg, ${light} 50%, ${dark} 50%)`,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
         </div>
       </div>
 

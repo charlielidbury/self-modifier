@@ -123,6 +123,12 @@ body {
   animation: ai-progress-shimmer 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+/* Animated dot bounce used in the chess AI "thinking" indicator */
+@keyframes dot-bounce {
+  0%, 60%, 100% { transform: translateY(0);    opacity: 0.4; }
+  30%            { transform: translateY(-4px); opacity: 1;   }
+}
+
 /* Brief bright-yellow flash on chess squares after each move */
 @keyframes chessSquareFlash {
   0%   { opacity: 0.8; }
