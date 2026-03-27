@@ -138,6 +138,7 @@ const BOARD_THEMES = [
   { name: "Green",   light: "#eeeed2", dark: "#769656" },
   { name: "Blue",    light: "#dee3e6", dark: "#8ca2ad" },
   { name: "Walnut",  light: "#e8cfa3", dark: "#6b3f27" },
+  { name: "Night",   light: "#4a4a5e", dark: "#262638" },
 ] as const;
 
 type BoardThemeName = (typeof BOARD_THEMES)[number]["name"];
@@ -495,6 +496,8 @@ export default function ChessPage() {
     sr: number; sc: number; r: number; c: number; color: Color;
   } | null>(null);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
+  // Ref to the currently highlighted row in move-review mode, used for auto-scrolling.
+  const activeHistoryRowRef = useRef<HTMLTableRowElement>(null);
   const statsCountedRef = useRef(false);
   // ── Move review ───────────────────────────────────────────────────────────
   /** Snapshot of board + lastMove after each half-move, used for click-to-review. */
@@ -823,6 +826,13 @@ export default function ChessPage() {
   useEffect(() => {
     historyEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [moveHistory]);
+
+  // Auto-scroll to the active reviewed move when navigating with arrow keys
+  useEffect(() => {
+    if (reviewIdx !== null) {
+      activeHistoryRowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [reviewIdx]);
 
   // Replay the last-move flash animation whenever the move list changes (move made or undone).
   useEffect(() => {
@@ -1157,6 +1167,39 @@ export default function ChessPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [reviewIdx]);
+
+  // ── Arrow-key move-history navigation ─────────────────────────────────────
+  // ← steps back one half-move (entering review mode from the end if in live mode).
+  // → steps forward one half-move, exiting review mode when reaching the latest move.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isEditable =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (e.target as HTMLElement)?.isContentEditable;
+      if (isEditable) return;
+
+      if (e.key === "ArrowLeft") {
+        if (moveHistory.length === 0) return;
+        e.preventDefault();
+        setReviewIdx((prev) => {
+          if (prev === null) return moveHistory.length - 1;
+          return Math.max(0, prev - 1);
+        });
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setReviewIdx((prev) => {
+          if (prev === null) return null;
+          if (prev >= moveHistory.length - 1) return null; // back to live
+          return prev + 1;
+        });
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [moveHistory.length]);
 
   // ── Auto-flip board when player color changes ─────────────────────────────
   useEffect(() => {
@@ -2167,7 +2210,15 @@ export default function ChessPage() {
                       <tr
                         key={i}
                         className={i % 2 === 0 ? "" : "bg-muted/30"}
-                        ref={i === movePairs.length - 1 ? historyEndRef : null}
+                        ref={(el) => {
+                          if (i === movePairs.length - 1) historyEndRef.current = el;
+                          if (
+                            reviewIdx !== null &&
+                            (reviewIdx === i * 2 || reviewIdx === i * 2 + 1)
+                          ) {
+                            activeHistoryRowRef.current = el;
+                          }
+                        }}
                       >
                         <td className="px-2 py-1 text-xs text-muted-foreground text-center">
                           {i + 1}
