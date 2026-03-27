@@ -18,8 +18,11 @@ import {
   TrendingUp,
   Clock,
   Zap,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { dispatchAmbientEvent } from "./ambient-canvas";
+import { playCommitChimeIfUnmuted, isSoundMuted, setSoundMuted } from "@/lib/commit-sound";
 
 type AgentStatus = {
   enabled: boolean;
@@ -767,6 +770,17 @@ export function SelfImproveToggle() {
   const prevCommitHashRef = useRef<string | null>(null);
   const hasInitializedCommitsRef = useRef(false);
 
+  // Sound mute state
+  const [muted, setMuted] = useState(false);
+  useEffect(() => { setMuted(isSoundMuted()); }, []);
+  const toggleMute = useCallback(() => {
+    setMuted((prev) => {
+      const next = !prev;
+      setSoundMuted(next);
+      return next;
+    });
+  }, []);
+
   // Panel animation state — keeps the element in the DOM during the exit animation.
   const [showPanel, setShowPanel] = useState(false);
   const [panelClosing, setPanelClosing] = useState(false);
@@ -889,6 +903,7 @@ export function SelfImproveToggle() {
       setPillGlow(true);
       setToastMessage(commits[0].message);
       dispatchAmbientEvent({ type: "self-improve-commit" });
+      playCommitChimeIfUnmuted();
       // Clear confetti after animation
       setTimeout(() => setCelebrating(false), 1200);
       // Clear glow after pulse
@@ -1114,6 +1129,15 @@ export function SelfImproveToggle() {
           title={expanded ? "Hide commits" : "Show commits"}
         >
           {expanded ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+        </button>
+
+        {/* Sound mute toggle */}
+        <button
+          onClick={toggleMute}
+          className="p-1 text-white/30 hover:text-white/70 transition-colors"
+          title={muted ? "Unmute commit sounds" : "Mute commit sounds"}
+        >
+          {muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
         </button>
 
         {/* Toggle switch */}
