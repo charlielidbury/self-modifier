@@ -22,6 +22,7 @@ import {
   ArrowRight,
   Zap,
   Compass,
+  Bird,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -238,6 +239,17 @@ const cards: CardInfo[] = [
     borderColor: "hover:border-sky-400/40",
     glowColor: "rgba(56,189,248,0.15)",
     category: "Navigation",
+  },
+  {
+    href: "/boids",
+    label: "Boids",
+    description: "Emergent flocking behaviour from three simple rules — separation, alignment, cohesion.",
+    Icon: Bird,
+    color: "text-yellow-500",
+    bgColor: "bg-yellow-500/10 dark:bg-yellow-500/15",
+    borderColor: "hover:border-yellow-500/40",
+    glowColor: "rgba(234,179,8,0.15)",
+    category: "Simulation",
   },
 ];
 

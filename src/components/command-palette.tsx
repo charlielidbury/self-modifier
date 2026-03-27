@@ -39,6 +39,7 @@ import {
   BarChart3,
   Droplets,
   Compass,
+  Bird,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -257,6 +258,14 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/constellation"),
       keywords: ["constellation", "map", "stars", "navigate", "overview", "starfield", "categories"],
+    },
+    {
+      id: "nav-boids",
+      label: "Go to Boids",
+      icon: <Bird size={16} />,
+      group: "Navigation",
+      action: () => router.push("/boids"),
+      keywords: ["boids", "flocking", "birds", "swarm", "emergence", "separation", "alignment", "cohesion", "reynolds"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {

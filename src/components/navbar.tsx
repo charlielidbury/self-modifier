@@ -22,6 +22,7 @@ import {
   BarChart3,
   Droplets,
   Compass,
+  Bird,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -57,6 +58,7 @@ const PAGE_HUES: Record<string, number> = {
   "/sorting":   210, // steel blue
   "/fluid":           0, // red
   "/constellation": 230, // deep blue
+  "/boids":          55, // gold-yellow
 };
 
 // Mapping from route to page label + icon (used for the breadcrumb-style indicator).
@@ -80,6 +82,7 @@ const PAGE_INFO: Record<string, { label: string; Icon: LucideIcon }> = {
   "/sorting":   { label: "Sorting",    Icon: BarChart3 },
   "/fluid":          { label: "Fluid",          Icon: Droplets },
   "/constellation":  { label: "Constellation",  Icon: Compass },
+  "/boids":          { label: "Boids",          Icon: Bird },
 };
 
 // Per-page accent colours for the active page indicator.
@@ -103,6 +106,7 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/sorting":   { pill: "bg-sky-500/15 dark:bg-sky-500/20", text: "text-sky-700 dark:text-sky-300" },
   "/fluid":          { pill: "bg-red-500/15 dark:bg-red-500/20",   text: "text-red-700 dark:text-red-300" },
   "/constellation":  { pill: "bg-sky-500/15 dark:bg-sky-500/20",   text: "text-sky-700 dark:text-sky-300" },
+  "/boids":          { pill: "bg-yellow-500/15 dark:bg-yellow-500/20", text: "text-yellow-700 dark:text-yellow-300" },
 };
 
 // Actual color values used for the animated brand accent dot.
@@ -126,6 +130,7 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/sorting":   "#0ea5e9",
   "/fluid":          "#ef4444",
   "/constellation":  "#38bdf8",
+  "/boids":          "#eab308",
 };
 
 // Browser tab titles per page.
@@ -148,6 +153,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/sorting":   "Sorting — Self-Modifier",
   "/fluid":          "Fluid — Self-Modifier",
   "/constellation":  "Constellation — Self-Modifier",
+  "/boids":          "Boids — Self-Modifier",
 };
 
 // Alt+number quick-nav targets (kept so the global keyboard shortcuts still work).
