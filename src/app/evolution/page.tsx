@@ -18,6 +18,7 @@ import {
   Sparkles,
   ArrowUpRight,
   RefreshCw,
+  X,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -28,6 +29,8 @@ type Commit = {
   message: string;
   date: string;
   author: string;
+  additions?: number;
+  deletions?: number;
 };
 
 type DiffFile = {
@@ -432,6 +435,8 @@ export default function EvolutionPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [, setTick] = useState(0);
+  // null = show all; a string = show only that category label
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
 
   const fetchCommits = useCallback((isManual = false) => {
     if (isManual) setRefreshing(true);
@@ -500,6 +505,15 @@ export default function EvolutionPage() {
     }
     return counts;
   }, [commits]);
+
+  // Commits to actually render in the timeline (respects the active category filter)
+  const filteredCommits = useMemo(
+    () =>
+      activeFilter
+        ? commits.filter((c) => categorise(c.message).label === activeFilter)
+        : commits,
+    [commits, activeFilter]
+  );
 
   if (loading) {
     return (
@@ -576,22 +590,53 @@ export default function EvolutionPage() {
                 </p>
                 <ActivitySparkline commits={commits} />
               </div>
-              {/* Category breakdown */}
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+              {/* Category breakdown — click to filter the timeline */}
+              <div className="flex flex-wrap gap-x-2 gap-y-1.5 text-[11px]">
                 {Object.entries(categoryCounts).map(([label, count]) => {
                   const sample = categorise(label.toLowerCase() + ": x");
+                  const isActive = activeFilter === label;
+                  const isDimmed = activeFilter !== null && !isActive;
                   return (
-                    <span key={label} className="flex items-center gap-1">
-                      <span className={`w-1.5 h-1.5 rounded-full ${sample.dotColor}`} />
-                      <span className="text-muted-foreground">
-                        {label}
-                      </span>
+                    <button
+                      key={label}
+                      onClick={() =>
+                        setActiveFilter((prev) =>
+                          prev === label ? null : label
+                        )
+                      }
+                      title={
+                        isActive
+                          ? `Clear "${label}" filter`
+                          : `Filter by "${label}"`
+                      }
+                      className={[
+                        "flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-all cursor-pointer select-none",
+                        isActive
+                          ? "bg-foreground/10 ring-1 ring-foreground/20"
+                          : "hover:bg-foreground/5",
+                        isDimmed ? "opacity-40" : "opacity-100",
+                      ].join(" ")}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${sample.dotColor}`}
+                      />
+                      <span className="text-muted-foreground">{label}</span>
                       <span className="font-mono text-foreground/70 font-medium">
                         {count}
                       </span>
-                    </span>
+                    </button>
                   );
                 })}
+                {activeFilter && (
+                  <button
+                    onClick={() => setActiveFilter(null)}
+                    className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors"
+                    title="Clear filter"
+                  >
+                    <X size={9} />
+                    <span>All</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -610,6 +655,34 @@ export default function EvolutionPage() {
           </div>
         ) : (
           <div className="relative">
+            {/* Active filter notice */}
+            {activeFilter && (
+              <div className="flex items-center gap-2 mb-4 text-xs text-muted-foreground">
+                <span>
+                  Showing{" "}
+                  <span className="font-medium text-foreground">
+                    {filteredCommits.length}
+                  </span>{" "}
+                  of{" "}
+                  <span className="font-medium text-foreground">
+                    {commits.length}
+                  </span>{" "}
+                  commits — filtered by{" "}
+                  <span className="font-medium text-foreground">
+                    {activeFilter}
+                  </span>
+                </span>
+                <button
+                  onClick={() => setActiveFilter(null)}
+                  className="flex items-center gap-0.5 rounded px-1 py-0.5 hover:bg-foreground/5 transition-colors"
+                  title="Clear filter"
+                >
+                  <X size={10} />
+                  Clear
+                </button>
+              </div>
+            )}
+
             {/* "Now" label at top */}
             <div className="flex items-center gap-3 mb-4 ml-[5px]">
               <div className="relative flex items-center justify-center w-5 h-5">
@@ -622,14 +695,26 @@ export default function EvolutionPage() {
             </div>
 
             {/* Cards */}
-            {commits.map((commit, i) => (
-              <TimelineCard
-                key={commit.hash}
-                commit={commit}
-                index={i}
-                isLatest={i === 0}
-              />
-            ))}
+            {filteredCommits.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground text-sm">
+                  No{" "}
+                  <span className="font-medium text-foreground">
+                    {activeFilter}
+                  </span>{" "}
+                  commits yet.
+                </p>
+              </div>
+            ) : (
+              filteredCommits.map((commit, i) => (
+                <TimelineCard
+                  key={commit.hash}
+                  commit={commit}
+                  index={i}
+                  isLatest={i === 0 && activeFilter === null}
+                />
+              ))
+            )}
 
             {/* Origin marker */}
             <div className="flex items-center gap-3 ml-[5px] pt-2">
