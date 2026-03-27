@@ -18,6 +18,7 @@ import {
   type Genome,
 } from "./strategy-genes";
 import { recordCommitGenome } from "./commit-feedback";
+import { popNextItem, completeItem, skipItem, type QueueItem } from "./improvement-queue";
 
 export type ImprovementEntry = {
   id: string;
@@ -212,7 +213,7 @@ function getPrompt(): string {
 }
 
 // ── Core runner ───────────────────────────────────────────────────────────────
-async function runOnce(): Promise<{ summary: string; genome: Genome }> {
+async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: QueueItem | null }> {
   const cwd = path.resolve(process.cwd());
   let summary = "(no summary)";
 
@@ -223,9 +224,17 @@ async function runOnce(): Promise<{ summary: string; genome: Genome }> {
   const genome = selectGenome();
   const strategyDirective = buildStrategyDirective(genome);
 
-  // Consume the user's suggestion (if any) for this session
-  const userSuggestion = selfImproveState.suggestion.trim();
-  selfImproveState.suggestion = ""; // clear so it's single-use (writes to file)
+  // Check the queue first, then fall back to the one-shot suggestion
+  const queueItem = popNextItem();
+  let userSuggestion = "";
+  if (queueItem) {
+    userSuggestion = queueItem.text;
+    pushActivity("text", `📋 Working on queued item: "${queueItem.text}"`);
+  } else {
+    // Consume the user's suggestion (if any) for this session
+    userSuggestion = selfImproveState.suggestion.trim();
+    selfImproveState.suggestion = ""; // clear so it's single-use (writes to file)
+  }
 
   const basePrompt = getPrompt();
   const memoryContext = buildMemoryContext();
@@ -339,7 +348,7 @@ async function runOnce(): Promise<{ summary: string; genome: Genome }> {
   }
 
   pushActivity("text", `Session complete: ${summary}`);
-  return { summary, genome };
+  return { summary, genome, queueItem };
 }
 
 // ── Build verification ────────────────────────────────────────────────────────
@@ -478,10 +487,12 @@ export function startImprovementLoop() {
           selfImproveState.entries.length = 30;
 
         let activeGenomeId: string | null = null;
+        let activeQueueItem: QueueItem | null = null;
         try {
           const result = await runOnce();
           entry.summary = result.summary;
           activeGenomeId = result.genome.id;
+          activeQueueItem = result.queueItem;
           entry.status = "completed";
 
           // ── Build verification gate ──
@@ -502,10 +513,26 @@ export function startImprovementLoop() {
             entry.status = "reverted";
             entry.summary = `[REVERTED] ${entry.summary ?? "(no summary)"} — build check failed`;
           }
+
+          // ── Update queue item status ──
+          if (activeQueueItem) {
+            if (entry.status === "completed") {
+              completeItem(activeQueueItem.id, health.commitHash);
+              pushActivity("text", `📋 Queue item completed: "${activeQueueItem.text}"`);
+            } else {
+              skipItem(activeQueueItem.id);
+              pushActivity("text", `📋 Queue item skipped (reverted): "${activeQueueItem.text}"`);
+            }
+          }
         } catch (err) {
           entry.status = "failed";
           entry.summary =
             err instanceof Error ? err.message.slice(0, 150) : String(err);
+          // Mark queue item as skipped on failure
+          if (activeQueueItem) {
+            skipItem(activeQueueItem.id);
+            pushActivity("text", `📋 Queue item skipped (failed): "${activeQueueItem.text}"`);
+          }
         } finally {
           entry.completedAt = new Date().toISOString();
           selfImproveState.running = false;

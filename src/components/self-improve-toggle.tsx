@@ -32,6 +32,11 @@ import {
   Trash2,
   ThumbsUp,
   ThumbsDown,
+  ListOrdered,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+  RotateCw,
 } from "lucide-react";
 import { dispatchAmbientEvent } from "./ambient-canvas";
 import { playCommitChimeIfUnmuted, isSoundMuted, setSoundMuted } from "@/lib/commit-sound";
@@ -1650,6 +1655,334 @@ function GenomePanel() {
   );
 }
 
+// ── Queue types & panel ──────────────────────────────────────────────────────
+
+type QueueItem = {
+  id: string;
+  text: string;
+  priority: number;
+  createdAt: string;
+  status: "pending" | "in-progress" | "done" | "skipped";
+  completedAt?: string;
+  commitHash?: string;
+};
+
+function QueuePanel() {
+  const [items, setItems] = useState<QueueItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newText, setNewText] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  const fetchQueue = useCallback(async () => {
+    try {
+      const res = await fetch("/api/self-improve/queue");
+      if (res.ok) {
+        const data = (await res.json()) as { items: QueueItem[] };
+        setItems(data.items);
+      }
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchQueue(); }, [fetchQueue]);
+
+  const addItem = useCallback(async () => {
+    if (!newText.trim()) return;
+    setAdding(true);
+    try {
+      const res = await fetch("/api/self-improve/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add", text: newText.trim() }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { items: QueueItem[] };
+        setItems(data.items);
+        setNewText("");
+      }
+    } finally { setAdding(false); }
+  }, [newText]);
+
+  const removeItem = useCallback(async (id: string) => {
+    // Optimistic removal
+    setItems((prev) => prev.filter((i) => i.id !== id));
+    try {
+      const res = await fetch("/api/self-improve/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "remove", id }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { items: QueueItem[] };
+        setItems(data.items);
+      }
+    } catch { fetchQueue(); }
+  }, [fetchQueue]);
+
+  const moveItem = useCallback(async (id: string, direction: "up" | "down") => {
+    const currentIndex = items.findIndex((i) => i.id === id);
+    if (currentIndex === -1) return;
+    const newIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (newIndex < 0 || newIndex >= items.length) return;
+
+    // Optimistic reorder
+    const next = [...items];
+    const [moved] = next.splice(currentIndex, 1);
+    next.splice(newIndex, 0, moved);
+    setItems(next);
+
+    try {
+      const res = await fetch("/api/self-improve/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reorder", id, newIndex }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { items: QueueItem[] };
+        setItems(data.items);
+      }
+    } catch { fetchQueue(); }
+  }, [items, fetchQueue]);
+
+  const requeueItem = useCallback(async (id: string) => {
+    try {
+      const res = await fetch("/api/self-improve/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "requeue", id }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { items: QueueItem[] };
+        setItems(data.items);
+      }
+    } catch { fetchQueue(); }
+  }, [fetchQueue]);
+
+  const clearCompleted = useCallback(async () => {
+    try {
+      const res = await fetch("/api/self-improve/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear-completed" }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { items: QueueItem[] };
+        setItems(data.items);
+      }
+    } catch { fetchQueue(); }
+  }, [fetchQueue]);
+
+  const pendingItems = items.filter((i) => i.status === "pending" || i.status === "in-progress");
+  const completedItems = items.filter((i) => i.status === "done" || i.status === "skipped");
+
+  if (loading) {
+    return (
+      <div className="py-8 flex items-center justify-center gap-2">
+        <Loader2 size={12} className="text-white/30 animate-spin" />
+        <span className="text-[11px] text-white/30">Loading queue…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="queue-panel-in">
+      {/* Add new item */}
+      <div className="px-3 pt-2.5 pb-2 border-b border-white/[0.06]">
+        <div className="flex items-end gap-1.5">
+          <textarea
+            value={newText}
+            onChange={(e) => setNewText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                addItem();
+              }
+            }}
+            placeholder="Add improvement idea to backlog..."
+            rows={2}
+            className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[11px] text-white/70 placeholder:text-white/15 resize-none focus:outline-none focus:border-orange-500/30 focus:ring-1 focus:ring-orange-500/20 transition-all leading-relaxed"
+          />
+          <button
+            onClick={addItem}
+            disabled={!newText.trim() || adding}
+            title="Add to queue (Enter)"
+            className={[
+              "p-1.5 rounded-md transition-all duration-150",
+              newText.trim()
+                ? "bg-orange-500/20 text-orange-400 hover:bg-orange-500/30"
+                : "bg-white/[0.04] text-white/15 cursor-not-allowed",
+            ].join(" ")}
+          >
+            {adding ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Plus size={12} />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Pending items */}
+      {pendingItems.length === 0 && completedItems.length === 0 ? (
+        <div className="px-4 py-8 text-center">
+          <ListOrdered size={20} className="text-white/10 mx-auto mb-2" />
+          <p className="text-[11px] text-white/20">Queue is empty.</p>
+          <p className="text-[9px] text-white/10 mt-1">
+            Add improvement ideas above. The agent will<br />
+            work through them in order, one per session.
+          </p>
+        </div>
+      ) : (
+        <div className="max-h-64 overflow-y-auto">
+          {/* Pending section */}
+          {pendingItems.length > 0 && (
+            <div>
+              <div className="px-3 py-1.5 bg-white/[0.015] border-b border-white/[0.04]">
+                <span className="text-[9px] uppercase tracking-wider text-white/25 font-semibold">
+                  Backlog · {pendingItems.length}
+                </span>
+              </div>
+              <div className="divide-y divide-white/[0.04]">
+                {pendingItems.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className="px-3 py-2 flex items-start gap-2 group/qi hover:bg-white/[0.02] transition-colors"
+                  >
+                    {/* Priority number */}
+                    <span className="text-[10px] font-mono text-white/20 mt-0.5 w-4 text-right flex-shrink-0">
+                      {item.status === "in-progress" ? (
+                        <Loader2 size={10} className="text-emerald-400 animate-spin" />
+                      ) : (
+                        `${idx + 1}.`
+                      )}
+                    </span>
+
+                    {/* Text */}
+                    <p className={[
+                      "text-[11px] leading-relaxed flex-1 min-w-0",
+                      item.status === "in-progress"
+                        ? "text-emerald-300/80"
+                        : "text-white/60",
+                    ].join(" ")}>
+                      {item.text}
+                    </p>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/qi:opacity-100 transition-opacity">
+                      {item.status === "pending" && (
+                        <>
+                          <button
+                            onClick={() => moveItem(item.id, "up")}
+                            disabled={idx === 0}
+                            title="Move up"
+                            className="p-0.5 rounded text-white/15 hover:text-white/50 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <ArrowUp size={10} />
+                          </button>
+                          <button
+                            onClick={() => moveItem(item.id, "down")}
+                            disabled={idx === pendingItems.length - 1}
+                            title="Move down"
+                            className="p-0.5 rounded text-white/15 hover:text-white/50 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <ArrowDown size={10} />
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={() => removeItem(item.id)}
+                        title="Remove"
+                        className="p-0.5 rounded text-white/15 hover:text-red-400/70 transition-colors"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Completed section */}
+          {completedItems.length > 0 && (
+            <div>
+              <button
+                onClick={() => setShowCompleted((v) => !v)}
+                className="w-full px-3 py-1.5 bg-white/[0.015] border-y border-white/[0.04] flex items-center gap-1.5 text-left hover:bg-white/[0.03] transition-colors"
+              >
+                <ChevronRight
+                  size={9}
+                  className={`text-white/20 transition-transform duration-150 ${showCompleted ? "rotate-90" : ""}`}
+                />
+                <span className="text-[9px] uppercase tracking-wider text-white/25 font-semibold flex-1">
+                  Completed · {completedItems.length}
+                </span>
+                {showCompleted && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      clearCompleted();
+                    }}
+                    title="Clear completed items"
+                    className="p-0.5 rounded text-white/15 hover:text-red-400/70 hover:bg-red-500/10 transition-colors"
+                  >
+                    <Trash2 size={9} />
+                  </button>
+                )}
+              </button>
+              {showCompleted && (
+                <div className="divide-y divide-white/[0.04]">
+                  {completedItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="px-3 py-2 flex items-start gap-2 group/qi hover:bg-white/[0.02] transition-colors"
+                    >
+                      <span className="text-[10px] mt-0.5 flex-shrink-0">
+                        {item.status === "done" ? (
+                          <Check size={10} className="text-emerald-400/60" />
+                        ) : (
+                          <RotateCcw size={10} className="text-amber-400/60" />
+                        )}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] leading-relaxed text-white/30 line-through decoration-white/10">
+                          {item.text}
+                        </p>
+                        {item.commitHash && (
+                          <span className="text-[9px] font-mono text-white/15">
+                            {item.commitHash.slice(0, 7)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/qi:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => requeueItem(item.id)}
+                          title="Re-queue"
+                          className="p-0.5 rounded text-white/15 hover:text-orange-400/70 transition-colors"
+                        >
+                          <RotateCw size={10} />
+                        </button>
+                        <button
+                          onClick={() => removeItem(item.id)}
+                          title="Remove"
+                          className="p-0.5 rounded text-white/15 hover:text-red-400/70 transition-colors"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Memory types & panel ─────────────────────────────────────────────────────
 
 type MemoryEntry = {
@@ -1839,8 +2172,8 @@ export function SelfImproveToggle() {
 
   // Which commit hash is currently showing its diff (null = none)
   const [viewingDiff, setViewingDiff] = useState<string | null>(null);
-  // Panel tab: "activity" (live feed) vs "commits" vs "stats" vs "prompt" vs "memory" vs "genome"
-  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt" | "memory" | "genome">("activity");
+  // Panel tab: "activity" (live feed) vs "commits" vs "stats" vs "prompt" vs "memory" vs "genome" vs "queue"
+  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt" | "memory" | "genome" | "queue">("activity");
 
   // ── User feedback state (thumbs up/down on commits) ────────────────────
   const [feedback, setFeedback] = useState<Record<string, { rating: "up" | "down" | null }>>({});
@@ -2285,6 +2618,18 @@ export function SelfImproveToggle() {
               <Zap size={10} />
               DNA
             </button>
+            <button
+              onClick={() => setPanelTab("queue")}
+              className={[
+                "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors",
+                panelTab === "queue"
+                  ? "text-orange-400 border-b-2 border-orange-400/60 -mb-px"
+                  : "text-white/30 hover:text-white/50",
+              ].join(" ")}
+            >
+              <ListOrdered size={10} />
+              Queue
+            </button>
           </div>
 
           {/* ── Build health indicator ── */}
@@ -2419,7 +2764,9 @@ export function SelfImproveToggle() {
           </div>
 
           {/* Tab content */}
-          {panelTab === "genome" ? (
+          {panelTab === "queue" ? (
+            <QueuePanel />
+          ) : panelTab === "genome" ? (
             <GenomePanel />
           ) : panelTab === "memory" ? (
             <MemoryPanel />
