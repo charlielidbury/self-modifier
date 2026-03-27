@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
-import { Trash2, MessageSquare, Pencil } from "lucide-react";
+import { Trash2, MessageSquare, Pencil, Plus } from "lucide-react";
 import type { SessionInfo, ChatMessage } from "@/lib/types";
 import type { AgentStatus } from "@/lib/agent";
 import {
@@ -90,7 +90,7 @@ function getSessionGroup(timestamp: number, now: number): string {
 type SessionsSidebarProps = {
   activeSessionId: string | null;
   onNewSession: () => void;
-  onLoadSession: (messages: ChatMessage[], sessionId: string) => void;
+  onLoadSession: (messages: ChatMessage[], sessionId: string, label: string) => void;
 };
 
 function StatusDot({ status }: { status: AgentStatus }) {
@@ -119,12 +119,37 @@ function StatusDot({ status }: { status: AgentStatus }) {
   );
 }
 
+/** Shimmer placeholder rendered while the initial sessions fetch is in-flight. */
+function SessionSkeleton() {
+  return (
+    <div className="flex flex-col gap-0.5 px-1 pt-1" aria-hidden="true">
+      {([0.9, 0.75, 0.6, 0.45] as const).map((opacity, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-2 px-3 py-2.5 rounded-md"
+          style={{ opacity }}
+        >
+          <div className="size-2.5 flex-shrink-0 rounded-full bg-neutral-200 dark:bg-neutral-700 animate-pulse" />
+          <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+            <div
+              className="h-3 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse"
+              style={{ width: `${60 + i * 8}%` }}
+            />
+            <div className="h-2 w-10 rounded bg-neutral-100 dark:bg-neutral-800 animate-pulse" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function SessionsSidebar({
   activeSessionId,
   onNewSession,
   onLoadSession,
 }: SessionsSidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [statuses, setStatuses] = useState<Record<string, AgentStatus>>({});
   const [searchQuery, setSearchQuery] = useState("");
   // Number of currently-running sessions (derived from statuses map).
@@ -192,7 +217,8 @@ export function SessionsSidebar({
         setSessions(data);
         sessionIdsRef.current = data.map((s) => s.sessionId);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setIsLoadingSessions(false));
   }, []);
 
   // Poll statuses every 2 seconds.
@@ -232,6 +258,10 @@ export function SessionsSidebar({
 
   const loadSession = useCallback(
     async (sessionId: string) => {
+      // Resolve the label from the sessions list before the async fetch
+      const sessionLabel =
+        sessions.find((s) => s.sessionId === sessionId)?.summary ||
+        sessionId.slice(0, 8);
       try {
         const res = await fetch(`/api/sessions/${sessionId}`);
         const data = await res.json();
@@ -263,12 +293,12 @@ export function SessionsSidebar({
               content,
             };
           });
-        onLoadSession(loaded, sessionId);
+        onLoadSession(loaded, sessionId, sessionLabel);
       } catch {
-        onLoadSession([], sessionId);
+        onLoadSession([], sessionId, sessionLabel);
       }
     },
-    [onLoadSession]
+    [onLoadSession, sessions]
   );
 
   const deleteSession = useCallback(
@@ -443,24 +473,63 @@ export function SessionsSidebar({
       }`}
     >
       {/* Toggle button */}
-      <button
-        onClick={() => setIsOpen((o) => !o)}
-        title={isOpen ? "Collapse sidebar" : "Expand sidebar"}
-        className="absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-100 shadow-sm transition-colors"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-          className={`h-3.5 w-3.5 transition-transform duration-300 ${isOpen ? "" : "rotate-180"}`}
-        >
-          <path
-            fillRule="evenodd"
-            d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z"
-            clipRule="evenodd"
-          />
-        </svg>
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => setIsOpen((o) => !o)}
+            aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
+            className="absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-100 shadow-sm transition-colors"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className={`h-3.5 w-3.5 transition-transform duration-300 ${isOpen ? "" : "rotate-180"}`}
+            >
+              <path
+                fillRule="evenodd"
+                d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="text-xs">
+          {isOpen ? "Collapse" : "Expand"} sidebar{" "}
+          <kbd className="ml-1 rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+            Alt+B
+          </kbd>
+        </TooltipContent>
+      </Tooltip>
+
+      {/* Compact session stats shown in collapsed state */}
+      {!isOpen && sessions.length > 0 && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setIsOpen(true)}
+              className="absolute top-14 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 py-1.5 w-8 rounded-md text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              aria-label={`${sessions.length} session${sessions.length !== 1 ? "s" : ""}${runningCount > 0 ? `, ${runningCount} running` : ""} — click to expand`}
+            >
+              <span className="text-[11px] font-medium tabular-nums select-none leading-none">
+                {sessions.length}
+              </span>
+              {runningCount > 0 && (
+                <span className="relative flex h-2 w-2 mt-0.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                </span>
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" className="text-xs">
+            {sessions.length} session{sessions.length !== 1 ? "s" : ""}
+            {runningCount > 0 && (
+              <> · <span className="text-green-500 font-medium">{runningCount} running</span></>
+            )}
+          </TooltipContent>
+        </Tooltip>
+      )}
 
       {/* Sidebar content — hidden when collapsed */}
       <div
@@ -468,12 +537,23 @@ export function SessionsSidebar({
           isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
-        <button
-          onClick={onNewSession}
-          className="m-3 px-4 py-2 bg-green-200 text-green-900 rounded-lg hover:bg-green-300 transition-colors text-sm font-medium whitespace-nowrap"
-        >
-          + New Agent
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onNewSession}
+              className="m-3 px-4 py-2 flex items-center justify-center gap-1.5 bg-green-100 dark:bg-green-900/25 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800/50 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/45 hover:border-green-300 dark:hover:border-green-700/60 active:scale-[0.98] transition-all text-sm font-medium whitespace-nowrap"
+            >
+              <Plus className="size-3.5" />
+              New Agent
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            New agent{" "}
+            <kbd className="ml-1 rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+              Alt+N
+            </kbd>
+          </TooltipContent>
+        </Tooltip>
 
         {/* Search / filter */}
         <div className="px-3 pb-2 relative">
@@ -535,7 +615,10 @@ export function SessionsSidebar({
           onBlur={() => setKbdFocusIndex(null)}
           aria-label="Session list"
         >
-          {filteredSessions.map((s, idx) => {
+          {isLoadingSessions ? (
+            <SessionSkeleton />
+          ) : null}
+          {!isLoadingSessions && filteredSessions.map((s, idx) => {
             const label = s.summary || s.sessionId.slice(0, 8);
             const isActive = activeSessionId === s.sessionId;
             const isKbdFocused = kbdFocusIndex === idx;
@@ -640,7 +723,7 @@ export function SessionsSidebar({
               </Fragment>
             );
           })}
-          {sessions.length === 0 ? (
+          {!isLoadingSessions && sessions.length === 0 ? (
             <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
               <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-300 dark:text-neutral-600">
                 <MessageSquare className="size-5" />
@@ -652,7 +735,7 @@ export function SessionsSidebar({
                 Click &ldquo;+ New Agent&rdquo; to get started
               </p>
             </div>
-          ) : searchQuery && filteredSessions.length === 0 ? (
+          ) : !isLoadingSessions && searchQuery && filteredSessions.length === 0 ? (
             <p className="px-4 py-3 text-xs text-neutral-400 dark:text-neutral-500 italic">
               No sessions match &ldquo;{searchQuery}&rdquo;
             </p>
