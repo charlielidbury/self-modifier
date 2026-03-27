@@ -399,6 +399,17 @@ export default function ChessPage() {
     } catch { /* ignore */ }
     return "w";
   });
+  const [autoPlay, setAutoPlay] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const saved = localStorage.getItem("chess-prefs");
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (typeof p.autoPlay === "boolean") return p.autoPlay;
+      }
+    } catch { /* ignore */ }
+    return false;
+  });
   const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
   const [redoStack, setRedoStack] = useState<Snapshot[]>([]);
   const [flipped, setFlipped] = useState(false);
@@ -423,13 +434,23 @@ export default function ChessPage() {
   } | null>(null);
 
   // ── Win/Loss/Draw statistics (persisted in localStorage) ─────────────────
-  const [stats, setStats] = useState<{ wins: number; losses: number; draws: number }>(() => {
-    if (typeof window === "undefined") return { wins: 0, losses: 0, draws: 0 };
+  const [stats, setStats] = useState<{ wins: number; losses: number; draws: number; currentStreak: number; bestStreak: number }>(() => {
+    if (typeof window === "undefined") return { wins: 0, losses: 0, draws: 0, currentStreak: 0, bestStreak: 0 };
     try {
       const saved = localStorage.getItem("chess-stats");
-      return saved ? JSON.parse(saved) : { wins: 0, losses: 0, draws: 0 };
+      if (saved) {
+        const p = JSON.parse(saved);
+        return {
+          wins: p.wins ?? 0,
+          losses: p.losses ?? 0,
+          draws: p.draws ?? 0,
+          currentStreak: p.currentStreak ?? 0,
+          bestStreak: p.bestStreak ?? 0,
+        };
+      }
+      return { wins: 0, losses: 0, draws: 0, currentStreak: 0, bestStreak: 0 };
     } catch {
-      return { wins: 0, losses: 0, draws: 0 };
+      return { wins: 0, losses: 0, draws: 0, currentStreak: 0, bestStreak: 0 };
     }
   });
   const [hint, setHint] = useState<[[number, number], [number, number]] | null>(null);
@@ -571,9 +592,10 @@ export default function ChessPage() {
         playerColor,
         boardTheme,
         soundEnabled,
+        autoPlay,
       }));
     } catch { /* ignore */ }
-  }, [difficulty, vsAI, playerColor, boardTheme, soundEnabled]);
+  }, [difficulty, vsAI, playerColor, boardTheme, soundEnabled, autoPlay]);
 
   // Record a result once per game (vs AI only)
   useEffect(() => {
@@ -582,13 +604,16 @@ export default function ChessPage() {
     const playerLoses = playerColor === "w" ? status.includes("Black wins") : status.includes("White wins");
     if (playerWins) {
       statsCountedRef.current = true;
-      setStats((s) => ({ ...s, wins: s.wins + 1 }));
+      setStats((s) => {
+        const newStreak = s.currentStreak + 1;
+        return { ...s, wins: s.wins + 1, currentStreak: newStreak, bestStreak: Math.max(s.bestStreak, newStreak) };
+      });
     } else if (playerLoses) {
       statsCountedRef.current = true;
-      setStats((s) => ({ ...s, losses: s.losses + 1 }));
+      setStats((s) => ({ ...s, losses: s.losses + 1, currentStreak: 0 }));
     } else if (status.includes("Stalemate")) {
       statsCountedRef.current = true;
-      setStats((s) => ({ ...s, draws: s.draws + 1 }));
+      setStats((s) => ({ ...s, draws: s.draws + 1, currentStreak: 0 }));
     }
   }, [status, vsAI, playerColor]);
 
@@ -695,11 +720,38 @@ export default function ChessPage() {
 
   // ── Engine move ───────────────────────────────────────────────────────────
   useEffect(() => {
+    const depth = DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3;
+
+    // Watch AI: both sides played by the engine with a visible delay
+    if (autoPlay) {
+      if (isGameOver || isThinking) return;
+      setIsThinking(true);
+      const id = setTimeout(() => {
+        const move = getBestMove(board, turn, depth);
+        if (move) {
+          const next = applyMove(board, move.fr, move.fc, move.tr, move.tc);
+          const san = toSAN(board, move.fr, move.fc, move.tr, move.tc, next, turn);
+          const newStatus = getStatus(next, turn);
+          const wasCapture = board[move.tr][move.tc] !== null;
+          setBoard(next);
+          setTurn(turn === "w" ? "b" : "w");
+          setStatus(newStatus);
+          setLastMove([[move.fr, move.fc], [move.tr, move.tc]]);
+          setMoveHistory((h) => [...h, san]);
+          if (newStatus.includes("Checkmate")) playChessSound("checkmate");
+          else if (newStatus.includes("check")) playChessSound("check");
+          else if (wasCapture) playChessSound("capture");
+          else playChessSound("move");
+        }
+        setIsThinking(false);
+      }, 500);
+      return () => clearTimeout(id);
+    }
+
     const aiColor: Color = playerColor === "w" ? "b" : "w";
     if (turn !== aiColor || isGameOver || isThinking || !vsAI) return;
 
     setIsThinking(true);
-    const depth = DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3;
     // Yield to the browser so the board re-renders before we block the thread.
     const id = setTimeout(() => {
       const move = getBestMove(board, aiColor, depth);
@@ -724,7 +776,7 @@ export default function ChessPage() {
 
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turn, board, difficulty, vsAI, playerColor]);
+  }, [turn, board, difficulty, vsAI, playerColor, autoPlay]);
 
   // ── Undo / Redo ───────────────────────────────────────────────────────────
   const undo = useCallback(() => {
@@ -837,11 +889,35 @@ export default function ChessPage() {
         }
         return;
       }
+
+      if (e.key === "c" || e.key === "C") {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey && vsAI && !autoPlay) {
+          e.preventDefault();
+          setPlayerColor((prev) => (prev === "w" ? "b" : "w"));
+        }
+        return;
+      }
+
+      if (e.key === "g" || e.key === "G") {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          copyPGN();
+        }
+        return;
+      }
+
+      if (e.key === "l" || e.key === "L") {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          openLichess();
+        }
+        return;
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undo, redo, isThinking, undoStack.length, redoStack.length, showHint]);
+  }, [undo, redo, isThinking, undoStack.length, redoStack.length, showHint, vsAI, autoPlay, copyPGN, openLichess]);
 
   // ── Auto-flip board when player color changes ─────────────────────────────
   useEffect(() => {
@@ -863,7 +939,7 @@ export default function ChessPage() {
   // ── Player click ─────────────────────────────────────────────────────────
   const handleClick = useCallback(
     (r: number, c: number) => {
-      if (isGameOver || isThinking || (vsAI && turn !== playerColor)) return;
+      if (isGameOver || isThinking || autoPlay || (vsAI && turn !== playerColor)) return;
 
       const piece = board[r][c];
 
@@ -924,7 +1000,7 @@ export default function ChessPage() {
         setLegalMoves(getLegalMoves(board, r, c));
       }
     },
-    [board, selected, legalMoves, turn, isGameOver, isThinking, vsAI, playerColor, playChessSound]
+    [board, selected, legalMoves, turn, isGameOver, isThinking, vsAI, playerColor, autoPlay, playChessSound]
   );
 
   // ── Drag-and-drop piece movement ─────────────────────────────────────────
@@ -932,7 +1008,7 @@ export default function ChessPage() {
     (r: number, c: number, e: React.MouseEvent) => {
       const piece = board[r][c];
       if (!piece || piece.color !== turn) return;
-      if (isGameOver || isThinking || (vsAI && turn !== playerColor)) return;
+      if (isGameOver || isThinking || autoPlay || (vsAI && turn !== playerColor)) return;
 
       e.preventDefault();
 
@@ -1020,7 +1096,7 @@ export default function ChessPage() {
       window.addEventListener("mouseup", onMouseUp);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [board, turn, isGameOver, isThinking, vsAI, playerColor, flipped, status, lastMove, moveHistory, playChessSound]
+    [board, turn, isGameOver, isThinking, vsAI, playerColor, autoPlay, flipped, status, lastMove, moveHistory, playChessSound]
   );
 
   const reset = () => {
@@ -1269,7 +1345,11 @@ export default function ChessPage() {
             </span>
           ) : (
             <span className="text-sm text-muted-foreground">
-              {vsAI
+              {autoPlay
+                ? turn === "w"
+                  ? "⬜ White thinking…"
+                  : "⬛ Black thinking…"
+                : vsAI
                 ? playerColor === "w"
                   ? "⬜ Your turn (White)"
                   : "⬛ Your turn (Black)"
@@ -1309,8 +1389,8 @@ export default function ChessPage() {
           </button>
           <button
             onClick={showHint}
-            disabled={!vsAI || isGameOver || isThinking || turn !== playerColor || isHinting}
-            title={vsAI ? "Show best move hint (H)" : "Hints only available in vs AI mode"}
+            disabled={!vsAI || autoPlay || isGameOver || isThinking || turn !== playerColor || isHinting}
+            title={autoPlay ? "Hints not available in Watch AI mode" : vsAI ? "Show best move hint (H)" : "Hints only available in vs AI mode"}
             className="px-3 py-1 text-sm rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isHinting ? "…" : "💡 Hint"}
@@ -1334,10 +1414,10 @@ export default function ChessPage() {
             <span className="text-xs text-muted-foreground select-none">Mode:</span>
             <div className="flex rounded-md overflow-hidden border border-border">
               <button
-                onClick={() => setVsAI(true)}
+                onClick={() => { setVsAI(true); setAutoPlay(false); }}
                 className={[
                   "px-2.5 py-1 text-xs font-medium transition-colors",
-                  vsAI
+                  vsAI && !autoPlay
                     ? "bg-primary text-primary-foreground"
                     : "bg-secondary text-secondary-foreground hover:bg-accent",
                 ].join(" ")}
@@ -1345,27 +1425,39 @@ export default function ChessPage() {
                 vs AI
               </button>
               <button
-                onClick={() => setVsAI(false)}
+                onClick={() => { setVsAI(false); setAutoPlay(false); }}
                 className={[
                   "px-2.5 py-1 text-xs font-medium transition-colors",
-                  !vsAI
+                  !vsAI && !autoPlay
                     ? "bg-primary text-primary-foreground"
                     : "bg-secondary text-secondary-foreground hover:bg-accent",
                 ].join(" ")}
               >
                 2 Players
               </button>
+              <button
+                onClick={() => setAutoPlay(true)}
+                title="Watch two AI engines play each other"
+                className={[
+                  "px-2.5 py-1 text-xs font-medium transition-colors",
+                  autoPlay
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-accent",
+                ].join(" ")}
+              >
+                Watch AI
+              </button>
             </div>
           </div>
 
           {/* Color selector — only relevant in vs AI mode */}
-          {vsAI && (
+          {vsAI && !autoPlay && (
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground select-none">Play as:</span>
             <div className="flex rounded-md overflow-hidden border border-border">
               <button
                 onClick={() => setPlayerColor("w")}
-                title="Play as White (you move first)"
+                title="Play as White (you move first) · Press C to swap"
                 className={[
                   "px-2.5 py-1 text-xs font-medium transition-colors",
                   playerColor === "w"
@@ -1377,7 +1469,7 @@ export default function ChessPage() {
               </button>
               <button
                 onClick={() => setPlayerColor("b")}
-                title="Play as Black (AI moves first)"
+                title="Play as Black (AI moves first) · Press C to swap"
                 className={[
                   "px-2.5 py-1 text-xs font-medium transition-colors",
                   playerColor === "b"
@@ -1391,8 +1483,8 @@ export default function ChessPage() {
           </div>
           )}
 
-          {/* Difficulty selector — only relevant in vs AI mode */}
-          {vsAI && (
+          {/* Difficulty selector — relevant in vs AI mode and Watch AI mode */}
+          {(vsAI || autoPlay) && (
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground select-none">Difficulty:</span>
             <div className="flex rounded-md overflow-hidden border border-border">
@@ -1706,7 +1798,7 @@ export default function ChessPage() {
               <button
                 onClick={copyPGN}
                 disabled={moveHistory.length === 0}
-                title="Copy game moves as PGN (paste into Lichess, Chess.com, etc.)"
+                title="Copy game moves as PGN (paste into Lichess, Chess.com, etc.) · G"
                 className={[
                   "font-normal text-[10px] px-1.5 py-0.5 rounded transition-all",
                   pgnCopied
@@ -1720,7 +1812,7 @@ export default function ChessPage() {
               {/* Open position in Lichess analysis */}
               <button
                 onClick={openLichess}
-                title="Analyse current position on Lichess"
+                title="Analyse current position on Lichess · L"
                 className="flex items-center justify-center opacity-50 hover:opacity-100 hover:bg-muted rounded p-0.5 transition-all"
               >
                 <ExternalLink size={10} />
@@ -1837,7 +1929,7 @@ export default function ChessPage() {
                 </span>
               )}
               <button
-                onClick={() => setStats({ wins: 0, losses: 0, draws: 0 })}
+                onClick={() => setStats({ wins: 0, losses: 0, draws: 0, currentStreak: 0, bestStreak: 0 })}
                 title="Reset statistics"
                 className="ml-1 text-[10px] text-muted-foreground opacity-40 hover:opacity-80 transition-opacity"
               >
@@ -1867,6 +1959,24 @@ export default function ChessPage() {
                     className="bg-red-500 dark:bg-red-400 transition-all duration-500"
                     style={{ width: `${lossPct}%` }}
                   />
+                )}
+              </div>
+            )}
+            {/* Win streak indicators */}
+            {(stats.currentStreak >= 2 || stats.bestStreak >= 2) && (
+              <div className="flex items-center gap-2 text-[11px]">
+                {stats.currentStreak >= 2 && (
+                  <span
+                    className="flex items-center gap-1 font-semibold text-amber-500 dark:text-amber-400 tabular-nums"
+                    title={`Current win streak: ${stats.currentStreak}`}
+                  >
+                    🔥 {stats.currentStreak} streak
+                  </span>
+                )}
+                {stats.bestStreak >= 2 && stats.currentStreak !== stats.bestStreak && (
+                  <span className="text-muted-foreground/50 tabular-nums" title={`Best win streak: ${stats.bestStreak}`}>
+                    best: {stats.bestStreak}
+                  </span>
                 )}
               </div>
             )}

@@ -52,6 +52,9 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["F"], description: "Flip board" },
       { keys: ["H"], description: "Show best move hint" },
       { keys: ["M"], description: "Toggle sound on/off" },
+      { keys: ["C"], description: "Swap player colour — White ↔ Black (vs AI mode)" },
+      { keys: ["G"], description: "Copy game as PGN to clipboard" },
+      { keys: ["L"], description: "Open current position in Lichess analysis" },
     ],
   },
   {
@@ -61,6 +64,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["↑", "↓"], description: "Orbit up / down" },
       { keys: ["+"], description: "Zoom in" },
       { keys: ["-"], description: "Zoom out" },
+      { keys: ["R"], description: "Reset view" },
     ],
   },
   {
