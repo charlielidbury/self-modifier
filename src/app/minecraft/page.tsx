@@ -58,7 +58,7 @@ export default function MinecraftPage() {
   const monoStyle: React.CSSProperties = { fontFamily: 'monospace' };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-black">
+    <div className="relative w-full h-full overflow-hidden bg-black">
       {/* Minecraft-style pixel title overlay */}
       <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none flex flex-col items-center pt-5 gap-1">
         <h1
