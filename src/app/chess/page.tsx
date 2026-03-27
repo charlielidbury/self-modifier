@@ -20,6 +20,23 @@ import {
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"];
 
+/**
+ * Returns true when the last 100 half-moves (50 full moves) contain neither a
+ * pawn push nor a capture — triggering the fifty-move draw rule.
+ *
+ * In Standard Algebraic Notation:
+ *   • Pawn moves start with a lowercase file letter (a–h), e.g. "e4", "exd5", "e8=Q".
+ *   • Captures of any piece type contain "x", e.g. "Nxf3", "Rxd5".
+ *
+ * If either condition is present in any of the last 100 half-moves the clock
+ * resets and the rule does not apply.
+ */
+function isFiftyMoveRule(history: string[]): boolean {
+  if (history.length < 100) return false;
+  const last100 = history.slice(-100);
+  return last100.every((san) => !/^[a-h]/.test(san) && !san.includes("x"));
+}
+
 // Derive terminal status after a move is committed.
 function getStatus(board: Board, justMoved: Color): string {
   const opp: Color = justMoved === "w" ? "b" : "w";
@@ -352,6 +369,67 @@ function ConfettiOverlay() {
   );
 }
 
+// ── Evaluation graph ──────────────────────────────────────────────────────────
+/** Mini SVG line chart showing the engine evaluation throughout the game.
+ *  Values above the midline mean White is winning; below means Black is winning.
+ *  Uses tanh-based normalisation so extreme scores don't dominate the scale. */
+function EvalGraph({ evalHistory }: { evalHistory: number[] }) {
+  if (evalHistory.length < 2) return null;
+
+  const W = 160; // viewBox width (unitless)
+  const H = 40;  // viewBox height
+
+  // Map a raw centipawn score to a 0–1 fraction (0.5 = equal).
+  const norm = (v: number) => 0.5 + 0.5 * Math.tanh(v / 400);
+
+  const n = evalHistory.length;
+  const pts = evalHistory.map((v, i) => ({
+    x: (i / Math.max(n - 1, 1)) * W,
+    y: (1 - norm(v)) * H,
+  }));
+
+  const midY = H / 2;
+  const linePath = pts
+    .map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+    .join(" ");
+  // Area path closes back along the midline so the fill shows "above / below equal".
+  const areaPath =
+    `${linePath} L${pts[n - 1].x.toFixed(1)},${midY} L${pts[0].x.toFixed(1)},${midY} Z`;
+
+  return (
+    <div
+      className="shrink-0 px-2 pt-1.5 pb-1 border-b border-border/50"
+      title="Position evaluation over the game (above midline = White winning)"
+    >
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="w-full"
+        style={{ height: 40 }}
+        aria-hidden="true"
+      >
+        {/* Midline — equal position */}
+        <line
+          x1={0} y1={midY} x2={W} y2={midY}
+          stroke="currentColor" strokeOpacity={0.15} strokeWidth={0.8}
+        />
+        {/* Shaded area under the line, anchored to the midline */}
+        <path d={areaPath} fill="currentColor" fillOpacity={0.08} />
+        {/* Evaluation line */}
+        <path d={linePath} fill="none" stroke="currentColor" strokeWidth={1.5} strokeOpacity={0.55} />
+        {/* Dot at the latest data point */}
+        <circle
+          cx={pts[n - 1].x.toFixed(1)}
+          cy={pts[n - 1].y.toFixed(1)}
+          r={2.5}
+          fill="currentColor"
+          fillOpacity={0.7}
+        />
+      </svg>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ChessPage() {
@@ -418,6 +496,14 @@ export default function ChessPage() {
   } | null>(null);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
   const statsCountedRef = useRef(false);
+  // ── Move review ───────────────────────────────────────────────────────────
+  /** Snapshot of board + lastMove after each half-move, used for click-to-review. */
+  const moveSnapshotsRef = useRef<Array<{
+    board: Board;
+    lastMove: [[number, number], [number, number]] | null;
+  }>>([]);
+  /** Half-move index (0-based) being reviewed. null = live mode. */
+  const [reviewIdx, setReviewIdx] = useState<number | null>(null);
   // ── Game duration tracking ─────────────────────────────────────────────────
   const gameStartRef = useRef<number>(Date.now());
   const [gameDuration, setGameDuration] = useState<number | null>(null);
@@ -482,6 +568,12 @@ export default function ChessPage() {
   // First click "arms" the button; second click within 3 s confirms.
   const [armedResign, setArmedResign] = useState(false);
   const resignTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Evaluation history (powers the eval graph in the move history panel) ──
+  // Stores the engine evaluation (centipawns) after each half-move.
+  // Maintained in a ref to avoid stale-closure issues; mirrored to state for rendering.
+  const evalHistoryRef = useRef<number[]>([]);
+  const [evalHistory, setEvalHistory] = useState<number[]>([]);
 
   // ── Sound effects ────────────────────────────────────────────────────────
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
@@ -617,7 +709,7 @@ export default function ChessPage() {
     } else if (playerLoses) {
       statsCountedRef.current = true;
       setStats((s) => ({ ...s, losses: s.losses + 1, currentStreak: 0 }));
-    } else if (status.includes("Stalemate")) {
+    } else if (status.includes("Stalemate") || status.includes("50-move")) {
       statsCountedRef.current = true;
       setStats((s) => ({ ...s, draws: s.draws + 1, currentStreak: 0 }));
     }
@@ -683,7 +775,7 @@ export default function ChessPage() {
   }, [whiteTime, blackTime]);
 
   const isGameOver =
-    status.includes("Checkmate") || status.includes("Stalemate") || status.includes("on time") || status.includes("resigns");
+    status.includes("Checkmate") || status.includes("Stalemate") || status.includes("on time") || status.includes("resigns") || status.includes("50-move");
 
   // ── Low-time tick sound ───────────────────────────────────────────────────
   // Plays a short metronome click once per second when the active player has
@@ -737,6 +829,54 @@ export default function ChessPage() {
     setMoveAnimKey((k) => k + 1);
   }, [moveHistory]);
 
+  // ── Evaluation history maintenance ────────────────────────────────────────
+  // Appends the current board eval whenever a new half-move is added and trims
+  // the array whenever moves are undone, keeping it in sync with moveHistory.
+  useEffect(() => {
+    if (moveHistory.length === 0) {
+      evalHistoryRef.current = [];
+      setEvalHistory([]);
+      return;
+    }
+    const h = evalHistoryRef.current;
+    const n = moveHistory.length;
+    if (n > h.length) {
+      // New move — compute and record the position evaluation.
+      let val: number;
+      if (status.includes("White wins")) val = 99999;
+      else if (status.includes("Black wins")) val = -99999;
+      else if (status.includes("Stalemate")) val = 0;
+      else val = evaluate(board);
+      const next = [...h, val];
+      evalHistoryRef.current = next;
+      setEvalHistory(next);
+    } else if (n < h.length) {
+      // Undo — trim history to match the shorter move list.
+      const trimmed = h.slice(0, n);
+      evalHistoryRef.current = trimmed;
+      setEvalHistory(trimmed);
+    }
+    // n === h.length means a status-only update with no move change; no action needed.
+  }, [board, moveHistory, status]);
+
+  // ── Move snapshot maintenance ─────────────────────────────────────────────
+  // Keeps moveSnapshotsRef in sync with moveHistory so the click-to-review
+  // feature always has an up-to-date board snapshot for every half-move.
+  useEffect(() => {
+    const snapshots = moveSnapshotsRef.current;
+    const n = moveHistory.length;
+    if (n === 0) {
+      moveSnapshotsRef.current = [];
+    } else if (n === snapshots.length + 1) {
+      // A new half-move was appended — record the current board + lastMove.
+      moveSnapshotsRef.current = [...snapshots, { board, lastMove }];
+    } else if (n < snapshots.length) {
+      // Moves were undone — trim to the new length and exit review if needed.
+      moveSnapshotsRef.current = snapshots.slice(0, n);
+      setReviewIdx((prev) => (prev !== null && prev >= n ? null : prev));
+    }
+  }, [board, moveHistory, lastMove]);
+
   // ── Engine move ───────────────────────────────────────────────────────────
   useEffect(() => {
     const depth = DIFFICULTIES.find((d) => d.label === difficulty)?.depth ?? 3;
@@ -750,13 +890,17 @@ export default function ChessPage() {
         if (move) {
           const next = applyMove(board, move.fr, move.fc, move.tr, move.tc);
           const san = toSAN(board, move.fr, move.fc, move.tr, move.tc, next, turn);
-          const newStatus = getStatus(next, turn);
+          const newMoveHistory = [...moveHistory, san];
+          let newStatus = getStatus(next, turn);
+          if (!newStatus.includes("Checkmate") && !newStatus.includes("Stalemate") && isFiftyMoveRule(newMoveHistory)) {
+            newStatus = "Draw by 50-move rule.";
+          }
           const wasCapture = board[move.tr][move.tc] !== null;
           setBoard(next);
           setTurn(turn === "w" ? "b" : "w");
           setStatus(newStatus);
           setLastMove([[move.fr, move.fc], [move.tr, move.tc]]);
-          setMoveHistory((h) => [...h, san]);
+          setMoveHistory(newMoveHistory);
           if (newStatus.includes("Checkmate")) playChessSound("checkmate");
           else if (newStatus.includes("check")) playChessSound("check");
           else if (wasCapture) playChessSound("capture");
@@ -777,13 +921,17 @@ export default function ChessPage() {
       if (move) {
         const next = applyMove(board, move.fr, move.fc, move.tr, move.tc);
         const san = toSAN(board, move.fr, move.fc, move.tr, move.tc, next, aiColor);
-        const newStatus = getStatus(next, aiColor);
+        const newMoveHistory = [...moveHistory, san];
+        let newStatus = getStatus(next, aiColor);
+        if (!newStatus.includes("Checkmate") && !newStatus.includes("Stalemate") && isFiftyMoveRule(newMoveHistory)) {
+          newStatus = "Draw by 50-move rule.";
+        }
         const wasCapture = board[move.tr][move.tc] !== null;
         setBoard(next);
         setTurn(playerColor);
         setStatus(newStatus);
         setLastMove([[move.fr, move.fc], [move.tr, move.tc]]);
-        setMoveHistory((h) => [...h, san]);
+        setMoveHistory(newMoveHistory);
         // Sound feedback
         if (newStatus.includes("Checkmate")) playChessSound("checkmate");
         else if (newStatus.includes("check")) playChessSound("check");
@@ -846,6 +994,68 @@ export default function ChessPage() {
       setIsHinting(false);
     }, 30);
   }, [board, isGameOver, isThinking, turn, isHinting, vsAI, playerColor]);
+
+  // Copy game moves as standard PGN to clipboard (with headers)
+  const copyPGN = useCallback(() => {
+    if (moveHistory.length === 0) return;
+
+    // ── PGN Header tags ───────────────────────────────────────────────────────
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, "0")}.${String(today.getDate()).padStart(2, "0")}`;
+
+    const whiteName = vsAI
+      ? (playerColor === "w" ? "Player" : `AI (${difficulty})`)
+      : "White";
+    const blackName = vsAI
+      ? (playerColor === "b" ? "Player" : `AI (${difficulty})`)
+      : "Black";
+
+    // Standard result token
+    let result = "*";
+    if (status.includes("White wins") || status.includes("on time") && status.startsWith("White")) result = "1-0";
+    else if (status.includes("Black wins") || status.includes("on time") && status.startsWith("Black")) result = "0-1";
+    else if (status.includes("Stalemate")) result = "1/2-1/2";
+
+    let pgn = `[Event "Casual Game"]\n`;
+    pgn += `[Date "${dateStr}"]\n`;
+    pgn += `[White "${whiteName}"]\n`;
+    pgn += `[Black "${blackName}"]\n`;
+    pgn += `[Result "${result}"]\n`;
+
+    // Include opening name if one was detected
+    const detectedOpening = getOpeningName(moveHistory);
+    if (detectedOpening) {
+      pgn += `[Opening "${detectedOpening}"]\n`;
+    }
+
+    pgn += "\n";
+
+    // ── Move text ─────────────────────────────────────────────────────────────
+    const moveParts: string[] = [];
+    for (let i = 0; i < moveHistory.length; i += 2) {
+      const moveNum = Math.floor(i / 2) + 1;
+      let pair = `${moveNum}. ${moveHistory[i]}`;
+      if (moveHistory[i + 1]) pair += ` ${moveHistory[i + 1]}`;
+      moveParts.push(pair);
+    }
+    pgn += moveParts.join(" ");
+    if (result !== "*") pgn += ` ${result}`;
+
+    navigator.clipboard.writeText(pgn).then(() => {
+      setPgnCopied(true);
+      setTimeout(() => setPgnCopied(false), 2000);
+    });
+  }, [moveHistory, vsAI, playerColor, difficulty, status]);
+
+  // Open current position in Lichess analysis board
+  const openLichess = useCallback(() => {
+    const fen = toFEN(board, turn, moveHistory);
+    window.open(
+      `https://lichess.org/analysis?fen=${encodeURIComponent(fen)}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }, [board, turn, moveHistory]);
 
   // Keyboard shortcuts: Ctrl+Z = undo, N = new game, F = flip board
   useEffect(() => {
@@ -938,6 +1148,16 @@ export default function ChessPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undo, redo, isThinking, undoStack.length, redoStack.length, showHint, vsAI, autoPlay, copyPGN, openLichess]);
 
+  // ── Exit move-review mode with Escape ─────────────────────────────────────
+  useEffect(() => {
+    if (reviewIdx === null) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); setReviewIdx(null); }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [reviewIdx]);
+
   // ── Auto-flip board when player color changes ─────────────────────────────
   useEffect(() => {
     setFlipped(playerColor === "b");
@@ -985,7 +1205,11 @@ export default function ChessPage() {
           setRedoStack([]);
           const next = applyMove(board, sr, sc, r, c);
           const san = toSAN(board, sr, sc, r, c, next, turn);
-          const newStatus = getStatus(next, turn);
+          const newMoveHistory = [...moveHistory, san];
+          let newStatus = getStatus(next, turn);
+          if (!newStatus.includes("Checkmate") && !newStatus.includes("Stalemate") && isFiftyMoveRule(newMoveHistory)) {
+            newStatus = "Draw by 50-move rule.";
+          }
           setBoard(next);
           setTurn(turn === "w" ? "b" : "w");
           setStatus(newStatus);
@@ -993,7 +1217,7 @@ export default function ChessPage() {
           setSelected(null);
           setLegalMoves([]);
           setHint(null);
-          setMoveHistory((h) => [...h, san]);
+          setMoveHistory(newMoveHistory);
           // Sound feedback (check board[r][c] before state update, not undefined isCapture)
           const wasCapture = board[r][c] !== null;
           if (newStatus.includes("Checkmate")) playChessSound("checkmate");
@@ -1148,6 +1372,12 @@ export default function ChessPage() {
     // Disarm any pending resign confirmation
     setArmedResign(false);
     if (resignTimerRef.current) clearTimeout(resignTimerRef.current);
+    // Clear evaluation history
+    evalHistoryRef.current = [];
+    setEvalHistory([]);
+    // Clear move snapshots and exit review mode
+    moveSnapshotsRef.current = [];
+    setReviewIdx(null);
   };
 
   /**
@@ -1197,58 +1427,6 @@ export default function ChessPage() {
     else playChessSound("move");
   }, [pendingPromotion, board, status, lastMove, moveHistory, playChessSound]);
 
-  // Copy game moves as standard PGN to clipboard (with headers)
-  const copyPGN = useCallback(() => {
-    if (moveHistory.length === 0) return;
-
-    // ── PGN Header tags ───────────────────────────────────────────────────────
-    const today = new Date();
-    const dateStr = `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, "0")}.${String(today.getDate()).padStart(2, "0")}`;
-
-    const whiteName = vsAI
-      ? (playerColor === "w" ? "Player" : `AI (${difficulty})`)
-      : "White";
-    const blackName = vsAI
-      ? (playerColor === "b" ? "Player" : `AI (${difficulty})`)
-      : "Black";
-
-    // Standard result token
-    let result = "*";
-    if (status.includes("White wins") || status.includes("on time") && status.startsWith("White")) result = "1-0";
-    else if (status.includes("Black wins") || status.includes("on time") && status.startsWith("Black")) result = "0-1";
-    else if (status.includes("Stalemate")) result = "1/2-1/2";
-
-    let pgn = `[Event "Casual Game"]\n`;
-    pgn += `[Date "${dateStr}"]\n`;
-    pgn += `[White "${whiteName}"]\n`;
-    pgn += `[Black "${blackName}"]\n`;
-    pgn += `[Result "${result}"]\n`;
-
-    // Include opening name if one was detected
-    const detectedOpening = getOpeningName(moveHistory);
-    if (detectedOpening) {
-      pgn += `[Opening "${detectedOpening}"]\n`;
-    }
-
-    pgn += "\n";
-
-    // ── Move text ─────────────────────────────────────────────────────────────
-    const moveParts: string[] = [];
-    for (let i = 0; i < moveHistory.length; i += 2) {
-      const moveNum = Math.floor(i / 2) + 1;
-      let pair = `${moveNum}. ${moveHistory[i]}`;
-      if (moveHistory[i + 1]) pair += ` ${moveHistory[i + 1]}`;
-      moveParts.push(pair);
-    }
-    pgn += moveParts.join(" ");
-    if (result !== "*") pgn += ` ${result}`;
-
-    navigator.clipboard.writeText(pgn).then(() => {
-      setPgnCopied(true);
-      setTimeout(() => setPgnCopied(false), 2000);
-    });
-  }, [moveHistory, vsAI, playerColor, difficulty, status]);
-
   // Copy current board position as FEN to the clipboard
   const copyFEN = useCallback(() => {
     const fen = toFEN(board, turn, moveHistory);
@@ -1258,30 +1436,32 @@ export default function ChessPage() {
     });
   }, [board, turn, moveHistory]);
 
-  // Open current position in Lichess analysis board
-  const openLichess = useCallback(() => {
-    const fen = toFEN(board, turn, moveHistory);
-    window.open(
-      `https://lichess.org/analysis?fen=${encodeURIComponent(fen)}`,
-      "_blank",
-      "noopener,noreferrer"
-    );
-  }, [board, turn, moveHistory]);
-
   // Group half-moves into pairs: [[white, black?], ...]
   const movePairs: [string, string | undefined][] = [];
   for (let i = 0; i < moveHistory.length; i += 2) {
     movePairs.push([moveHistory[i], moveHistory[i + 1]]);
   }
 
+  // ── Display board (supports move-review mode) ─────────────────────────────
+  // When the user clicks a move in the history table, reviewIdx is set and the
+  // board renders the historical snapshot at that half-move index instead of
+  // the live position.
+  const displayBoard = reviewIdx !== null
+    ? (moveSnapshotsRef.current[reviewIdx]?.board ?? board)
+    : board;
+  const displayLastMove: [[number, number], [number, number]] | null = reviewIdx !== null
+    ? (moveSnapshotsRef.current[reviewIdx]?.lastMove ?? null)
+    : lastMove;
+
   // ── Captured pieces ───────────────────────────────────────────────────────
-  const { capturedByWhite, capturedByBlack, advantage } = getCapturedPieces(board);
+  const { capturedByWhite, capturedByBlack, advantage } = getCapturedPieces(displayBoard);
 
   // ── Check highlight ──────────────────────────────────────────────────────
-  // Find the king that is currently in check (if any) for board highlighting
+  // Find the king that is currently in check (if any) for board highlighting.
+  // Uses displayBoard so the highlight is correct when reviewing past positions.
   const inCheckKingPos: [number, number] | null = (() => {
-    if (isInCheck(board, 'w')) return findKing(board, 'w');
-    if (isInCheck(board, 'b')) return findKing(board, 'b');
+    if (isInCheck(displayBoard, 'w')) return findKing(displayBoard, 'w');
+    if (isInCheck(displayBoard, 'b')) return findKing(displayBoard, 'b');
     return null;
   })();
 
@@ -1702,17 +1882,17 @@ export default function ChessPage() {
               {Array.from({ length: 8 }, (_, vr) => flipped ? 7 - vr : vr).map((r) => (
                 <div key={r} className="flex">
                   {Array.from({ length: 8 }, (_, vc) => flipped ? 7 - vc : vc).map((c) => {
-                    const piece = board[r][c];
+                    const piece = displayBoard[r][c];
                     const isLight = (r + c) % 2 === 0;
                     const isSelected = selected?.[0] === r && selected?.[1] === c;
                     const isLegal = legalMoves.some(
                       ([lr, lc]) => lr === r && lc === c
                     );
-                    const isCapture = isLegal && board[r][c] !== null;
+                    const isCapture = isLegal && displayBoard[r][c] !== null;
                     const isLastMove =
-                      lastMove !== null &&
-                      ((lastMove[0][0] === r && lastMove[0][1] === c) ||
-                        (lastMove[1][0] === r && lastMove[1][1] === c));
+                      displayLastMove !== null &&
+                      ((displayLastMove[0][0] === r && displayLastMove[0][1] === c) ||
+                        (displayLastMove[1][0] === r && displayLastMove[1][1] === c));
 
                     const isCheckedKing =
                       inCheckKingPos !== null &&
@@ -1731,7 +1911,7 @@ export default function ChessPage() {
                     if (isSelected) bgColor = "#f6f669";
 
                     const interactive =
-                      !isGameOver && !isThinking && !autoPlay && (!vsAI || turn === playerColor);
+                      !isGameOver && !isThinking && !autoPlay && (!vsAI || turn === playerColor) && reviewIdx === null;
 
                     const isDragSource =
                       dragging !== null &&
@@ -1906,8 +2086,23 @@ export default function ChessPage() {
         {/* Move History Panel */}
         <div className="flex flex-col w-44 border border-border rounded-lg overflow-hidden shadow bg-card h-[448px]">
           <div className="px-3 py-2 bg-muted/60 text-xs font-semibold text-muted-foreground border-b border-border shrink-0 flex items-center justify-between">
-            Move History
+            {reviewIdx !== null ? (
+              <span className="text-blue-600 dark:text-blue-400 tabular-nums">
+                Move {reviewIdx + 1}/{moveHistory.length}
+              </span>
+            ) : (
+              <span>Move History</span>
+            )}
             <div className="flex items-center gap-1">
+              {reviewIdx !== null && (
+                <button
+                  onClick={() => setReviewIdx(null)}
+                  title="Return to live position (Esc)"
+                  className="font-normal text-[10px] px-1.5 py-0.5 rounded text-blue-600 dark:text-blue-400 hover:bg-muted transition-all"
+                >
+                  ↩ Live
+                </button>
+              )}
               {/* Copy FEN — current board position as Forsyth-Edwards Notation */}
               <button
                 onClick={copyFEN}
@@ -1946,6 +2141,8 @@ export default function ChessPage() {
               </button>
             </div>
           </div>
+          {/* Evaluation graph — shows position balance over the game */}
+          <EvalGraph evalHistory={evalHistory} />
           <div className="overflow-y-auto flex-1 text-sm font-mono">
             {movePairs.length === 0 ? (
               <div className="px-3 py-6 text-xs text-muted-foreground text-center">
@@ -1977,21 +2174,30 @@ export default function ChessPage() {
                         </td>
                         <td
                           className={[
-                            "px-2 py-1 rounded-sm transition-colors",
-                            highlightWhite
+                            "px-2 py-1 rounded-sm transition-colors cursor-pointer hover:bg-accent/60",
+                            reviewIdx === i * 2
+                              ? "bg-blue-400/30 dark:bg-blue-500/25 font-semibold text-foreground"
+                              : highlightWhite
                               ? "bg-yellow-400/30 dark:bg-yellow-400/20 font-semibold text-foreground"
                               : "",
                           ].join(" ")}
+                          onClick={() => setReviewIdx(i * 2)}
+                          title={`View position after move ${i + 1}. ${white}`}
                         >
                           {white}
                         </td>
                         <td
                           className={[
                             "px-2 py-1 rounded-sm transition-colors",
-                            highlightBlack
+                            black ? "cursor-pointer hover:bg-accent/60" : "",
+                            reviewIdx === i * 2 + 1
+                              ? "bg-blue-400/30 dark:bg-blue-500/25 font-semibold text-foreground"
+                              : highlightBlack
                               ? "bg-yellow-400/30 dark:bg-yellow-400/20 font-semibold text-foreground"
                               : "text-muted-foreground",
                           ].join(" ")}
+                          onClick={black ? () => setReviewIdx(i * 2 + 1) : undefined}
+                          title={black ? `View position after move ${i + 1}... ${black}` : undefined}
                         >
                           {black ?? ""}
                         </td>

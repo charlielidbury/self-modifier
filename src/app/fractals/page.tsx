@@ -201,6 +201,10 @@ type Preset = {
   center: { x: number; y: number };
   zoom: number;
   juliaAngle?: number;
+  /** Colour palette index (0–4). Only set on user-saved bookmarks; built-in presets omit it. */
+  palette?: number;
+  /** Hue-shift offset (0–1). Only set on user-saved bookmarks; built-in presets omit it. */
+  colorShift?: number;
 };
 
 /** A user-saved bookmark extends Preset with a stable unique id. */
@@ -367,6 +371,7 @@ export default function FractalsPage() {
   const colorShiftRef  = useRef(0.0);
   const playingRef     = useRef(false);
   const dirRef         = useRef(1); // +1 forward, -1 backward
+  const animSpeedRef   = useRef(1.0); // animation speed multiplier
 
   // Drag state
   const dragRef = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
@@ -400,6 +405,7 @@ export default function FractalsPage() {
   const [playing, setPlaying]   = useState(false);
   const [maxIter, setMaxIter]   = useState(200);
   const [juliaAngle, setJuliaAngle] = useState(0);
+  const [animSpeed, setAnimSpeed] = useState(1.0);
   const [copied, setCopied]     = useState(false);
   const [mouseCoords, setMouseCoords] = useState<{ re: number; im: number } | null>(null);
   const [showPresets, setShowPresets] = useState(false);
@@ -601,8 +607,8 @@ export default function FractalsPage() {
       if (!running) return;
 
       if (playingRef.current) {
-        juliaAngleRef.current += JULIA_ORBIT_SPEED * dirRef.current;
-        colorShiftRef.current += 0.0004 * dirRef.current;
+        juliaAngleRef.current += JULIA_ORBIT_SPEED * dirRef.current * animSpeedRef.current;
+        colorShiftRef.current += 0.0004 * dirRef.current * animSpeedRef.current;
         setJuliaAngle(juliaAngleRef.current); // update display
         setColorShift(((colorShiftRef.current % 1) + 1) % 1); // keep slider in sync
         needsDrawRef.current = true;
@@ -651,6 +657,67 @@ export default function FractalsPage() {
     });
     ro.observe(canvas);
     return () => ro.disconnect();
+  }, []);
+
+  /** Push the current view onto the back-stack before a deliberate navigation jump. */
+  const pushNavHistory = useCallback(() => {
+    backStackRef.current = [
+      ...backStackRef.current,
+      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
+    ];
+    forwardStackRef.current = [];
+    setCanGoBack(true);
+    setCanGoForward(false);
+  }, []);
+
+  /** Fly back to the previous history entry. */
+  const goBack = useCallback(() => {
+    if (backStackRef.current.length === 0) return;
+    const target = backStackRef.current[backStackRef.current.length - 1];
+    backStackRef.current = backStackRef.current.slice(0, -1);
+    forwardStackRef.current = [
+      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
+      ...forwardStackRef.current,
+    ];
+    if (target.mode !== modeRef.current) { modeRef.current = target.mode; setMode(target.mode); }
+    flyAnimRef.current = {
+      fromCenter: { ...centerRef.current },
+      fromZoom: zoomRef.current,
+      toCenter: target.center,
+      toZoom: target.zoom,
+      startTime: Date.now(),
+      duration: 600,
+    };
+    setCenterDisplay(target.center);
+    setZoomLevel(target.zoom);
+    needsDrawRef.current = true;
+    setCanGoBack(backStackRef.current.length > 0);
+    setCanGoForward(true);
+  }, []);
+
+  /** Fly forward to the next history entry. */
+  const goForward = useCallback(() => {
+    if (forwardStackRef.current.length === 0) return;
+    const target = forwardStackRef.current[0];
+    forwardStackRef.current = forwardStackRef.current.slice(1);
+    backStackRef.current = [
+      ...backStackRef.current,
+      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
+    ];
+    if (target.mode !== modeRef.current) { modeRef.current = target.mode; setMode(target.mode); }
+    flyAnimRef.current = {
+      fromCenter: { ...centerRef.current },
+      fromZoom: zoomRef.current,
+      toCenter: target.center,
+      toZoom: target.zoom,
+      startTime: Date.now(),
+      duration: 600,
+    };
+    setCenterDisplay(target.center);
+    setZoomLevel(target.zoom);
+    needsDrawRef.current = true;
+    setCanGoBack(true);
+    setCanGoForward(forwardStackRef.current.length > 0);
   }, []);
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
@@ -1166,8 +1233,15 @@ export default function FractalsPage() {
     const angle = preset.juliaAngle ?? 0;
     juliaAngleRef.current = angle;
     setJuliaAngle(angle);
-    colorShiftRef.current = 0;
-    setColorShift(0);
+    // Restore palette if the preset saved one (user bookmarks do; built-in presets don't)
+    if (preset.palette !== undefined) {
+      palRef.current = preset.palette;
+      setPalette(preset.palette);
+    }
+    // Restore color shift from bookmark, or reset to 0 for built-in presets
+    const cs = preset.colorShift ?? 0;
+    colorShiftRef.current = cs;
+    setColorShift(cs);
     dirRef.current = 1;
 
     // Fly smoothly to the preset view instead of snapping
@@ -1229,6 +1303,9 @@ export default function FractalsPage() {
       center: { ...centerRef.current },
       zoom: zoomRef.current,
       juliaAngle: juliaAngleRef.current,
+      // Preserve the visual style so the bookmark reproduces the exact look when loaded
+      palette: palRef.current,
+      colorShift: colorShiftRef.current,
     };
     setFavorites((prev) => [newFav, ...prev]);
     setSavedBookmark(true);
@@ -1238,67 +1315,6 @@ export default function FractalsPage() {
   /** Delete a saved bookmark by id. */
   const deleteBookmark = useCallback((id: string) => {
     setFavorites((prev) => prev.filter((f) => f.id !== id));
-  }, []);
-
-  /** Push the current view onto the back-stack before a deliberate navigation jump. */
-  const pushNavHistory = useCallback(() => {
-    backStackRef.current = [
-      ...backStackRef.current,
-      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
-    ];
-    forwardStackRef.current = [];
-    setCanGoBack(true);
-    setCanGoForward(false);
-  }, []);
-
-  /** Fly back to the previous history entry. */
-  const goBack = useCallback(() => {
-    if (backStackRef.current.length === 0) return;
-    const target = backStackRef.current[backStackRef.current.length - 1];
-    backStackRef.current = backStackRef.current.slice(0, -1);
-    forwardStackRef.current = [
-      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
-      ...forwardStackRef.current,
-    ];
-    if (target.mode !== modeRef.current) { modeRef.current = target.mode; setMode(target.mode); }
-    flyAnimRef.current = {
-      fromCenter: { ...centerRef.current },
-      fromZoom: zoomRef.current,
-      toCenter: target.center,
-      toZoom: target.zoom,
-      startTime: Date.now(),
-      duration: 600,
-    };
-    setCenterDisplay(target.center);
-    setZoomLevel(target.zoom);
-    needsDrawRef.current = true;
-    setCanGoBack(backStackRef.current.length > 0);
-    setCanGoForward(true);
-  }, []);
-
-  /** Fly forward to the next history entry. */
-  const goForward = useCallback(() => {
-    if (forwardStackRef.current.length === 0) return;
-    const target = forwardStackRef.current[0];
-    forwardStackRef.current = forwardStackRef.current.slice(1);
-    backStackRef.current = [
-      ...backStackRef.current,
-      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
-    ];
-    if (target.mode !== modeRef.current) { modeRef.current = target.mode; setMode(target.mode); }
-    flyAnimRef.current = {
-      fromCenter: { ...centerRef.current },
-      fromZoom: zoomRef.current,
-      toCenter: target.center,
-      toZoom: target.zoom,
-      startTime: Date.now(),
-      duration: 600,
-    };
-    setCenterDisplay(target.center);
-    setZoomLevel(target.zoom);
-    needsDrawRef.current = true;
-    setCanGoBack(true);
-    setCanGoForward(forwardStackRef.current.length > 0);
   }, []);
 
   const juliaCx = juliaCDirect

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, useId } from "react";
 import {
   AlertCircleIcon,
   CheckIcon,
@@ -90,6 +90,14 @@ const statusIconMap: Record<ToolStatus, React.ElementType> = {
   "requires-action": AlertCircleIcon,
 };
 
+/** Formats milliseconds as a compact elapsed-time string: "0.3s", "4.1s", "1m 2s". */
+function formatElapsedMs(ms: number): string {
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const mins = Math.floor(ms / 60_000);
+  const secs = Math.floor((ms % 60_000) / 1000);
+  return `${mins}m ${secs}s`;
+}
+
 function ToolFallbackTrigger({
   toolName,
   status,
@@ -106,6 +114,37 @@ function ToolFallbackTrigger({
 
   const Icon = statusIconMap[statusType];
   const label = isCancelled ? "Cancelled tool" : "Used tool";
+
+  // Track elapsed time while the tool is running; capture final duration on completion.
+  const startTimeRef = useRef<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
+  // Keep the final duration so it stays visible after completion.
+  const finalMsRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isRunning) {
+      // Mark start time on first transition to running.
+      if (startTimeRef.current === null) {
+        startTimeRef.current = Date.now();
+        finalMsRef.current = null;
+      }
+      // Tick every 100 ms while running.
+      const interval = setInterval(() => {
+        setElapsedMs(Date.now() - startTimeRef.current!);
+      }, 100);
+      return () => clearInterval(interval);
+    } else {
+      // Capture final elapsed time when the tool stops running.
+      if (startTimeRef.current !== null && finalMsRef.current === null) {
+        finalMsRef.current = Date.now() - startTimeRef.current;
+        setElapsedMs(finalMsRef.current);
+        startTimeRef.current = null;
+      }
+    }
+  }, [isRunning]);
+
+  // The elapsed time badge to display (null = don't show).
+  const showTime = !isCancelled && elapsedMs !== null && elapsedMs > 0;
 
   return (
     <CollapsibleTrigger
@@ -144,6 +183,20 @@ function ToolFallbackTrigger({
           </span>
         )}
       </span>
+      {/* Elapsed / final duration badge */}
+      {showTime && (
+        <span
+          aria-label={isRunning ? `Running for ${formatElapsedMs(elapsedMs!)}` : `Completed in ${formatElapsedMs(elapsedMs!)}`}
+          className={cn(
+            "tabular-nums text-[11px] select-none shrink-0 transition-colors duration-300",
+            isRunning
+              ? "text-muted-foreground/70"
+              : "text-muted-foreground/45",
+          )}
+        >
+          {formatElapsedMs(elapsedMs!)}
+        </span>
+      )}
       <ChevronDownIcon
         data-slot="tool-fallback-trigger-chevron"
         className={cn(
@@ -205,6 +258,8 @@ function ToolFallbackArgs({
   );
 }
 
+const RESULT_COLLAPSE_THRESHOLD = 400; // chars before we truncate
+
 function ToolFallbackResult({
   result,
   className,
@@ -212,7 +267,15 @@ function ToolFallbackResult({
 }: React.ComponentProps<"div"> & {
   result?: unknown;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const labelId = useId();
+
   if (result === undefined) return null;
+
+  const resultText =
+    typeof result === "string" ? result : JSON.stringify(result, null, 2);
+  const isLong = resultText.length > RESULT_COLLAPSE_THRESHOLD;
+  const showToggle = isLong;
 
   return (
     <div
@@ -223,10 +286,36 @@ function ToolFallbackResult({
       )}
       {...props}
     >
-      <p className="aui-tool-fallback-result-header font-semibold">Result:</p>
-      <pre className="aui-tool-fallback-result-content whitespace-pre-wrap">
-        {typeof result === "string" ? result : JSON.stringify(result, null, 2)}
-      </pre>
+      <p id={labelId} className="aui-tool-fallback-result-header font-semibold">
+        Result:
+      </p>
+      <div className="relative">
+        <pre
+          aria-labelledby={labelId}
+          className={cn(
+            "aui-tool-fallback-result-content whitespace-pre-wrap overflow-hidden transition-[max-height] duration-300 ease-in-out",
+            !expanded && isLong ? "max-h-28" : "max-h-[9999px]",
+          )}
+        >
+          {resultText}
+        </pre>
+        {/* Gradient fade overlay when collapsed */}
+        {showToggle && !expanded && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-popover/80 to-transparent"
+          />
+        )}
+      </div>
+      {showToggle && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+        >
+          {expanded ? "↑ Show less" : "↓ Show more"}
+        </button>
+      )}
     </div>
   );
 }
