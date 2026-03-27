@@ -10,6 +10,7 @@ import {
   setAgentState,
 } from "./agent-registry";
 import { emit } from "./event-bus";
+import { addMemory, buildMemoryContext } from "./self-improve-memory";
 
 export type ImprovementEntry = {
   id: string;
@@ -216,9 +217,11 @@ async function runOnce(): Promise<string> {
   selfImproveState.suggestion = ""; // clear so it's single-use (writes to file)
 
   const basePrompt = getPrompt();
-  const effectivePrompt = userSuggestion
-    ? `${basePrompt}\n\n---\n\n🎯 USER SUGGESTION FOR THIS SESSION:\nThe user has specifically requested the following improvement. Prioritise this above your own ideas:\n\n"${userSuggestion}"\n\nMake sure the improvement directly addresses this suggestion.`
-    : basePrompt;
+  const memoryContext = buildMemoryContext();
+  let effectivePrompt = basePrompt + memoryContext;
+  if (userSuggestion) {
+    effectivePrompt += `\n\n---\n\n🎯 USER SUGGESTION FOR THIS SESSION:\nThe user has specifically requested the following improvement. Prioritise this above your own ideas:\n\n"${userSuggestion}"\n\nMake sure the improvement directly addresses this suggestion.`;
+  }
 
   pushActivity(
     "text",
@@ -488,6 +491,44 @@ export function startImprovementLoop() {
         } finally {
           entry.completedAt = new Date().toISOString();
           selfImproveState.running = false;
+
+          // ── Record memory for evolutionary learning ──
+          try {
+            let commitHash = "unknown";
+            try {
+              commitHash = execSync("git rev-parse --short HEAD", {
+                cwd: path.resolve(process.cwd()),
+                encoding: "utf-8",
+              }).trim();
+            } catch { /* ignore */ }
+
+            const outcome = entry.status === "completed"
+              ? "completed" as const
+              : entry.status === "reverted"
+                ? "reverted" as const
+                : "failed" as const;
+
+            // Extract a lesson from the outcome
+            let lesson = entry.summary ?? "";
+            if (outcome === "reverted") {
+              lesson = `Approach caused build failure and was reverted. Avoid similar changes without verifying types.`;
+            } else if (outcome === "failed") {
+              lesson = `Session failed: ${lesson}. Consider a different approach.`;
+            }
+
+            addMemory({
+              timestamp: new Date().toISOString(),
+              commitHash,
+              summary: entry.summary ?? "(no summary)",
+              outcome,
+              lesson,
+            });
+
+            pushActivity("text", `🧠 Memory recorded (${outcome})`);
+          } catch (memErr) {
+            // Non-critical — don't break the loop
+            pushActivity("text", `⚠️ Could not record memory: ${memErr instanceof Error ? memErr.message : String(memErr)}`);
+          }
         }
 
         // Brief pause between sessions so we don't hammer the API.

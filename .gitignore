@@ -4,4 +4,4 @@ node_modules/
 next-env.d.ts
 .playwright-mcp/
 .agent-state.json
-
+.self-improve-memory.json

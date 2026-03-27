@@ -28,6 +28,8 @@ import {
   ShieldCheck,
   ShieldAlert,
   Undo2,
+  Brain,
+  Trash2,
 } from "lucide-react";
 import { dispatchAmbientEvent } from "./ambient-canvas";
 import { playCommitChimeIfUnmuted, isSoundMuted, setSoundMuted } from "@/lib/commit-sound";
@@ -769,6 +771,179 @@ function StatsPanel({ commits }: { commits: Commit[] }) {
   );
 }
 
+// ── Memory types & panel ─────────────────────────────────────────────────────
+
+type MemoryEntry = {
+  id: string;
+  timestamp: string;
+  commitHash: string;
+  summary: string;
+  outcome: "completed" | "failed" | "reverted";
+  lesson: string;
+};
+
+function MemoryPanel() {
+  const [memories, setMemories] = useState<MemoryEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  const fetchMemories = useCallback(async () => {
+    try {
+      const res = await fetch("/api/self-improve/memory");
+      if (res.ok) {
+        const data = (await res.json()) as { memories: MemoryEntry[] };
+        setMemories(data.memories);
+      }
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchMemories(); }, [fetchMemories]);
+
+  const deleteEntry = useCallback(async (id: string) => {
+    setDeleting(id);
+    try {
+      const res = await fetch("/api/self-improve/memory", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { memories: MemoryEntry[] };
+        setMemories(data.memories);
+      }
+    } finally { setDeleting(null); }
+  }, []);
+
+  const clearAll = useCallback(async () => {
+    try {
+      const res = await fetch("/api/self-improve/memory", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clearAll: true }),
+      });
+      if (res.ok) setMemories([]);
+    } catch { /* ignore */ }
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="py-8 flex items-center justify-center gap-2">
+        <Loader2 size={12} className="text-white/30 animate-spin" />
+        <span className="text-[11px] text-white/30">Loading memories…</span>
+      </div>
+    );
+  }
+
+  if (memories.length === 0) {
+    return (
+      <div className="px-4 py-8 text-center">
+        <Brain size={20} className="text-white/10 mx-auto mb-2" />
+        <p className="text-[11px] text-white/20">No memories yet.</p>
+        <p className="text-[9px] text-white/10 mt-1">
+          Memories accumulate after each self-improvement session,<br />
+          helping the agent learn from its own history.
+        </p>
+      </div>
+    );
+  }
+
+  const completedCount = memories.filter((m) => m.outcome === "completed").length;
+  const revertedCount = memories.filter((m) => m.outcome === "reverted").length;
+  const failedCount = memories.filter((m) => m.outcome === "failed").length;
+
+  return (
+    <div className="memory-panel-in">
+      {/* Summary bar */}
+      <div className="px-3 py-2 flex items-center gap-3 border-b border-white/[0.06] bg-white/[0.015]">
+        <div className="flex items-center gap-1.5">
+          <Brain size={10} className="text-cyan-400/70" />
+          <span className="text-[9px] uppercase tracking-wider text-white/30 font-semibold">
+            {memories.length} memor{memories.length === 1 ? "y" : "ies"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-[9px] ml-auto">
+          {completedCount > 0 && (
+            <span className="text-emerald-400/60">{completedCount} ✓</span>
+          )}
+          {revertedCount > 0 && (
+            <span className="text-amber-400/60">{revertedCount} ⏪</span>
+          )}
+          {failedCount > 0 && (
+            <span className="text-red-400/60">{failedCount} ✗</span>
+          )}
+          <button
+            onClick={clearAll}
+            title="Clear all memories"
+            className="p-1 rounded text-white/15 hover:text-red-400/70 hover:bg-red-500/10 transition-colors"
+          >
+            <Trash2 size={10} />
+          </button>
+        </div>
+      </div>
+
+      {/* Memory entries */}
+      <div className="max-h-64 overflow-y-auto divide-y divide-white/[0.04]">
+        {memories.map((m) => {
+          const icon =
+            m.outcome === "completed"
+              ? "✅"
+              : m.outcome === "reverted"
+                ? "⏪"
+                : "❌";
+          const borderColor =
+            m.outcome === "completed"
+              ? "border-l-emerald-500/30"
+              : m.outcome === "reverted"
+                ? "border-l-amber-500/30"
+                : "border-l-red-500/30";
+
+          return (
+            <div
+              key={m.id}
+              className={`px-3 py-2 border-l-2 ${borderColor} hover:bg-white/[0.02] transition-colors group/mem`}
+            >
+              <div className="flex items-start gap-2">
+                <span className="text-[10px] flex-shrink-0 mt-0.5">{icon}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] text-white/70 leading-snug line-clamp-2">
+                    {m.summary}
+                  </p>
+                  {m.lesson && m.lesson !== m.summary && (
+                    <p className="text-[10px] text-cyan-400/40 italic mt-0.5 leading-snug line-clamp-2">
+                      {m.lesson}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[9px] font-mono text-white/20">
+                      {m.commitHash.slice(0, 7)}
+                    </span>
+                    <span className="text-[9px] text-white/15">
+                      {timeAgo(m.timestamp)}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => deleteEntry(m.id)}
+                  disabled={deleting === m.id}
+                  title="Delete memory"
+                  className="p-0.5 rounded text-white/0 group-hover/mem:text-white/20 hover:!text-red-400/60 transition-colors flex-shrink-0 mt-0.5"
+                >
+                  {deleting === m.id ? (
+                    <Loader2 size={10} className="animate-spin" />
+                  ) : (
+                    <X size={10} />
+                  )}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function SelfImproveToggle() {
@@ -786,7 +961,7 @@ export function SelfImproveToggle() {
   // Which commit hash is currently showing its diff (null = none)
   const [viewingDiff, setViewingDiff] = useState<string | null>(null);
   // Panel tab: "activity" (live feed) vs "commits" vs "stats" vs "prompt"
-  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt">("activity");
+  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt" | "memory">("activity");
 
   // ── Celebration state ───────────────────────────────────────────────────
   const [celebrating, setCelebrating] = useState(false);
@@ -1161,6 +1336,18 @@ export function SelfImproveToggle() {
               <Pencil size={10} />
               Prompt
             </button>
+            <button
+              onClick={() => setPanelTab("memory")}
+              className={[
+                "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors",
+                panelTab === "memory"
+                  ? "text-cyan-400 border-b-2 border-cyan-400/60 -mb-px"
+                  : "text-white/30 hover:text-white/50",
+              ].join(" ")}
+            >
+              <Brain size={10} />
+              Memory
+            </button>
           </div>
 
           {/* ── Build health indicator ── */}
@@ -1295,7 +1482,9 @@ export function SelfImproveToggle() {
           </div>
 
           {/* Tab content */}
-          {panelTab === "prompt" ? (
+          {panelTab === "memory" ? (
+            <MemoryPanel />
+          ) : panelTab === "prompt" ? (
             <div className="prompt-editor-in">
               {promptLoading ? (
                 <div className="py-8 flex items-center justify-center gap-2">
