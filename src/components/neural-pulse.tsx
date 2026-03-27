@@ -323,12 +323,11 @@ export function NeuralPulse() {
         const idx = (py * pw + px) * 4;
 
         if (iter === maxIter) {
-          // Inside the set — dark with faint glow
-          const glow = brightness * 0.08;
-          data[idx] = Math.round(glow * 60);
-          data[idx + 1] = Math.round(glow * 60);
-          data[idx + 2] = Math.round(glow * 70);
-          data[idx + 3] = 255;
+          // Inside the set — fully transparent (show page background)
+          data[idx] = 0;
+          data[idx + 1] = 0;
+          data[idx + 2] = 0;
+          data[idx + 3] = 0;
         } else {
           // Smooth iteration count for anti-banding
           const zr2 = zr * zr;
@@ -337,22 +336,17 @@ export function NeuralPulse() {
           const colorT = smooth / maxIter;
 
           const [r, g, b] = iqColor(colorT, pal);
-          data[idx] = Math.round(r * brightness * 255);
-          data[idx + 1] = Math.round(g * brightness * 255);
-          data[idx + 2] = Math.round(b * brightness * 255);
-          data[idx + 3] = 255;
+          // Use alpha so the fractal floats on the page background
+          const alpha = Math.min(1, brightness * (0.5 + colorT * 0.5));
+          data[idx] = Math.round(r * 255);
+          data[idx + 1] = Math.round(g * 255);
+          data[idx + 2] = Math.round(b * 255);
+          data[idx + 3] = Math.round(alpha * 255);
         }
       }
     }
 
     ctx.putImageData(imgDataRef.current, 0, 0);
-
-    // Subtle vignette overlay for polish
-    const grad = ctx.createRadialGradient(pw / 2, ph / 2, pw * 0.25, pw / 2, ph / 2, pw * 0.6);
-    grad.addColorStop(0, "rgba(0,0,0,0)");
-    grad.addColorStop(1, "rgba(0,0,0,0.35)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, pw, ph);
 
     rafRef.current = requestAnimationFrame(draw);
   }, []);
