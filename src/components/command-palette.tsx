@@ -24,6 +24,8 @@ import {
   Camera,
   Shuffle,
   TrendingUp,
+  Dna,
+  SkipForward,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -125,6 +127,15 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/evolution"),
       keywords: ["timeline", "history", "commits", "changelog", "self-improve"],
+    },
+    {
+      id: "nav-life",
+      label: "Go to Life",
+      hint: "Alt+6",
+      icon: <Dna size={16} />,
+      group: "Navigation",
+      action: () => router.push("/life"),
+      keywords: ["conway", "game", "cellular", "automata", "simulation", "cells"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {
@@ -282,6 +293,55 @@ function useCommands(): Command[] {
               window.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }));
             },
             keywords: ["random", "shuffle", "explore", "jump", "preset", "teleport"],
+          },
+        ]
+      : []),
+    // ── Life page commands ──────────────────────────────────────────────────────
+    ...(pathname === "/life"
+      ? [
+          {
+            id: "life-toggle",
+            label: "Toggle Life Simulation",
+            hint: "Space",
+            icon: <Play size={16} />,
+            group: "Life",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+            },
+            keywords: ["play", "pause", "run", "stop"],
+          },
+          {
+            id: "life-step",
+            label: "Step One Generation",
+            hint: "S",
+            icon: <SkipForward size={16} />,
+            group: "Life",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "s" }));
+            },
+            keywords: ["advance", "next", "tick"],
+          },
+          {
+            id: "life-random",
+            label: "Randomize Grid",
+            hint: "R",
+            icon: <Shuffle size={16} />,
+            group: "Life",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
+            },
+            keywords: ["random", "shuffle", "generate"],
+          },
+          {
+            id: "life-clear",
+            label: "Clear All Cells",
+            hint: "C",
+            icon: <RotateCcw size={16} />,
+            group: "Life",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }));
+            },
+            keywords: ["reset", "empty", "wipe"],
           },
         ]
       : []),

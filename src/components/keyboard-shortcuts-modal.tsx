@@ -29,6 +29,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["Alt", "3"], description: "Go to Minecraft" },
       { keys: ["Alt", "4"], description: "Go to Fractals" },
       { keys: ["Alt", "5"], description: "Go to Evolution" },
+      { keys: ["Alt", "6"], description: "Go to Life" },
     ],
   },
   {
@@ -93,6 +94,18 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["⌫"], description: "Navigate back in view history" },
       { keys: ["Shift", "⌫"], description: "Navigate forward in view history" },
       { keys: ["X"], description: "Surprise Me — jump to a random preset location" },
+    ],
+  },
+  {
+    title: "Life",
+    rows: [
+      { keys: ["Space"], description: "Play / pause simulation" },
+      { keys: ["S"], description: "Step one generation" },
+      { keys: ["R"], description: "Randomize grid" },
+      { keys: ["C"], description: "Clear all cells" },
+      { keys: ["Click"], description: "Draw / erase cells" },
+      { keys: ["Shift", "Drag"], description: "Pan the grid" },
+      { keys: ["Esc"], description: "Cancel pattern placement" },
     ],
   },
   {
