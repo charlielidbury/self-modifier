@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp, Dna, Music, Orbit } from "lucide-react";
+import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp, Dna, Music, Orbit, Waves } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Tooltip,
@@ -24,6 +24,7 @@ const PAGE_HUES: Record<string, number> = {
   "/life":      173, // teal
   "/synth":     330, // pink
   "/gravity":    24, // warm orange
+  "/waves":     195, // cyan
 };
 
 const tabs = [
@@ -35,6 +36,7 @@ const tabs = [
   { href: "/life", label: "Life", Icon: Dna, shortcut: "Alt+6" },
   { href: "/synth", label: "Synth", Icon: Music, shortcut: "Alt+7" },
   { href: "/gravity", label: "Gravity", Icon: Orbit, shortcut: "Alt+8" },
+  { href: "/waves", label: "Waves", Icon: Waves, shortcut: "Alt+9" },
 ];
 
 // Per-page accent colours for the sliding pill background and active tab text.
@@ -48,6 +50,7 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/life":      { pill: "bg-teal-500/15 dark:bg-teal-500/20",   text: "text-teal-700 dark:text-teal-300" },
   "/synth":     { pill: "bg-pink-500/15 dark:bg-pink-500/20",   text: "text-pink-700 dark:text-pink-300" },
   "/gravity":   { pill: "bg-orange-500/15 dark:bg-orange-500/20", text: "text-orange-700 dark:text-orange-300" },
+  "/waves":     { pill: "bg-cyan-500/15 dark:bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
 };
 
 // Actual color values used for the animated brand accent dot (inline style so
@@ -61,6 +64,7 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/life":      "#14b8a6", // teal-500
   "/synth":     "#ec4899", // pink-500
   "/gravity":   "#f97316", // orange-500
+  "/waves":     "#06b6d4", // cyan-500
 };
 
 // Subtle ambient glow applied to the sliding pill so the active tab feels alive.
@@ -74,6 +78,7 @@ const PAGE_PILL_GLOWS: Record<string, string> = {
   "/life":      "0 0 14px 3px rgba(20,184,166,0.22)",
   "/synth":     "0 0 14px 3px rgba(236,72,153,0.22)",
   "/gravity":   "0 0 14px 3px rgba(249,115,22,0.22)",
+  "/waves":     "0 0 14px 3px rgba(6,182,212,0.22)",
 };
 
 // Browser tab titles per page.
@@ -86,6 +91,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/life":      "Life — Self-Modifier",
   "/synth":     "Synth — Self-Modifier",
   "/gravity":   "Gravity — Self-Modifier",
+  "/waves":     "Waves — Self-Modifier",
 };
 
 export function Navbar() {
@@ -114,7 +120,7 @@ export function Navbar() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!e.altKey) return;
-      const index = ["1", "2", "3", "4", "5", "6", "7", "8"].indexOf(e.key);
+      const index = ["1", "2", "3", "4", "5", "6", "7", "8", "9"].indexOf(e.key);
       if (index === -1) return;
       e.preventDefault();
       router.push(tabs[index].href);

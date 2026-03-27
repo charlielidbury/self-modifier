@@ -28,6 +28,7 @@ import {
   SkipForward,
   Music,
   Orbit,
+  Waves,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -156,6 +157,15 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/gravity"),
       keywords: ["physics", "orbit", "nbody", "simulation", "planets", "stars", "space"],
+    },
+    {
+      id: "nav-waves",
+      label: "Go to Waves",
+      hint: "Alt+9",
+      icon: <Waves size={16} />,
+      group: "Navigation",
+      action: () => router.push("/waves"),
+      keywords: ["wave", "interference", "ripple", "simulation", "physics", "water", "sound"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {

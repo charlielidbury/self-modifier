@@ -32,6 +32,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["Alt", "6"], description: "Go to Life" },
       { keys: ["Alt", "7"], description: "Go to Synth" },
       { keys: ["Alt", "8"], description: "Go to Gravity" },
+      { keys: ["Alt", "9"], description: "Go to Waves" },
     ],
   },
   {
@@ -125,6 +126,16 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["Space"], description: "Pause / resume simulation" },
       { keys: ["C"], description: "Clear all bodies" },
       { keys: ["Click+Drag"], description: "Spawn body with velocity" },
+    ],
+  },
+  {
+    title: "Waves",
+    rows: [
+      { keys: ["Space"], description: "Pause / resume simulation" },
+      { keys: ["C"], description: "Clear all waves & emitters" },
+      { keys: ["P"], description: "Cycle colour palette" },
+      { keys: ["Click"], description: "Create a wave pulse" },
+      { keys: ["Shift+Click"], description: "Place persistent emitter" },
     ],
   },
   {
