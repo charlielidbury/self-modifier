@@ -39,7 +39,12 @@ function convertMessage(msg: ChatMessage): ThreadMessageLike {
       type: "text",
       text: msg.content,
     });
-    return { role: "user", id: msg.id, content };
+    return {
+      role: "user",
+      id: msg.id,
+      content,
+      ...(msg.createdAt ? { createdAt: new Date(msg.createdAt) } : {}),
+    } as ThreadMessageLike;
   }
 
   const content: ThreadMessageLike["content"] = [];
@@ -83,7 +88,8 @@ function convertMessage(msg: ChatMessage): ThreadMessageLike {
     role: "assistant",
     id: msg.id,
     content,
-  };
+    ...(msg.createdAt ? { createdAt: new Date(msg.createdAt) } : {}),
+  } as ThreadMessageLike;
 }
 
 export function ChatProvider({
@@ -131,6 +137,7 @@ export function ChatProvider({
             id: crypto.randomUUID(),
             role: "user",
             content: event.content,
+            createdAt: Date.now(),
           };
           const assistantId = crypto.randomUUID();
           sseStateRef.current.assistantId = assistantId;
@@ -227,6 +234,15 @@ export function ChatProvider({
         }
 
         case "done": {
+          // Stamp the assistant message with its completion time.
+          const { assistantId: doneId, messages: curMsgs } = sseStateRef.current;
+          if (doneId) {
+            const stamped = curMsgs.map((m) =>
+              m.id === doneId ? { ...m, createdAt: Date.now() } : m
+            );
+            sseStateRef.current.messages = stamped;
+            setMessages(stamped);
+          }
           setIsRunning(false);
           sseStateRef.current.assistantId = null;
           break;
@@ -264,6 +280,7 @@ export function ChatProvider({
         role: "user",
         content: text,
         images: images.length > 0 ? images : undefined,
+        createdAt: Date.now(),
       };
 
       const assistantId = crypto.randomUUID();
@@ -386,8 +403,14 @@ export function ChatProvider({
                 break;
               }
 
-              case "done":
+              case "done": {
+                // Stamp the assistant message with its completion time.
+                currentMessages = currentMessages.map((m) =>
+                  m.id === assistantId ? { ...m, createdAt: Date.now() } : m
+                );
+                setMessages(currentMessages);
                 break;
+              }
             }
           }
         }

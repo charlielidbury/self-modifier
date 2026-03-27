@@ -23,4 +23,5 @@ export type ChatMessage = {
   reasoning?: string;
   toolUses?: { tool: string; input: Record<string, unknown> }[];
   toolResults?: { tool: string; content: string }[];
+  createdAt?: number; // Unix timestamp in ms — set when the message is created/completed
 };

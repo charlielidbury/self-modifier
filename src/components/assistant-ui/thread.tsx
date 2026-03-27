@@ -43,7 +43,7 @@ import {
   SquareIcon,
   SunIcon,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState, type FC, type ElementType } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FC, type ElementType } from "react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -69,6 +69,8 @@ export const Thread: FC = () => {
           <div className="ai-progress-bar-shimmer" />
         </div>
       </AuiIf>
+      {/* Floating scroll-to-top button, appears after scrolling 300 px down */}
+      <ThreadScrollToTop />
       <ThreadPrimitive.Viewport
         turnAnchor="top"
         className="aui-thread-viewport relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth px-4 pt-4"
@@ -105,6 +107,56 @@ const ThreadScrollToBottom: FC = () => {
         <ArrowDownIcon />
       </TooltipIconButton>
     </ThreadPrimitive.ScrollToBottom>
+  );
+};
+
+/**
+ * Floating "scroll to top" button that appears in the top-right corner of the
+ * thread whenever the user has scrolled more than 300 px down from the top.
+ * It fades in/out smoothly and scrolls the chat viewport back to the beginning.
+ */
+const ThreadScrollToTop: FC = () => {
+  const [visible, setVisible] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  /** Returns the ThreadPrimitive.Viewport scroll container (our sibling). */
+  const getViewport = useCallback((): HTMLElement | null => {
+    const root = wrapperRef.current?.parentElement;
+    return (root?.querySelector(".aui-thread-viewport") as HTMLElement) ?? null;
+  }, []);
+
+  useEffect(() => {
+    const viewport = getViewport();
+    if (!viewport) return;
+    const handleScroll = () => setVisible(viewport.scrollTop > 300);
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", handleScroll);
+  }, [getViewport]);
+
+  const handleClick = useCallback(() => {
+    getViewport()?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [getViewport]);
+
+  return (
+    <div ref={wrapperRef} aria-hidden={!visible}>
+      <TooltipIconButton
+        tooltip="Scroll to top"
+        variant="outline"
+        side="left"
+        className={cn(
+          "aui-thread-scroll-to-top absolute top-4 right-4 z-10 rounded-full p-4",
+          "dark:border-border dark:bg-background dark:hover:bg-accent",
+          "transition-all duration-200 ease-in-out",
+          visible
+            ? "opacity-100 pointer-events-auto"
+            : "opacity-0 pointer-events-none",
+        )}
+        onClick={handleClick}
+        tabIndex={visible ? 0 : -1}
+      >
+        <ArrowUpIcon />
+      </TooltipIconButton>
+    </div>
   );
 };
 
@@ -503,6 +555,33 @@ const StreamingIndicator: FC = () => {
   );
 };
 
+/**
+ * Shows the message creation time on hover, when a createdAt timestamp is
+ * available.  Relies on the parent message root having the `group/message`
+ * CSS class so the opacity transition fires on hover.
+ */
+const MessageTimestamp: FC = () => {
+  const createdAt = useMessage((m) => m.createdAt);
+  const isRunning = useMessage((m) => m.status?.type === "running");
+
+  if (!createdAt || isRunning) return null;
+
+  const timeStr = createdAt.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  return (
+    <time
+      dateTime={createdAt.toISOString()}
+      title={createdAt.toLocaleString()}
+      className="text-[11px] tabular-nums text-muted-foreground/40 select-none leading-none opacity-0 group-hover/message:opacity-100 transition-opacity duration-200"
+    >
+      {timeStr}
+    </time>
+  );
+};
+
 /** Counts words and estimates reading time for a completed assistant message. */
 const MessageWordCount: FC = () => {
   const content = useMessage((m) => m.content);
@@ -614,7 +693,7 @@ const ReasoningBlock: FC = () => {
 const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root
-      className="aui-assistant-message-root fade-in slide-in-from-bottom-1 relative mx-auto w-full max-w-(--thread-max-width) animate-in py-3 duration-150"
+      className="aui-assistant-message-root group/message fade-in slide-in-from-bottom-1 relative mx-auto w-full max-w-(--thread-max-width) animate-in py-3 duration-150"
       data-role="assistant"
     >
       <div className="aui-assistant-message-content wrap-break-word px-2 text-foreground leading-relaxed">
@@ -634,7 +713,10 @@ const AssistantMessage: FC = () => {
           <BranchPicker />
           <AssistantActionBar />
         </div>
-        <MessageWordCount />
+        <div className="flex items-center gap-2">
+          <MessageTimestamp />
+          <MessageWordCount />
+        </div>
       </div>
     </MessagePrimitive.Root>
   );
@@ -691,7 +773,7 @@ const AssistantActionBar: FC = () => {
 const UserMessage: FC = () => {
   return (
     <MessagePrimitive.Root
-      className="aui-user-message-root fade-in slide-in-from-bottom-1 mx-auto grid w-full max-w-(--thread-max-width) animate-in auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 py-3 duration-150 [&:where(>*)]:col-start-2"
+      className="aui-user-message-root group/message fade-in slide-in-from-bottom-1 mx-auto grid w-full max-w-(--thread-max-width) animate-in auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 py-3 duration-150 [&:where(>*)]:col-start-2"
       data-role="user"
     >
       <UserMessageAttachments />
@@ -703,6 +785,11 @@ const UserMessage: FC = () => {
         <div className="aui-user-action-bar-wrapper absolute top-1/2 left-0 -translate-x-full -translate-y-1/2 pr-2">
           <UserActionBar />
         </div>
+      </div>
+
+      {/* Timestamp shown on hover below the message bubble */}
+      <div className="col-start-2 -mt-1 flex justify-end pr-0.5">
+        <MessageTimestamp />
       </div>
 
       <BranchPicker className="aui-user-branch-picker col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
