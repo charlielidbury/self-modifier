@@ -23,6 +23,7 @@ const TAB_ORDER = [
   "/pendulum",
   "/attractor",
   "/terrain",
+  "/reaction",
 ];
 
 function tabIndex(path: string): number {

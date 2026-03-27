@@ -33,6 +33,7 @@ import {
   Fan,
   Sparkles,
   Mountain,
+  FlaskConical,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -203,6 +204,14 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/terrain"),
       keywords: ["terrain", "procedural", "landscape", "perlin", "noise", "3d", "mountains", "heightmap", "generation"],
+    },
+    {
+      id: "nav-reaction",
+      label: "Go to Reaction Diffusion",
+      icon: <FlaskConical size={16} />,
+      group: "Navigation",
+      action: () => router.push("/reaction"),
+      keywords: ["reaction", "diffusion", "gray-scott", "turing", "pattern", "chemical", "morphogenesis", "spots", "stripes"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {

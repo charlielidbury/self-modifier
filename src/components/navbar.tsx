@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp, Dna, Music, Orbit, Waves, Atom, Fan, Sparkles, Mountain } from "lucide-react";
+import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp, Dna, Music, Orbit, Waves, Atom, Fan, Sparkles, Mountain, FlaskConical } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Tooltip,
@@ -29,6 +29,7 @@ const PAGE_HUES: Record<string, number> = {
   "/pendulum":  270, // indigo
   "/attractor": 300, // fuchsia
   "/terrain":   142, // emerald
+  "/reaction":  190, // cyan-teal
 };
 
 const tabs = [
@@ -45,6 +46,7 @@ const tabs = [
   { href: "/pendulum", label: "Pendulum", Icon: Fan, shortcut: "" },
   { href: "/attractor", label: "Attractor", Icon: Sparkles, shortcut: "" },
   { href: "/terrain", label: "Terrain", Icon: Mountain, shortcut: "" },
+  { href: "/reaction", label: "Reaction", Icon: FlaskConical, shortcut: "" },
 ];
 
 // Per-page accent colours for the sliding pill background and active tab text.
@@ -63,6 +65,7 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/pendulum":  { pill: "bg-indigo-500/15 dark:bg-indigo-500/20", text: "text-indigo-700 dark:text-indigo-300" },
   "/attractor": { pill: "bg-fuchsia-500/15 dark:bg-fuchsia-500/20", text: "text-fuchsia-700 dark:text-fuchsia-300" },
   "/terrain":   { pill: "bg-emerald-500/15 dark:bg-emerald-500/20", text: "text-emerald-700 dark:text-emerald-300" },
+  "/reaction":  { pill: "bg-cyan-500/15 dark:bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
 };
 
 // Actual color values used for the animated brand accent dot (inline style so
@@ -81,6 +84,7 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/pendulum":  "#6366f1", // indigo-500
   "/attractor": "#d946ef", // fuchsia-500
   "/terrain":   "#10b981", // emerald-500
+  "/reaction":  "#06b6d4", // cyan-500
 };
 
 // Subtle ambient glow applied to the sliding pill so the active tab feels alive.
@@ -99,6 +103,7 @@ const PAGE_PILL_GLOWS: Record<string, string> = {
   "/pendulum":  "0 0 14px 3px rgba(99,102,241,0.22)",
   "/attractor": "0 0 14px 3px rgba(217,70,239,0.22)",
   "/terrain":   "0 0 14px 3px rgba(16,185,129,0.22)",
+  "/reaction":  "0 0 14px 3px rgba(6,182,212,0.22)",
 };
 
 // Browser tab titles per page.
@@ -116,6 +121,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/pendulum":  "Pendulum — Self-Modifier",
   "/attractor": "Attractor — Self-Modifier",
   "/terrain":   "Terrain — Self-Modifier",
+  "/reaction":  "Reaction — Self-Modifier",
 };
 
 export function Navbar() {
