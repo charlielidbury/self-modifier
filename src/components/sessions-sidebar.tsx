@@ -473,6 +473,13 @@ export function SessionsSidebar({
           )}
         </div>
 
+        {/* Search result count — only shown when filtering narrows down the list */}
+        {searchQuery && filteredSessions.length > 0 && filteredSessions.length < sessions.length && (
+          <p className="animate-in fade-in duration-150 px-4 pb-1 text-[10px] text-neutral-400 dark:text-neutral-500">
+            {filteredSessions.length} of {sessions.length} sessions
+          </p>
+        )}
+
         {/* Legend */}
         <div className="px-4 pb-2 flex items-center gap-3 text-xs text-neutral-400 dark:text-neutral-500">
           <span className="flex items-center gap-1">
