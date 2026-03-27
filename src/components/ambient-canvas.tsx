@@ -25,7 +25,8 @@ interface Particle {
 
 export type AmbientEvent =
   | { type: "self-improve-running"; running: boolean }
-  | { type: "self-improve-commit" };
+  | { type: "self-improve-commit" }
+  | { type: "page-change"; hue: number };
 
 declare global {
   interface WindowEventMap {
@@ -55,6 +56,10 @@ export function AmbientCanvas() {
   const isRunningRef = useRef(false);
   const commitFlashRef = useRef(0); // timestamp of last commit flash
   const isDarkRef = useRef(true);
+  /** Target hue for the current page; particles lerp toward this. */
+  const pageHueRef = useRef(217); // default: blue (Chat page)
+  /** Current interpolated hue center — smoothly chases pageHueRef. */
+  const currentHueCenterRef = useRef(217);
 
   const createParticle = useCallback(
     (width: number, height: number): Particle => {
@@ -121,6 +126,8 @@ export function AmbientCanvas() {
         isRunningRef.current = e.detail.running;
       } else if (e.detail.type === "self-improve-commit") {
         commitFlashRef.current = performance.now();
+      } else if (e.detail.type === "page-change") {
+        pageHueRef.current = e.detail.hue;
       }
     };
     window.addEventListener("ambient-event", handleAmbientEvent);
@@ -143,6 +150,21 @@ export function AmbientCanvas() {
           : 0;
 
       ctx.clearRect(0, 0, width, height);
+
+      // Smoothly lerp the hue center toward the target page hue.
+      // We lerp on the shortest arc around the 360° hue wheel.
+      const targetHue = pageHueRef.current;
+      let hueDiff = targetHue - currentHueCenterRef.current;
+      // Shortest-path on the circle
+      if (hueDiff > 180) hueDiff -= 360;
+      if (hueDiff < -180) hueDiff += 360;
+      const lerpSpeed = 0.003; // per ms — takes ~500ms to mostly converge
+      currentHueCenterRef.current += hueDiff * Math.min(lerpSpeed * dt, 1);
+      // Keep in [0, 360)
+      currentHueCenterRef.current =
+        ((currentHueCenterRef.current % 360) + 360) % 360;
+
+      const hueCenter = currentHueCenterRef.current;
 
       const speedMult = running
         ? RUNNING_SPEED_MULT
@@ -185,8 +207,10 @@ export function AmbientCanvas() {
         alpha = Math.min(alpha, 0.6);
         p.alpha = alpha;
 
-        // Shift hue toward emerald-green when running, toward blue-violet on flash
-        let hue = p.hue;
+        // Base hue follows the page hue center with per-particle spread.
+        // When self-improve is running, shift toward emerald-green;
+        // on commit flash, shift toward blue-violet.
+        let hue = hueCenter + (p.hue - 180) * 0.25; // ±10° spread around center
         if (running) hue = 155 + Math.sin(p.phase * 0.5) * 15;
         if (flashIntensity > 0)
           hue = hue + flashIntensity * (50 + Math.sin(p.phase) * 30);
@@ -225,7 +249,7 @@ export function AmbientCanvas() {
               ctx.beginPath();
               ctx.moveTo(particles[i].x, particles[i].y);
               ctx.lineTo(particles[j].x, particles[j].y);
-              ctx.strokeStyle = `hsla(170, 60%, 60%, ${Math.min(lineAlpha, 0.2)})`;
+              ctx.strokeStyle = `hsla(${hueCenter}, 60%, 60%, ${Math.min(lineAlpha, 0.2)})`;
               ctx.lineWidth = 0.5;
               ctx.stroke();
             }

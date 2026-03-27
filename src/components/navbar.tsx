@@ -12,6 +12,18 @@ import {
 } from "@/components/ui/tooltip";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
+import { dispatchAmbientEvent } from "@/components/ambient-canvas";
+
+// Hue values for each page's accent colour (used to tint the ambient canvas).
+const PAGE_HUES: Record<string, number> = {
+  "/":          217, // blue
+  "/chess":      38, // amber
+  "/minecraft": 142, // green
+  "/fractals":  258, // violet
+  "/evolution": 350, // rose
+  "/life":      173, // teal
+  "/synth":     330, // pink
+};
 
 const tabs = [
   { href: "/", label: "Chat", Icon: MessageSquare, shortcut: "Alt+1" },
@@ -83,6 +95,14 @@ export function Navbar() {
   // Update the browser tab title whenever the active page changes.
   useEffect(() => {
     document.title = PAGE_TITLES[pathname] ?? "Self-Modifier";
+  }, [pathname]);
+
+  // Notify the ambient canvas to shift particle hues to match the current page.
+  useEffect(() => {
+    const hue = PAGE_HUES[pathname];
+    if (hue !== undefined) {
+      dispatchAmbientEvent({ type: "page-change", hue });
+    }
   }, [pathname]);
 
   useEffect(() => {
