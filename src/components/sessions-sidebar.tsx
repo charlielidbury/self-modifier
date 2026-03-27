@@ -4,6 +4,12 @@ import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "rea
 import { Trash2, MessageSquare, Pencil } from "lucide-react";
 import type { SessionInfo, ChatMessage } from "@/lib/types";
 import type { AgentStatus } from "@/lib/agent";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /** Renders `text` with any occurrence of `query` wrapped in a highlight span. */
 function HighlightedText({ text, query }: { text: string; query: string }) {
@@ -41,6 +47,18 @@ function formatRelativeTime(timestamp: number, now: number): string {
   return new Date(timestamp).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
+  });
+}
+
+/** Format a Unix-ms timestamp as a full, human-readable date + time string. */
+function formatFullDateTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString(undefined, {
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -475,6 +493,7 @@ export function SessionsSidebar({
         </div>
 
         {/* Session list — receives focus so arrow-key navigation works */}
+        <TooltipProvider delayDuration={500}>
         <div
           ref={listRef}
           className="flex-1 overflow-y-auto focus:outline-none"
@@ -547,9 +566,16 @@ export function SessionsSidebar({
                         <HighlightedText text={label} query={searchQuery} />
                       </span>
                     )}
-                    <span className="text-xs leading-snug text-neutral-400 dark:text-neutral-500 tabular-nums">
-                      {formatRelativeTime(s.lastModified, now)}
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-xs leading-snug text-neutral-400 dark:text-neutral-500 tabular-nums cursor-default w-fit">
+                          {formatRelativeTime(s.lastModified, now)}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs">
+                        {formatFullDateTime(s.lastModified)}
+                      </TooltipContent>
+                    </Tooltip>
                   </span>
                 </button>
                 {!isRenaming && (
@@ -596,6 +622,7 @@ export function SessionsSidebar({
             </p>
           ) : null}
         </div>
+        </TooltipProvider>
 
         {/* Session stats footer */}
         {sessions.length > 0 && (
