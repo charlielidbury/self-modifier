@@ -68,7 +68,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["+"], description: "Zoom in" },
       { keys: ["-"], description: "Zoom out" },
       { keys: ["Space"], description: "Play / pause animation" },
-      { keys: ["M"], description: "Cycle fractal mode (Mandelbrot → Julia → Burning Ship → Newton)" },
+      { keys: ["M"], description: "Cycle fractal mode (Mandelbrot → Julia → Burning Ship → Newton → Tricorn)" },
       { keys: ["P"], description: "Cycle colour palette" },
       { keys: ["R"], description: "Reset view" },
       { keys: ["S"], description: "Copy shareable link" },
@@ -79,6 +79,8 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["]"], description: "Next preset location" },
       { keys: ["I"], description: "Increase max iterations (+50)" },
       { keys: ["Shift", "I"], description: "Decrease max iterations (−50)" },
+      { keys: ["⌫"], description: "Navigate back in view history" },
+      { keys: ["Shift", "⌫"], description: "Navigate forward in view history" },
     ],
   },
   {

@@ -122,6 +122,9 @@ void main() {
     if (u_mode == 2) {
       // Burning Ship: |Re| and |Im| taken absolute
       zx = abs(z.x); zy = abs(z.y);
+    } else if (u_mode == 4) {
+      // Tricorn: conjugate squaring — z̄² + c  (negate imaginary part)
+      zx = z.x; zy = -z.y;
     } else {
       zx = z.x; zy = z.y;
     }
@@ -172,6 +175,7 @@ const FRACTAL_MODES = [
   { key: "julia",      label: "Julia",        glMode: 1 },
   { key: "burning",    label: "Burning Ship", glMode: 2 },
   { key: "newton",     label: "Newton",       glMode: 3 },
+  { key: "tricorn",    label: "Tricorn",      glMode: 4 },
 ] as const;
 
 type FractalKey = (typeof FRACTAL_MODES)[number]["key"];
@@ -301,6 +305,25 @@ const PRESETS: Preset[] = [
     mode: "newton",
     center: { x: 0.5, y: 0.04 },
     zoom: 30,
+  },
+  // ── Tricorn ──
+  {
+    name: "Tricorn Overview",
+    mode: "tricorn",
+    center: { x: 0.0, y: 0.0 },
+    zoom: 0.35,
+  },
+  {
+    name: "Tricorn: Antennas",
+    mode: "tricorn",
+    center: { x: -0.56, y: 0.84 },
+    zoom: 12,
+  },
+  {
+    name: "Tricorn: Deep Spiral",
+    mode: "tricorn",
+    center: { x: -1.755, y: 0.0 },
+    zoom: 45,
   },
 ];
 
@@ -696,6 +719,9 @@ export default function FractalsPage() {
           } else if (m === "newton") {
             centerRef.current = { x: 0.0, y: 0 };
             zoomRef.current = 0.5;
+          } else if (m === "tricorn") {
+            centerRef.current = { x: 0.0, y: 0 };
+            zoomRef.current = 0.35;
           } else {
             centerRef.current = { x: -0.4, y: 0.6 };
             zoomRef.current = 0.4;
@@ -767,6 +793,7 @@ export default function FractalsPage() {
           if (nextMode === "julia")      { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.45; setZoomLevel(0.45); setCenterDisplay({ x: 0.0, y: 0 }); }
           if (nextMode === "burning")    { centerRef.current = { x: -0.4, y: 0.6 }; zoomRef.current = 0.4; setZoomLevel(0.4); setCenterDisplay({ x: -0.4, y: 0.6 }); }
           if (nextMode === "newton")     { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.5; setZoomLevel(0.5); setCenterDisplay({ x: 0.0, y: 0 }); }
+          if (nextMode === "tricorn")    { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: 0.0, y: 0 }); }
           needsDrawRef.current = true;
           break;
         }
@@ -1358,6 +1385,27 @@ export default function FractalsPage() {
                 {name}
               </button>
             ))}
+          </div>
+
+          {/* Back / Forward navigation */}
+          <div className="flex items-center bg-black/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
+            <button
+              onClick={goBack}
+              disabled={!canGoBack}
+              title="Back (Backspace)"
+              className="p-2 text-white/60 hover:text-white transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
+            >
+              <Undo2 size={14} />
+            </button>
+            <div className="w-px h-4 bg-white/15" />
+            <button
+              onClick={goForward}
+              disabled={!canGoForward}
+              title="Forward (Shift+Backspace)"
+              className="p-2 text-white/60 hover:text-white transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
+            >
+              <Redo2 size={14} />
+            </button>
           </div>
 
           {/* Reset */}
