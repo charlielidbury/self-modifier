@@ -9,8 +9,8 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { type FC, memo, useState } from "react";
-import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
+import { type FC, memo, useEffect, useRef, useState } from "react";
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
@@ -241,15 +241,69 @@ const defaultComponents = memoizeMarkdownComponents({
       {...props}
     />
   ),
-  pre: ({ className, ...props }) => (
-    <pre
-      className={cn(
-        "aui-md-pre overflow-x-auto rounded-t-none rounded-b-lg border border-border/50 border-t-0 bg-muted/30 p-3 text-xs leading-relaxed",
-        className,
-      )}
-      {...props}
-    />
-  ),
+  pre: function CollapsiblePre({ className, children, ...props }) {
+    // Auto-collapse code blocks taller than this threshold (px)
+    const COLLAPSE_HEIGHT = 320;
+    const [isTall, setIsTall] = useState(false);
+    const [collapsed, setCollapsed] = useState(true);
+    const preRef = useRef<HTMLPreElement>(null);
+
+    useEffect(() => {
+      const el = preRef.current;
+      if (!el) return;
+      if (el.scrollHeight > COLLAPSE_HEIGHT) {
+        setIsTall(true);
+      }
+    }, []);
+
+    return (
+      <div className="relative">
+        <pre
+          ref={preRef}
+          className={cn(
+            "aui-md-pre overflow-x-auto rounded-t-none border border-border/50 border-t-0 bg-muted/30 p-3 text-xs leading-relaxed",
+            // Remove bottom rounding when the toggle button is attached below
+            isTall ? "rounded-b-none" : "rounded-b-lg",
+            isTall && collapsed && "overflow-y-hidden",
+            className,
+          )}
+          style={isTall && collapsed ? { maxHeight: `${COLLAPSE_HEIGHT}px` } : undefined}
+          {...props}
+        >
+          {children}
+        </pre>
+
+        {/* Fade gradient overlay — only shown when collapsed */}
+        {isTall && collapsed && (
+          <div
+            className="pointer-events-none absolute bottom-8 left-0 right-0 h-16 rounded-b-lg bg-gradient-to-t from-background to-transparent"
+            aria-hidden="true"
+          />
+        )}
+
+        {/* Show more / Show less toggle */}
+        {isTall && (
+          <button
+            type="button"
+            onClick={() => setCollapsed((c) => !c)}
+            className="flex w-full items-center justify-center gap-1 rounded-b-lg border border-border/50 border-t-0 bg-muted/20 py-1.5 text-xs text-muted-foreground/60 transition-colors hover:bg-muted/40 hover:text-muted-foreground select-none"
+          >
+            {collapsed ? (
+              <>
+                <ChevronDownIcon className="size-3" />
+                Show more
+              </>
+            ) : (
+              <>
+                <ChevronUpIcon className="size-3" />
+                Show less
+              </>
+            )}
+          </button>
+        )}
+      </div>
+    );
+  },
   code: function Code({ className, ...props }) {
     const isCodeBlock = useIsMarkdownCodeBlock();
     return (
