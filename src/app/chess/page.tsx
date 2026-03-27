@@ -406,6 +406,9 @@ export default function ChessPage() {
   } | null>(null);
   const historyEndRef = useRef<HTMLTableRowElement>(null);
   const statsCountedRef = useRef(false);
+  // ── Game duration tracking ─────────────────────────────────────────────────
+  const gameStartRef = useRef<number>(Date.now());
+  const [gameDuration, setGameDuration] = useState<number | null>(null);
   const [pgnCopied, setPgnCopied] = useState(false);
   const [fenCopied, setFenCopied] = useState(false);
   const boardInnerRef = useRef<HTMLDivElement>(null);
@@ -626,6 +629,13 @@ export default function ChessPage() {
 
   const isGameOver =
     status.includes("Checkmate") || status.includes("Stalemate") || status.includes("on time");
+
+  // Capture game duration the moment the game ends (transitions false → true)
+  useEffect(() => {
+    if (isGameOver) {
+      setGameDuration(Date.now() - gameStartRef.current);
+    }
+  }, [isGameOver]);
 
   // Auto-scroll move history to bottom when moves are added
   useEffect(() => {
@@ -953,6 +963,8 @@ export default function ChessPage() {
     setWhiteTime(tc > 0 ? tc * 1000 : 0);
     setBlackTime(tc > 0 ? tc * 1000 : 0);
     turnStartRef.current = Date.now();
+    gameStartRef.current = Date.now();
+    setGameDuration(null);
     statsCountedRef.current = false;
     // Clear any active confetti
     setShowConfetti(false);
@@ -1375,6 +1387,13 @@ export default function ChessPage() {
                     <p className="text-base font-semibold text-foreground text-center leading-snug">
                       {status}
                     </p>
+                    {gameDuration !== null && (
+                      <p className="text-xs text-muted-foreground/70 -mt-1 tabular-nums">
+                        {moveHistory.length > 0
+                          ? `${Math.ceil(moveHistory.length / 2)} move${Math.ceil(moveHistory.length / 2) !== 1 ? "s" : ""} · ${formatClock(gameDuration)}`
+                          : formatClock(gameDuration)}
+                      </p>
+                    )}
                     <button
                       onClick={reset}
                       className="mt-1 px-6 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 active:scale-95 transition-all"
