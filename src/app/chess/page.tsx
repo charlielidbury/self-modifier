@@ -472,8 +472,13 @@ export default function ChessPage() {
   useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
+  // Track the last second at which a tick sound was played per player.
+  // Reset to -1 on new game / time-control changes to allow fresh ticking.
+  const lastTickSecWhiteRef = useRef(-1);
+  const lastTickSecBlackRef = useRef(-1);
+
   /** Play a short synthesised sound for a chess event. */
-  const playChessSound = useCallback((type: "move" | "capture" | "check" | "checkmate") => {
+  const playChessSound = useCallback((type: "move" | "capture" | "check" | "checkmate" | "tick") => {
     if (!soundEnabledRef.current || typeof window === "undefined") return;
     try {
       if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
@@ -498,6 +503,21 @@ export default function ChessPage() {
           osc.start(t);
           osc.stop(t + 0.3);
         });
+        return;
+      }
+
+      if (type === "tick") {
+        // Short metronome-like click for low-time warning (< 10 s)
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(1400, now);
+        gain.gain.setValueAtTime(0.09, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+        osc.start(now);
+        osc.stop(now + 0.05);
         return;
       }
 
@@ -584,6 +604,9 @@ export default function ChessPage() {
     setWhiteTime(tc > 0 ? tc * 1000 : 0);
     setBlackTime(tc > 0 ? tc * 1000 : 0);
     turnStartRef.current = Date.now();
+    // Reset tick state so the new time control starts fresh
+    lastTickSecWhiteRef.current = -1;
+    lastTickSecBlackRef.current = -1;
   }, [timeControl]);
 
   // Reset the turn-start timestamp whenever the active player changes
@@ -629,6 +652,28 @@ export default function ChessPage() {
 
   const isGameOver =
     status.includes("Checkmate") || status.includes("Stalemate") || status.includes("on time");
+
+  // ── Low-time tick sound ───────────────────────────────────────────────────
+  // Plays a short metronome click once per second when the active player has
+  // 10 seconds or fewer remaining. Respects the sound-enabled toggle.
+  useEffect(() => {
+    if (timeControlSecondsRef.current === 0 || isGameOver) return;
+    const TICK_THRESHOLD = 10_000; // 10 seconds in ms
+    if (turn === "w" && whiteTime > 0 && whiteTime <= TICK_THRESHOLD) {
+      const sec = Math.ceil(whiteTime / 1000);
+      if (sec !== lastTickSecWhiteRef.current) {
+        lastTickSecWhiteRef.current = sec;
+        playChessSound("tick");
+      }
+    }
+    if (turn === "b" && blackTime > 0 && blackTime <= TICK_THRESHOLD) {
+      const sec = Math.ceil(blackTime / 1000);
+      if (sec !== lastTickSecBlackRef.current) {
+        lastTickSecBlackRef.current = sec;
+        playChessSound("tick");
+      }
+    }
+  }, [whiteTime, blackTime, turn, isGameOver, playChessSound]);
 
   // Capture game duration the moment the game ends (transitions false → true)
   useEffect(() => {
@@ -966,6 +1011,9 @@ export default function ChessPage() {
     gameStartRef.current = Date.now();
     setGameDuration(null);
     statsCountedRef.current = false;
+    // Reset low-time tick state so ticks fire fresh in the new game
+    lastTickSecWhiteRef.current = -1;
+    lastTickSecBlackRef.current = -1;
     // Clear any active confetti
     setShowConfetti(false);
     if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
@@ -1423,8 +1471,8 @@ export default function ChessPage() {
             <div ref={boardInnerRef} className="relative border border-border rounded overflow-hidden shadow-lg">
               {/* ── Game-over overlay ──────────────────────────────────────── */}
               {isGameOver && (
-                <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px] flex items-center justify-center z-30">
-                  <div className="bg-background/95 border border-border rounded-2xl shadow-2xl px-8 py-6 flex flex-col items-center gap-3 mx-4">
+                <div className="chess-overlay-bg absolute inset-0 bg-black/45 backdrop-blur-[3px] flex items-center justify-center z-30">
+                  <div className="chess-overlay-card bg-background/95 border border-border rounded-2xl shadow-2xl px-8 py-6 flex flex-col items-center gap-3 mx-4">
                     <span className="text-4xl select-none" aria-hidden="true">
                       {status.includes("on time")
                         ? "⏱"
@@ -1582,7 +1630,9 @@ export default function ChessPage() {
             className={[
               "flex items-center justify-between px-3 py-1.5 rounded-lg border text-sm font-mono font-semibold transition-colors",
               turn === "b" && !isGameOver
-                ? blackTime < 30000 && timeControlSecondsRef.current > 0
+                ? blackTime < 10000 && timeControlSecondsRef.current > 0
+                  ? "bg-red-900/60 text-red-100 border-red-700 shadow-inner animate-pulse"
+                  : blackTime < 30000 && timeControlSecondsRef.current > 0
                   ? "bg-red-900/60 text-red-100 border-red-700 shadow-inner"
                   : "bg-neutral-800 dark:bg-neutral-700 text-white border-neutral-600 shadow-inner"
                 : "bg-card text-muted-foreground border-border opacity-60",
@@ -1698,7 +1748,9 @@ export default function ChessPage() {
             className={[
               "flex items-center justify-between px-3 py-1.5 rounded-lg border text-sm font-mono font-semibold transition-colors",
               turn === "w" && !isGameOver
-                ? whiteTime < 30000 && timeControlSecondsRef.current > 0
+                ? whiteTime < 10000 && timeControlSecondsRef.current > 0
+                  ? "bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-100 border-red-300 dark:border-red-700 shadow-inner animate-pulse"
+                  : whiteTime < 30000 && timeControlSecondsRef.current > 0
                   ? "bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-100 border-red-300 dark:border-red-700 shadow-inner"
                   : "bg-white dark:bg-neutral-200 text-neutral-900 border-neutral-300 shadow-inner"
                 : "bg-card text-muted-foreground border-border opacity-60",
