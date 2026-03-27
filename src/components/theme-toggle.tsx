@@ -82,7 +82,27 @@ export function ThemeToggle() {
           aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           className="flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
         >
-          {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          {/* Two icons stacked; each rotates + fades when the theme switches */}
+          <span className="relative w-[15px] h-[15px]">
+            <span
+              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
+                theme === "dark"
+                  ? "opacity-100 rotate-0"
+                  : "opacity-0 rotate-90 pointer-events-none"
+              }`}
+            >
+              <Sun size={15} />
+            </span>
+            <span
+              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
+                theme === "light"
+                  ? "opacity-100 rotate-0"
+                  : "opacity-0 -rotate-90 pointer-events-none"
+              }`}
+            >
+              <Moon size={15} />
+            </span>
+          </span>
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
