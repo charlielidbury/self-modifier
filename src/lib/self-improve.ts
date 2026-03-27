@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import path from "path";
+import fs from "fs";
 
 export type ImprovementEntry = {
   id: string;
@@ -20,37 +21,122 @@ export type ActivityEvent = {
 
 const MAX_ACTIVITY = 200;
 
-type SelfImproveGlobal = {
+// ── File-based source of truth ──────────────────────────────────────────────
+// This file is the single source of truth for whether self-improve should be
+// running. If the process dies (npm install, crash, HMR), instrumentation.ts
+// reads this file on startup and resumes automatically.
+
+type StateFile = {
   enabled: boolean;
-  running: boolean;
-  entries: ImprovementEntry[];
-  loopAlive: boolean; // true while the background loop promise is executing
-  /** Ring buffer of recent activity events from the running agent */
-  activity: ActivityEvent[];
-  /** Monotonically increasing event counter */
-  activitySeq: number;
-  /** Optional user suggestion for the next improvement session */
   suggestion: string;
 };
 
-// ── Persistent global state ───────────────────────────────────────────────────
-// Stored on `globalThis` so it survives Next.js HMR module re-evaluations.
-// When the agent writes a file, Next.js reloads this module — a plain
-// `let` variable would reset to its initialiser, orphaning the running loop.
+const STATE_FILE_PATH = path.join(process.cwd(), ".self-improve-state.json");
+
+function readStateFile(): StateFile {
+  try {
+    const raw = fs.readFileSync(STATE_FILE_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    return {
+      enabled: Boolean(parsed.enabled),
+      suggestion: typeof parsed.suggestion === "string" ? parsed.suggestion : "",
+    };
+  } catch {
+    return { enabled: false, suggestion: "" };
+  }
+}
+
+function writeStateFile(state: StateFile): void {
+  try {
+    fs.writeFileSync(STATE_FILE_PATH, JSON.stringify(state, null, 2) + "\n");
+  } catch (err) {
+    console.error("[self-improve] Failed to write state file:", err);
+  }
+}
+
+// ── In-memory state (transient, survives HMR via globalThis) ────────────────
+// Activity buffer, entries list, and loop-alive flag are transient — they don't
+// need to survive a full process restart, only HMR reloads.
+
+type SelfImproveGlobal = {
+  running: boolean;
+  entries: ImprovementEntry[];
+  loopAlive: boolean;
+  activity: ActivityEvent[];
+  activitySeq: number;
+};
+
 const g = globalThis as typeof globalThis & {
   __selfImprove?: SelfImproveGlobal;
 };
 if (!g.__selfImprove) {
   g.__selfImprove = {
-    enabled: false,
     running: false,
     entries: [],
     loopAlive: false,
     activity: [],
     activitySeq: 0,
-    suggestion: "",
   };
 }
+
+const inMemory: SelfImproveGlobal = g.__selfImprove;
+
+// ── Public accessors ────────────────────────────────────────────────────────
+// Provide a unified view that merges file-based and in-memory state, so the
+// rest of the codebase doesn't need to know about the split.
+
+export const selfImproveState = {
+  get enabled(): boolean {
+    return readStateFile().enabled;
+  },
+  set enabled(value: boolean) {
+    const current = readStateFile();
+    writeStateFile({ ...current, enabled: value });
+  },
+
+  get suggestion(): string {
+    return readStateFile().suggestion;
+  },
+  set suggestion(value: string) {
+    const current = readStateFile();
+    writeStateFile({ ...current, suggestion: value });
+  },
+
+  get running(): boolean {
+    return inMemory.running;
+  },
+  set running(value: boolean) {
+    inMemory.running = value;
+  },
+
+  get entries(): ImprovementEntry[] {
+    return inMemory.entries;
+  },
+  set entries(value: ImprovementEntry[]) {
+    inMemory.entries = value;
+  },
+
+  get loopAlive(): boolean {
+    return inMemory.loopAlive;
+  },
+  set loopAlive(value: boolean) {
+    inMemory.loopAlive = value;
+  },
+
+  get activity(): ActivityEvent[] {
+    return inMemory.activity;
+  },
+  set activity(value: ActivityEvent[]) {
+    inMemory.activity = value;
+  },
+
+  get activitySeq(): number {
+    return inMemory.activitySeq;
+  },
+  set activitySeq(value: number) {
+    inMemory.activitySeq = value;
+  },
+};
 
 /** Push an activity event to the ring buffer. */
 function pushActivity(
@@ -58,20 +144,18 @@ function pushActivity(
   content: string,
   tool?: string
 ) {
-  const state = selfImproveState;
   const evt: ActivityEvent = {
-    id: state.activitySeq++,
+    id: selfImproveState.activitySeq++,
     ts: Date.now(),
     kind,
-    content: content.slice(0, 2000), // cap individual event size
+    content: content.slice(0, 2000),
     tool,
   };
-  state.activity.push(evt);
-  if (state.activity.length > MAX_ACTIVITY) {
-    state.activity.splice(0, state.activity.length - MAX_ACTIVITY);
+  selfImproveState.activity.push(evt);
+  if (selfImproveState.activity.length > MAX_ACTIVITY) {
+    selfImproveState.activity.splice(0, selfImproveState.activity.length - MAX_ACTIVITY);
   }
 }
-export const selfImproveState: SelfImproveGlobal = g.__selfImprove;
 
 // ── Improvement prompt ────────────────────────────────────────────────────────
 const PROMPT = `
@@ -128,7 +212,7 @@ async function runOnce(): Promise<string> {
 
   // Consume the user's suggestion (if any) for this session
   const userSuggestion = selfImproveState.suggestion.trim();
-  selfImproveState.suggestion = ""; // clear so it's single-use
+  selfImproveState.suggestion = ""; // clear so it's single-use (writes to file)
 
   const effectivePrompt = userSuggestion
     ? `${PROMPT}\n\n---\n\n🎯 USER SUGGESTION FOR THIS SESSION:\nThe user has specifically requested the following improvement. Prioritise this above your own ideas:\n\n"${userSuggestion}"\n\nMake sure the improvement directly addresses this suggestion.`
@@ -218,7 +302,7 @@ export function startImprovementLoop() {
 
   void (async () => {
     try {
-      // Loop runs as long as the toggle is on.
+      // Loop runs as long as the file says enabled.
       while (selfImproveState.enabled) {
         const entry: ImprovementEntry = {
           id: crypto.randomUUID(),
@@ -249,8 +333,6 @@ export function startImprovementLoop() {
         }
       }
     } finally {
-      // Whether the loop exits normally (disabled) or throws, clear the flag
-      // so startImprovementLoop() can be called again.
       selfImproveState.loopAlive = false;
     }
   })();
