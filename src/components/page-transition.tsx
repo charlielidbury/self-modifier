@@ -19,6 +19,9 @@ const TAB_ORDER = [
   "/synth",
   "/gravity",
   "/waves",
+  "/particles",
+  "/pendulum",
+  "/attractor",
 ];
 
 function tabIndex(path: string): number {

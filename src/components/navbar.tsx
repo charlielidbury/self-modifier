@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp, Dna, Music, Orbit, Waves, Atom, Fan } from "lucide-react";
+import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp, Dna, Music, Orbit, Waves, Atom, Fan, Sparkles } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Tooltip,
@@ -27,6 +27,7 @@ const PAGE_HUES: Record<string, number> = {
   "/waves":     195, // cyan
   "/particles":  82, // lime
   "/pendulum":  270, // indigo
+  "/attractor": 300, // fuchsia
 };
 
 const tabs = [
@@ -41,6 +42,7 @@ const tabs = [
   { href: "/waves", label: "Waves", Icon: Waves, shortcut: "Alt+9" },
   { href: "/particles", label: "Particles", Icon: Atom, shortcut: "Alt+0" },
   { href: "/pendulum", label: "Pendulum", Icon: Fan, shortcut: "" },
+  { href: "/attractor", label: "Attractor", Icon: Sparkles, shortcut: "" },
 ];
 
 // Per-page accent colours for the sliding pill background and active tab text.
@@ -57,6 +59,7 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/waves":     { pill: "bg-cyan-500/15 dark:bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
   "/particles": { pill: "bg-lime-500/15 dark:bg-lime-500/20", text: "text-lime-700 dark:text-lime-300" },
   "/pendulum":  { pill: "bg-indigo-500/15 dark:bg-indigo-500/20", text: "text-indigo-700 dark:text-indigo-300" },
+  "/attractor": { pill: "bg-fuchsia-500/15 dark:bg-fuchsia-500/20", text: "text-fuchsia-700 dark:text-fuchsia-300" },
 };
 
 // Actual color values used for the animated brand accent dot (inline style so
@@ -73,6 +76,7 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/waves":     "#06b6d4", // cyan-500
   "/particles": "#84cc16", // lime-500
   "/pendulum":  "#6366f1", // indigo-500
+  "/attractor": "#d946ef", // fuchsia-500
 };
 
 // Subtle ambient glow applied to the sliding pill so the active tab feels alive.
@@ -89,6 +93,7 @@ const PAGE_PILL_GLOWS: Record<string, string> = {
   "/waves":     "0 0 14px 3px rgba(6,182,212,0.22)",
   "/particles": "0 0 14px 3px rgba(132,204,22,0.22)",
   "/pendulum":  "0 0 14px 3px rgba(99,102,241,0.22)",
+  "/attractor": "0 0 14px 3px rgba(217,70,239,0.22)",
 };
 
 // Browser tab titles per page.
@@ -104,6 +109,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/waves":     "Waves — Self-Modifier",
   "/particles": "Particles — Self-Modifier",
   "/pendulum":  "Pendulum — Self-Modifier",
+  "/attractor": "Attractor — Self-Modifier",
 };
 
 export function Navbar() {

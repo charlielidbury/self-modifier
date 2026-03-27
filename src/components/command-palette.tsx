@@ -31,6 +31,7 @@ import {
   Waves,
   Atom,
   Fan,
+  Sparkles,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -185,6 +186,14 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/pendulum"),
       keywords: ["double", "pendulum", "chaos", "butterfly", "physics", "simulation", "lagrangian"],
+    },
+    {
+      id: "nav-attractor",
+      label: "Go to Attractor",
+      icon: <Sparkles size={16} />,
+      group: "Navigation",
+      action: () => router.push("/attractor"),
+      keywords: ["strange", "attractor", "lorenz", "chaos", "particles", "3d", "rossler", "aizawa", "thomas"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {
@@ -440,6 +449,44 @@ function useCommands(): Command[] {
               window.dispatchEvent(new KeyboardEvent("keydown", { key: "=" }));
             },
             keywords: ["new", "create", "spawn"],
+          },
+        ]
+      : []),
+    // ── Attractor page commands ────────────────────────────────────────────────
+    ...(pathname === "/attractor"
+      ? [
+          {
+            id: "attractor-toggle",
+            label: "Toggle Attractor Simulation",
+            hint: "Space",
+            icon: <Play size={16} />,
+            group: "Attractor",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+            },
+            keywords: ["pause", "play", "stop", "start"],
+          },
+          {
+            id: "attractor-next",
+            label: "Next Attractor",
+            hint: "N",
+            icon: <Sparkles size={16} />,
+            group: "Attractor",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "n" }));
+            },
+            keywords: ["switch", "change", "lorenz", "rossler", "aizawa", "thomas", "halvorsen"],
+          },
+          {
+            id: "attractor-reset",
+            label: "Reset Attractor",
+            hint: "R",
+            icon: <RotateCcw size={16} />,
+            group: "Attractor",
+            action: () => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
+            },
+            keywords: ["restart", "clear", "reinitialize"],
           },
         ]
       : []),
