@@ -62,15 +62,21 @@ Hard rules:
   - Keep it focused — one clear improvement per session
   - Verify your change is correct by reviewing what you wrote before finishing
 
-Once your change is verified and working, commit it to git:
+Once your change is verified and working you MUST commit before finishing:
   1. Stage only the files you actually modified — list them explicitly, e.g.:
        git add src/components/foo.tsx src/app/bar/page.tsx
   2. Commit with a message which explains what you did and any vision it ties into:
        git commit -m "improve: <description>"
   3. Do NOT push to remote
+  4. Run: git rev-parse --short HEAD
+     and note the short hash — you need it for the DONE line below.
 
-After the commit succeeds, output exactly this as your very last line (nothing after it):
-DONE: <one sentence describing the improvement you made>`;
+Your FINAL output line MUST be exactly this format (nothing after it):
+DONE [<short-hash>]: <one sentence describing the improvement you made>
+
+Example: DONE [a1b2c3d]: Added smooth page transitions between all routes
+
+If you have not committed, you CANNOT produce a valid DONE line. Go back and commit first.`;
 
 // ── Core runner ───────────────────────────────────────────────────────────────
 async function runOnce(): Promise<string> {
@@ -80,6 +86,7 @@ async function runOnce(): Promise<string> {
   for await (const msg of query({
     prompt: PROMPT,
     options: {
+      model: "claude-opus-4-6",
       cwd,
       allowedTools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"],
       permissionMode: "bypassPermissions",
@@ -88,7 +95,7 @@ async function runOnce(): Promise<string> {
     },
   })) {
     if ("result" in msg && msg.result) {
-      const match = msg.result.match(/DONE:\s*(.+)/);
+      const match = msg.result.match(/DONE\s*(?:\[[^\]]*\])?:\s*(.+)/);
       if (match) {
         summary = match[1].trim();
       } else {
