@@ -124,6 +124,15 @@ type FractalKey = (typeof FRACTAL_MODES)[number]["key"];
 
 const PALETTES = ["Fire", "Ocean", "Neon", "Twilight"];
 
+// CSS gradient approximations of each IQ cosine palette — used as inline swatches
+// in the palette selector buttons so users can preview a palette before clicking.
+const PALETTE_GRADIENTS = [
+  "linear-gradient(to right, #ff6600, #cc1100, #220000, #cc4400, #ff8800)", // Fire
+  "linear-gradient(to right, #0022bb, #0099cc, #00eeff, #00ccaa, #0022bb)", // Ocean
+  "linear-gradient(to right, #ff0088, #44ff00, #ffee00, #ff0088)",           // Neon
+  "linear-gradient(to right, #1133bb, #6611bb, #cc1177, #1133bb)",           // Twilight
+];
+
 // ─── Preset locations ─────────────────────────────────────────────────────────
 
 type Preset = {
@@ -294,6 +303,15 @@ export default function FractalsPage() {
     setHintVisible(true);
     if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
     hintTimerRef.current = setTimeout(() => setHintVisible(false), 6000);
+  }, []);
+
+  // ── Fullscreen toggle ────────────────────────────────────────────────────────
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {/* not available */});
+    } else {
+      document.exitFullscreen().catch(() => {/* not available */});
+    }
   }, []);
 
   useEffect(() => {
@@ -602,6 +620,11 @@ export default function FractalsPage() {
           needsDrawRef.current = true;
           break;
         }
+        case "f":
+        case "F":
+          e.preventDefault();
+          toggleFullscreen();
+          break;
       }
       // Any fractal-control key resets the hint fade timer
       resetHintTimer();
@@ -609,7 +632,7 @@ export default function FractalsPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [resetHintTimer]); // all refs and state setters are stable; resetHintTimer is also stable
+  }, [resetHintTimer, toggleFullscreen]); // all refs and state setters are stable; resetHintTimer and toggleFullscreen are also stable
 
   // ── Pointer events (pan + pinch-to-zoom) ────────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
@@ -710,16 +733,7 @@ export default function FractalsPage() {
     setMouseCoords(null);
   }, []);
 
-  // ── Fullscreen toggle ────────────────────────────────────────────────────────
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {/* not available */});
-    } else {
-      document.exitFullscreen().catch(() => {/* not available */});
-    }
-  }, []);
-
-  // ── Double-click to zoom in (3×) centred on clicked fractal point ───────────
+  // ── Double-click to zoom in (4×) centred on clicked fractal point ───────────
   const onDoubleClick = useCallback((e: React.MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -734,13 +748,18 @@ export default function FractalsPage() {
     const fractalX =  (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
     const fractalY = -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
 
-    // Zoom 3× into that point
-    centerRef.current = { x: fractalX, y: fractalY };
-    zoomRef.current = Math.min(1e8, zoomRef.current * 3);
-    setZoomLevel(zoomRef.current);
-    setCenterDisplay({ x: fractalX, y: fractalY });
+    // Smoothly fly 4× into that point using the shared fly animation system
+    flyAnimRef.current = {
+      fromCenter: { ...centerRef.current },
+      fromZoom: zoomRef.current,
+      toCenter: { x: fractalX, y: fractalY },
+      toZoom: Math.min(1e8, zoomRef.current * 4),
+      startTime: Date.now(),
+      duration: 500,
+    };
     needsDrawRef.current = true;
-  }, []);
+    resetHintTimer();
+  }, [resetHintTimer]);
 
   // ── Wheel (zoom to cursor) ───────────────────────────────────────────────────
   const onWheel = useCallback((e: React.WheelEvent) => {
@@ -984,12 +1003,16 @@ export default function FractalsPage() {
                 key={i}
                 onClick={() => setPaletteUI(i)}
                 className={[
-                  "px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-colors",
                   palette === i
                     ? "bg-white/20 text-white"
                     : "text-white/50 hover:text-white/80 hover:bg-white/10",
                 ].join(" ")}
               >
+                <span
+                  className="w-7 h-1.5 rounded-full shrink-0 opacity-90"
+                  style={{ background: PALETTE_GRADIENTS[i] }}
+                />
                 {name}
               </button>
             ))}
@@ -1083,6 +1106,15 @@ export default function FractalsPage() {
                 <span>Share</span>
               </>
             )}
+          </button>
+
+          {/* Fullscreen */}
+          <button
+            onClick={toggleFullscreen}
+            title={isFullscreen ? "Exit fullscreen (F)" : "Enter fullscreen (F)"}
+            className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-xl text-white/60 hover:text-white transition-colors"
+          >
+            {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
         </div>
 
