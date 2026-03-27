@@ -371,3 +371,16 @@ export function getGenePool(): GenePool {
 export function resetGenePool(): GenePool {
   return seedPool();
 }
+
+/**
+ * Apply a fitness delta to a specific genome from user feedback.
+ * This is the human-in-the-loop signal — the strongest evolutionary pressure.
+ */
+export function applyFeedbackFitness(genomeId: string, delta: number): boolean {
+  const pool = readGenePool();
+  const genome = pool.genomes.find((g) => g.id === genomeId);
+  if (!genome) return false;
+  genome.fitness += delta;
+  writeGenePool(pool);
+  return true;
+}

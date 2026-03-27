@@ -6,3 +6,4 @@ next-env.d.ts
 .agent-state.json
 .self-improve-memory.json
 .strategy-genes.json
+.commit-feedback.json

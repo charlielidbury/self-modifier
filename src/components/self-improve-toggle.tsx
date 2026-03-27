@@ -30,6 +30,8 @@ import {
   Undo2,
   Brain,
   Trash2,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import { dispatchAmbientEvent } from "./ambient-canvas";
 import { playCommitChimeIfUnmuted, isSoundMuted, setSoundMuted } from "@/lib/commit-sound";
@@ -1614,6 +1616,52 @@ export function SelfImproveToggle() {
   // Panel tab: "activity" (live feed) vs "commits" vs "stats" vs "prompt" vs "memory" vs "genome"
   const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt" | "memory" | "genome">("activity");
 
+  // ── User feedback state (thumbs up/down on commits) ────────────────────
+  const [feedback, setFeedback] = useState<Record<string, { rating: "up" | "down" | null }>>({});
+  const feedbackFetchedRef = useRef(false);
+
+  // Fetch feedback ratings on mount
+  useEffect(() => {
+    if (feedbackFetchedRef.current) return;
+    feedbackFetchedRef.current = true;
+    fetch("/api/self-improve/feedback")
+      .then((r) => r.ok ? r.json() : {})
+      .then((data: Record<string, { rating: "up" | "down" | null }>) => {
+        const mapped: Record<string, { rating: "up" | "down" | null }> = {};
+        for (const [hash, entry] of Object.entries(data)) {
+          mapped[hash] = { rating: entry.rating };
+        }
+        setFeedback(mapped);
+      })
+      .catch(() => {});
+  }, []);
+
+  const submitFeedback = useCallback(async (commitHash: string, rating: "up" | "down" | null) => {
+    // Optimistic update
+    setFeedback((prev) => ({ ...prev, [commitHash]: { rating } }));
+    try {
+      const res = await fetch("/api/self-improve/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commitHash, rating }),
+      });
+      if (!res.ok) {
+        // Revert on failure
+        setFeedback((prev) => {
+          const next = { ...prev };
+          delete next[commitHash];
+          return next;
+        });
+      }
+    } catch {
+      setFeedback((prev) => {
+        const next = { ...prev };
+        delete next[commitHash];
+        return next;
+      });
+    }
+  }, []);
+
   // ── Celebration state ───────────────────────────────────────────────────
   const [celebrating, setCelebrating] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -2298,13 +2346,54 @@ export function SelfImproveToggle() {
                             {c.author ? ` · ${c.author}` : ""}
                           </p>
                         </div>
-                        <button
-                          onClick={() => setViewingDiff(c.hash)}
-                          title="View changes"
-                          className="mt-0.5 p-1 rounded text-white/20 hover:text-white/60 hover:bg-white/10 transition-colors opacity-0 group-hover/commit:opacity-100 flex-shrink-0"
-                        >
-                          <FileCode size={12} />
-                        </button>
+                        <div className="flex items-center gap-0.5 flex-shrink-0 mt-0.5">
+                          {/* Feedback buttons */}
+                          {(() => {
+                            const fb = feedback[c.shortHash] ?? feedback[c.hash];
+                            const currentRating = fb?.rating ?? null;
+                            return (
+                              <>
+                                <button
+                                  onClick={() => submitFeedback(
+                                    c.shortHash || c.hash,
+                                    currentRating === "up" ? null : "up",
+                                  )}
+                                  title={currentRating === "up" ? "Remove rating" : "Good change"}
+                                  className={[
+                                    "p-1 rounded transition-all duration-150",
+                                    currentRating === "up"
+                                      ? "text-emerald-400 bg-emerald-400/15"
+                                      : "text-white/15 hover:text-emerald-400/70 hover:bg-emerald-400/10 opacity-0 group-hover/commit:opacity-100",
+                                  ].join(" ")}
+                                >
+                                  <ThumbsUp size={11} />
+                                </button>
+                                <button
+                                  onClick={() => submitFeedback(
+                                    c.shortHash || c.hash,
+                                    currentRating === "down" ? null : "down",
+                                  )}
+                                  title={currentRating === "down" ? "Remove rating" : "Bad change"}
+                                  className={[
+                                    "p-1 rounded transition-all duration-150",
+                                    currentRating === "down"
+                                      ? "text-red-400 bg-red-400/15"
+                                      : "text-white/15 hover:text-red-400/70 hover:bg-red-400/10 opacity-0 group-hover/commit:opacity-100",
+                                  ].join(" ")}
+                                >
+                                  <ThumbsDown size={11} />
+                                </button>
+                              </>
+                            );
+                          })()}
+                          <button
+                            onClick={() => setViewingDiff(c.hash)}
+                            title="View changes"
+                            className="p-1 rounded text-white/20 hover:text-white/60 hover:bg-white/10 transition-colors opacity-0 group-hover/commit:opacity-100"
+                          >
+                            <FileCode size={12} />
+                          </button>
+                        </div>
                       </div>
                     );
                   })

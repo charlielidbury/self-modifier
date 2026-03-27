@@ -17,6 +17,7 @@ import {
   buildStrategyDirective,
   type Genome,
 } from "./strategy-genes";
+import { recordCommitGenome } from "./commit-feedback";
 
 export type ImprovementEntry = {
   id: string;
@@ -550,6 +551,13 @@ export function startImprovementLoop() {
               outcome,
               lesson,
             });
+
+            // ── Record commit → genome mapping for user feedback ──
+            if (activeGenomeId && outcome === "completed" && commitHash !== "unknown") {
+              try {
+                recordCommitGenome(commitHash, activeGenomeId);
+              } catch { /* non-critical */ }
+            }
 
             pushActivity("text", `🧠 Memory recorded (${outcome})`);
           } catch (memErr) {
