@@ -532,6 +532,7 @@ export default function FractalsPage() {
       const pal = parseInt(p.get("p")    ?? "");
       const mi  = parseInt(p.get("mi")   ?? "");
       const ja  = parseFloat(p.get("ja") ?? "");
+      const cs  = parseFloat(p.get("cs") ?? "");
 
       if (!isNaN(cx) && !isNaN(cy)) { centerRef.current = { x: cx, y: cy }; setCenterDisplay({ x: cx, y: cy }); }
       if (!isNaN(z) && z > 0) { zoomRef.current = z; setZoomLevel(z); }
@@ -550,6 +551,10 @@ export default function FractalsPage() {
       if (!isNaN(ja)) {
         juliaAngleRef.current = ja;
         setJuliaAngle(ja);
+      }
+      if (!isNaN(cs) && cs >= 0 && cs < 1) {
+        colorShiftRef.current = cs;
+        setColorShift(cs);
       }
       needsDrawRef.current = true;
     } catch {
@@ -761,6 +766,7 @@ export default function FractalsPage() {
             p:  palRef.current.toString(),
             mi: maxIterRef.current.toString(),
             ja: juliaAngleRef.current.toString(),
+            cs: colorShiftRef.current.toString(),
           });
           const shareHash = shareParams.toString();
           window.history.replaceState(null, "", `#${shareHash}`);
@@ -1187,6 +1193,7 @@ export default function FractalsPage() {
       p:  palRef.current.toString(),
       mi: maxIterRef.current.toString(),
       ja: juliaAngleRef.current.toString(),
+      cs: colorShiftRef.current.toString(),
     });
     const hash = params.toString();
     window.history.replaceState(null, "", `#${hash}`);
