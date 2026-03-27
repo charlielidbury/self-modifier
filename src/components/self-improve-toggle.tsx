@@ -580,6 +580,193 @@ function ActivityFeed({ isRunning }: { isRunning: boolean }) {
   );
 }
 
+// ── Live working diff panel ──────────────────────────────────────────────────
+
+type WorkingDiffFile = {
+  path: string;
+  status: "modified" | "added" | "deleted" | "renamed";
+  additions: number;
+  deletions: number;
+  patch: string;
+};
+
+type WorkingDiffData = {
+  files: WorkingDiffFile[];
+  totalAdditions: number;
+  totalDeletions: number;
+  isEmpty: boolean;
+};
+
+function WorkingDiffPanel({ isRunning }: { isRunning: boolean }) {
+  const [diff, setDiff] = useState<WorkingDiffData | null>(null);
+  const [expanded, setExpanded] = useState(true);
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchDiff = useCallback(async () => {
+    try {
+      const res = await fetch("/api/self-improve/working-diff");
+      if (res.ok) {
+        const data = (await res.json()) as WorkingDiffData;
+        setDiff(data);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Poll while the agent is running
+  useEffect(() => {
+    fetchDiff(); // initial fetch
+
+    if (isRunning) {
+      intervalRef.current = setInterval(fetchDiff, 3000);
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [isRunning, fetchDiff]);
+
+  const toggleFile = useCallback((path: string) => {
+    setExpandedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  if (!diff || diff.isEmpty) {
+    if (!isRunning) return null;
+    return (
+      <div className="border-t border-white/[0.06]">
+        <div className="px-3 py-2 flex items-center gap-2 text-[10px] text-white/20">
+          <FileCode size={10} className="text-white/15" />
+          <span>No uncommitted changes yet</span>
+        </div>
+      </div>
+    );
+  }
+
+  const statusIcon = (s: WorkingDiffFile["status"]) => {
+    switch (s) {
+      case "added": return <span className="text-[8px] font-bold text-emerald-400 bg-emerald-400/15 rounded px-1">A</span>;
+      case "deleted": return <span className="text-[8px] font-bold text-red-400 bg-red-400/15 rounded px-1">D</span>;
+      case "renamed": return <span className="text-[8px] font-bold text-blue-400 bg-blue-400/15 rounded px-1">R</span>;
+      default: return <span className="text-[8px] font-bold text-amber-400 bg-amber-400/15 rounded px-1">M</span>;
+    }
+  };
+
+  return (
+    <div className="border-t border-amber-500/20 bg-amber-950/10">
+      {/* Header */}
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03] transition-colors"
+      >
+        <ChevronRight
+          size={10}
+          className={`text-amber-400/50 transition-transform duration-150 flex-shrink-0 ${expanded ? "rotate-90" : ""}`}
+        />
+        <FileCode size={11} className="text-amber-400/60 flex-shrink-0" />
+        <span className="text-[10px] font-semibold text-amber-400/70 uppercase tracking-wider">
+          Working Changes
+        </span>
+        <span className="ml-auto flex items-center gap-2 flex-shrink-0">
+          <span className="text-[9px] text-white/30">
+            {diff.files.length} file{diff.files.length !== 1 ? "s" : ""}
+          </span>
+          {diff.totalAdditions > 0 && (
+            <span className="text-[9px] text-emerald-400/70 font-mono flex items-center gap-0.5">
+              <Plus size={7} />
+              {diff.totalAdditions}
+            </span>
+          )}
+          {diff.totalDeletions > 0 && (
+            <span className="text-[9px] text-red-400/70 font-mono flex items-center gap-0.5">
+              <Minus size={7} />
+              {diff.totalDeletions}
+            </span>
+          )}
+          {isRunning && (
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-50" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-400" />
+            </span>
+          )}
+        </span>
+      </button>
+
+      {/* File list with inline diffs */}
+      {expanded && (
+        <div className="max-h-48 overflow-y-auto border-t border-white/[0.04]">
+          {diff.files.map((file) => {
+            const isFileExpanded = expandedFiles.has(file.path);
+            const filename = file.path.split("/").pop() ?? file.path;
+            const dir = file.path.includes("/")
+              ? file.path.slice(0, file.path.lastIndexOf("/") + 1)
+              : "";
+            const patchLines = (file.patch || "")
+              .split("\n")
+              .filter((line) => {
+                if (line.startsWith("diff --git")) return false;
+                if (line.startsWith("index ")) return false;
+                if (line.startsWith("--- ")) return false;
+                if (line.startsWith("+++ ")) return false;
+                if (line.startsWith("new file mode")) return false;
+                if (line.startsWith("deleted file mode")) return false;
+                if (line.startsWith("\\ No newline")) return false;
+                return true;
+              });
+
+            return (
+              <div key={file.path} className="border-t border-white/[0.03] first:border-t-0">
+                <button
+                  onClick={() => toggleFile(file.path)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-white/[0.03] transition-colors group/wfile"
+                >
+                  <ChevronRight
+                    size={9}
+                    className={`text-white/20 transition-transform duration-150 flex-shrink-0 ${isFileExpanded ? "rotate-90" : ""}`}
+                  />
+                  {statusIcon(file.status)}
+                  <span className="text-[9px] text-white/25 truncate">{dir}</span>
+                  <span className="text-[10px] text-white/60 font-medium truncate">
+                    {filename}
+                  </span>
+                  <span className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+                    {file.additions > 0 && (
+                      <span className="text-[9px] text-emerald-400/60 font-mono">
+                        +{file.additions}
+                      </span>
+                    )}
+                    {file.deletions > 0 && (
+                      <span className="text-[9px] text-red-400/60 font-mono">
+                        -{file.deletions}
+                      </span>
+                    )}
+                  </span>
+                </button>
+                {isFileExpanded && patchLines.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto bg-black/20 border-t border-white/[0.03]">
+                    {patchLines.map((line, i) => (
+                      <DiffLine key={i} line={line} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Stats tab sub-components ─────────────────────────────────────────────────
 
 /** Mini SVG area-chart sparkline of lines changed per commit. */
@@ -2060,6 +2247,7 @@ export function SelfImproveToggle() {
                 </div>
               )}
               <ActivityFeed isRunning={status.running} />
+              <WorkingDiffPanel isRunning={status.running} />
             </>
           ) : viewingDiff ? (
             <CommitDiffPanel
