@@ -1839,11 +1839,13 @@ export default function FractalsPage() {
                     "burning",
                     "newton",
                     "tricorn",
+                    "multibrot",
                   ] as FractalKey[]
                 ).map((groupKey) => {
                   const groupPresets = PRESETS.filter(
                     (p) => p.mode === groupKey,
                   );
+                  if (groupPresets.length === 0) return null;
                   const groupLabel =
                     groupKey === "mandelbrot"
                       ? "Mandelbrot"
@@ -1853,7 +1855,9 @@ export default function FractalsPage() {
                           ? "Burning Ship"
                           : groupKey === "newton"
                             ? "Newton"
-                            : "Tricorn";
+                            : groupKey === "tricorn"
+                              ? "Tricorn"
+                              : "Multibrot";
                   return (
                     <div key={groupKey}>
                       <div className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-white/30">
