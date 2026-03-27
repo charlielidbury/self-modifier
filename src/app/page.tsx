@@ -1,11 +1,16 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-import type { ChatMessage } from "@/lib/types";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import type { ChatMessage, SessionInfo } from "@/lib/types";
 import { ChatProvider } from "@/components/chat-provider";
 import { SessionsSidebar } from "@/components/sessions-sidebar";
 import { Thread } from "@/components/assistant-ui/thread";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  TooltipProvider,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { MessageSquare, DownloadIcon, ClipboardCopyIcon, CheckIcon } from "lucide-react";
 
 /**
@@ -138,6 +143,58 @@ export default function Home() {
   // Number of user turns in the current session (each user message = 1 turn)
   const turnCount = messages.filter((m) => m.role === "user").length;
 
+  // Aggregate statistics for the active conversation, shown in a tooltip on
+  // the turn-count badge.  Token estimate uses the rough ~4 chars/token rule.
+  const convStats = useMemo(() => {
+    if (messages.length === 0) return null;
+
+    const totalWords = messages.reduce((acc, m) => {
+      const words = m.content.trim().split(/\s+/).filter(Boolean).length;
+      return acc + words;
+    }, 0);
+
+    const approxTokens = messages.reduce((acc, m) => {
+      return acc + Math.ceil(m.content.length / 4);
+    }, 0);
+
+    const firstTs = messages[0]?.createdAt;
+    const lastTs = messages[messages.length - 1]?.createdAt;
+    let duration: string | null = null;
+    if (firstTs && lastTs) {
+      const diffMins = Math.floor((lastTs - firstTs) / 60_000);
+      if (diffMins >= 60) {
+        duration = `${Math.floor(diffMins / 60)}h ${diffMins % 60}m`;
+      } else if (diffMins > 0) {
+        duration = `${diffMins}m`;
+      }
+    }
+
+    const startedAt = firstTs
+      ? new Date(firstTs).toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : null;
+
+    return { totalWords, approxTokens, duration, startedAt };
+  }, [messages]);
+
+  // Context-window usage bar: approximate fraction of Claude's 200k-token context
+  // window consumed by this conversation. Uses the same rough ~4 chars/token
+  // estimate as convStats. Drives a thin coloured bar on the header border.
+  const CONTEXT_LIMIT = 200_000;
+  const contextBarPct = convStats
+    ? Math.min((convStats.approxTokens / CONTEXT_LIMIT) * 100, 100)
+    : 0;
+  const contextBarColor =
+    contextBarPct < 50
+      ? "rgb(59,130,246)"  // blue-500  — plenty of headroom
+      : contextBarPct < 75
+      ? "rgb(245,158,11)"  // amber-500 — getting full
+      : contextBarPct < 90
+      ? "rgb(249,115,22)"  // orange-500 — nearly full
+      : "rgb(239,68,68)";  // red-500   — context limit approaching
+
   const handleNewSession = useCallback(() => {
     setActiveSessionId(null);
     setActiveSessionLabel(null);
@@ -184,6 +241,29 @@ export default function Home() {
     []
   );
 
+  // When a new session is created (we have a session ID but no label yet, and the
+  // AI has finished its first response), fetch the auto-generated session label from
+  // the API so the header bar displays the real session name instead of a placeholder.
+  useEffect(() => {
+    if (!activeSessionId || activeSessionLabel || isRunning) return;
+    let cancelled = false;
+    fetch("/api/sessions")
+      .then((r) => r.json())
+      .then((sessions: SessionInfo[]) => {
+        if (cancelled) return;
+        const found = sessions.find((s) => s.sessionId === activeSessionId);
+        if (found?.summary) {
+          setActiveSessionLabel(found.summary);
+        }
+      })
+      .catch(() => {
+        // Ignore network errors — header will stay in placeholder state
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, activeSessionLabel, isRunning]);
+
   return (
     <TooltipProvider>
       <div className="flex h-full">
@@ -193,14 +273,18 @@ export default function Home() {
           onLoadSession={handleLoadSession}
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {activeSessionLabel && (
-            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 border-b border-neutral-200 dark:border-neutral-800 bg-background/80 backdrop-blur-sm">
+          {messages.length > 0 && (
+            <div className="flex-shrink-0 relative flex items-center gap-2 px-4 py-2 border-b border-neutral-200 dark:border-neutral-800 bg-background/80 backdrop-blur-sm">
               <MessageSquare className="size-3.5 flex-shrink-0 text-neutral-400 dark:text-neutral-500" />
               <span
                 className="text-sm font-medium text-neutral-700 dark:text-neutral-200 truncate"
-                title={activeSessionLabel}
+                title={activeSessionLabel ?? "New conversation"}
               >
-                {activeSessionLabel}
+                {activeSessionLabel ?? (
+                  <span className="text-neutral-400 dark:text-neutral-500 italic">
+                    New conversation
+                  </span>
+                )}
               </span>
               {/* Dynamic session status: pulsing dot while running, turn count when idle */}
               {isRunning ? (
@@ -212,44 +296,95 @@ export default function Home() {
                   <span className="hidden sm:inline">Thinking…</span>
                 </span>
               ) : turnCount > 0 ? (
-                <span
-                  className="flex-shrink-0 inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 px-2 py-0.5 text-[10px] font-medium text-neutral-500 dark:text-neutral-400 tabular-nums whitespace-nowrap"
-                  title={`${turnCount} user turn${turnCount !== 1 ? "s" : ""} in this session`}
-                >
-                  {turnCount} turn{turnCount !== 1 ? "s" : ""}
-                </span>
-              ) : null}
-              {messages.length > 0 && (
-                <div className="ml-auto flex-shrink-0 flex items-center gap-1">
-                  <button
-                    onClick={async () => {
-                      await copyConversationToClipboard(messages, activeSessionLabel);
-                      setCopiedToClipboard(true);
-                      setTimeout(() => setCopiedToClipboard(false), 2000);
-                    }}
-                    title="Copy conversation to clipboard"
-                    aria-label="Copy conversation to clipboard"
-                    className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-                  >
-                    {copiedToClipboard ? (
-                      <CheckIcon className="size-3 text-green-500" />
-                    ) : (
-                      <ClipboardCopyIcon className="size-3" />
-                    )}
-                    <span className="hidden sm:inline">
-                      {copiedToClipboard ? "Copied!" : "Copy"}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className="flex-shrink-0 inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 px-2 py-0.5 text-[10px] font-medium text-neutral-500 dark:text-neutral-400 tabular-nums whitespace-nowrap cursor-default select-none"
+                    >
+                      {turnCount} turn{turnCount !== 1 ? "s" : ""}
                     </span>
-                  </button>
-                  <button
-                    onClick={() => exportConversation(messages, activeSessionLabel)}
-                    title="Export conversation as Markdown"
-                    aria-label="Export conversation as Markdown"
-                    className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="bottom"
+                    className="flex flex-col gap-0.5 py-2 px-3"
                   >
-                    <DownloadIcon className="size-3" />
-                    <span className="hidden sm:inline">Export</span>
-                  </button>
-                </div>
+                    <p className="text-xs font-semibold text-foreground mb-0.5">
+                      Conversation stats
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {messages.length} message{messages.length !== 1 ? "s" : ""}
+                    </p>
+                    {convStats && (
+                      <>
+                        <p className="text-xs text-muted-foreground">
+                          ~{convStats.totalWords.toLocaleString()} words
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          ~{convStats.approxTokens.toLocaleString()} tokens
+                        </p>
+                        {convStats.duration && (
+                          <p className="text-xs text-muted-foreground">
+                            {convStats.duration} elapsed
+                          </p>
+                        )}
+                        {convStats.startedAt && (
+                          <p className="text-xs text-muted-foreground">
+                            Started at {convStats.startedAt}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+              <div className="ml-auto flex-shrink-0 flex items-center gap-1">
+                <button
+                  onClick={async () => {
+                    await copyConversationToClipboard(messages, activeSessionLabel);
+                    setCopiedToClipboard(true);
+                    setTimeout(() => setCopiedToClipboard(false), 2000);
+                  }}
+                  title="Copy conversation to clipboard"
+                  aria-label="Copy conversation to clipboard"
+                  className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                >
+                  {copiedToClipboard ? (
+                    <CheckIcon className="size-3 text-green-500" />
+                  ) : (
+                    <ClipboardCopyIcon className="size-3" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {copiedToClipboard ? "Copied!" : "Copy"}
+                  </span>
+                </button>
+                <button
+                  onClick={() => exportConversation(messages, activeSessionLabel)}
+                  title="Export conversation as Markdown"
+                  aria-label="Export conversation as Markdown"
+                  className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                >
+                  <DownloadIcon className="size-3" />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
+              </div>
+
+              {/* Context-window usage bar — a thin 1px line that runs along the
+                  bottom border and fills left-to-right proportionally to the
+                  approximate token count. Color shifts blue → amber → orange → red
+                  as the conversation approaches Claude's 200k context limit.
+                  It sits exactly on the border so unfilled space shows the normal
+                  border colour and the filled portion shows the usage colour. */}
+              {contextBarPct > 0 && (
+                <div
+                  className="absolute bottom-0 left-0 h-px pointer-events-none"
+                  style={{
+                    width: `${contextBarPct}%`,
+                    backgroundColor: contextBarColor,
+                    transition: "width 700ms ease-out, background-color 400ms ease",
+                  }}
+                  aria-hidden="true"
+                  title={`~${convStats?.approxTokens.toLocaleString()} / 200,000 tokens used`}
+                />
               )}
             </div>
           )}
