@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { useEventBus } from "@/hooks/use-event-bus";
 
 /**
  * NeuralPulse — a tiny animated Julia set fractal that lives in the navbar.
@@ -101,79 +102,42 @@ export function NeuralPulse() {
     animSpeed: 0.0005,
   });
 
-  // Poll the self-improve activity endpoint to determine state
-  useEffect(() => {
-    let cancelled = false;
-    let lastEventId = 0;
-    let lastEventCount = 0;
+  // Listen to SSE events to determine agent state (replaces polling)
+  useEventBus("self-improve:activity", useCallback((raw: unknown) => {
+    const data = raw as { events?: { id: number; kind: string; content: string }[]; running?: boolean };
+    const newEvents = data.events ?? [];
 
-    async function poll() {
-      if (cancelled) return;
-      try {
-        const res = await fetch(`/api/self-improve/activity?since=${lastEventId}`);
-        if (!res.ok) throw new Error("fetch failed");
-        const data = await res.json();
+    const hasCommit = newEvents.some(
+      (e) => e.kind === "text" && e.content.includes("DONE [")
+    );
 
-        const newEvents: { id: number; kind: string; content: string }[] = data.events ?? [];
-        if (newEvents.length > 0) {
-          lastEventId = newEvents[newEvents.length - 1].id;
-        }
-
-        const hasCommit = newEvents.some(
-          (e) => e.kind === "text" && e.content.includes("DONE [")
-        );
-
-        if (hasCommit) {
-          stateRef.current = "commit";
-          commitFlashRef.current = 120; // ~2s at 60fps
-          setCurrentState("commit");
-        } else if (data.running) {
-          if (newEvents.length > lastEventCount) {
-            stateRef.current = "active";
-            setCurrentState("active");
-          } else {
-            if (stateRef.current !== "commit") {
-              stateRef.current = "active";
-              setCurrentState("active");
-            }
-          }
-          lastEventCount = newEvents.length;
-        } else {
-          try {
-            const statusRes = await fetch("/api/self-improve");
-            if (statusRes.ok) {
-              const status = await statusRes.json();
-              if (status.enabled) {
-                if (stateRef.current !== "commit") {
-                  stateRef.current = "idle";
-                  setCurrentState("idle");
-                }
-              } else {
-                if (stateRef.current !== "commit") {
-                  stateRef.current = "off";
-                  setCurrentState("off");
-                }
-              }
-            }
-          } catch {
-            if (stateRef.current !== "commit") {
-              stateRef.current = "off";
-              setCurrentState("off");
-            }
-          }
-        }
-      } catch {
-        // Network error — don't change state
-      }
-
-      if (!cancelled) {
-        setTimeout(poll, 2000);
+    if (hasCommit) {
+      stateRef.current = "commit";
+      commitFlashRef.current = 120;
+      setCurrentState("commit");
+    } else if (data.running) {
+      if (stateRef.current !== "commit") {
+        stateRef.current = "active";
+        setCurrentState("active");
       }
     }
+  }, []));
 
-    poll();
-    return () => { cancelled = true; };
-  }, []);
+  useEventBus("self-improve:status", useCallback((raw: unknown) => {
+    const data = raw as { enabled?: boolean; running?: boolean };
+    if (stateRef.current === "commit") return; // Don't interrupt commit flash
+
+    if (data.running) {
+      stateRef.current = "active";
+      setCurrentState("active");
+    } else if (data.enabled) {
+      stateRef.current = "idle";
+      setCurrentState("idle");
+    } else {
+      stateRef.current = "off";
+      setCurrentState("off");
+    }
+  }, []));
 
   // Listen for commit events from the self-improve toggle
   useEffect(() => {

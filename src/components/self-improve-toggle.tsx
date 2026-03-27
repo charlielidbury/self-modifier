@@ -25,9 +25,13 @@ import {
   Pencil,
   RotateCcw,
   Save,
+  ShieldCheck,
+  ShieldAlert,
+  Undo2,
 } from "lucide-react";
 import { dispatchAmbientEvent } from "./ambient-canvas";
 import { playCommitChimeIfUnmuted, isSoundMuted, setSoundMuted } from "@/lib/commit-sound";
+import { useEventBus } from "@/hooks/use-event-bus";
 
 type AgentStatus = {
   enabled: boolean;
@@ -61,6 +65,14 @@ type Commit = {
   author: string;
   additions?: number;
   deletions?: number;
+};
+
+type BuildHealth = {
+  lastCheck: string;
+  passed: boolean;
+  errors: string;
+  commitHash: string;
+  reverted: boolean;
 };
 
 type DiffFile = {
@@ -465,55 +477,61 @@ function ActivityFeed({ isRunning }: { isRunning: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
 
-  // Poll for new activity events
+  // Fetch initial activity events, then listen via SSE
   useEffect(() => {
     if (!isRunning && lines.length === 0) return;
+    let cancelled = false;
 
-    const poll = async () => {
+    async function fetchInitial() {
       try {
         const url = cursorRef.current >= 0
           ? `/api/self-improve/activity?since=${cursorRef.current}`
           : "/api/self-improve/activity";
         const res = await fetch(url);
-        if (!res.ok) return;
+        if (!res.ok || cancelled) return;
         const data = await res.json() as { events: ActivityEvent[]; running: boolean };
         if (data.events.length > 0) {
           cursorRef.current = data.events[data.events.length - 1].id;
-          setLines((prev) => {
-            const newLines = coalesceEvents(data.events);
-            const merged = [...prev];
-
-            for (const nl of newLines) {
-              const last = merged[merged.length - 1];
-              // Coalesce with the tail of existing lines
-              if (
-                last &&
-                last.kind === nl.kind &&
-                (nl.kind === "text" || nl.kind === "thinking")
-              ) {
-                last.content += nl.content;
-                last.ts = nl.ts;
-              } else {
-                merged.push(nl);
-              }
-            }
-
-            // Cap at 100 display lines
-            if (merged.length > 100) {
-              merged.splice(0, merged.length - 100);
-            }
-            return merged;
-          });
+          setLines(coalesceEvents(data.events));
         }
-      } catch {
-        /* ignore */
-      }
-    };
+      } catch { /* ignore */ }
+    }
 
-    poll();
-    const iv = setInterval(poll, isRunning ? 800 : 5000);
-    return () => clearInterval(iv);
-  }, [isRunning, lines.length]);
+    fetchInitial();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Listen for real-time activity events via SSE
+  useEventBus("self-improve:activity", useCallback((raw: unknown) => {
+    const data = raw as { events: ActivityEvent[]; running: boolean };
+    if (data.events.length > 0) {
+      cursorRef.current = data.events[data.events.length - 1].id;
+      setLines((prev) => {
+        const newLines = coalesceEvents(data.events);
+        const merged = [...prev];
+
+        for (const nl of newLines) {
+          const last = merged[merged.length - 1];
+          if (
+            last &&
+            last.kind === nl.kind &&
+            (nl.kind === "text" || nl.kind === "thinking")
+          ) {
+            last.content += nl.content;
+            last.ts = nl.ts;
+          } else {
+            merged.push(nl);
+          }
+        }
+
+        if (merged.length > 100) {
+          merged.splice(0, merged.length - 100);
+        }
+        return merged;
+      });
+    }
+  }, []));
 
   // Auto-scroll to bottom when new content arrives
   useEffect(() => {
@@ -891,6 +909,31 @@ export function SelfImproveToggle() {
 
   const promptDirty = promptText !== promptOriginal;
 
+  // ── Build health state ──────────────────────────────────────────────────
+  const [buildHealth, setBuildHealth] = useState<BuildHealth | null>(null);
+  const [buildHealthExpanded, setBuildHealthExpanded] = useState(false);
+
+  // Fetch build health once on mount, then refresh when commits change via SSE
+  const fetchBuildHealth = useCallback(async () => {
+    try {
+      const res = await fetch("/api/self-improve/health");
+      if (res.ok) {
+        const data = (await res.json()) as { health: BuildHealth | null };
+        setBuildHealth(data.health);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    fetchBuildHealth();
+  }, [fetchBuildHealth]);
+
+  // Re-fetch build health when new commits are detected (build check runs after each commit)
+  useEventBus("self-improve:commits", useCallback(() => {
+    // Small delay to let the build check finish after the commit
+    setTimeout(fetchBuildHealth, 3000);
+  }, [fetchBuildHealth]));
+
   // Panel animation state — keeps the element in the DOM during the exit animation.
   const [showPanel, setShowPanel] = useState(false);
   const [panelClosing, setPanelClosing] = useState(false);
@@ -965,14 +1008,14 @@ export function SelfImproveToggle() {
 
   useEffect(() => {
     fetchStatus();
-    const iv = setInterval(
-      fetchStatus,
-      status.running ? 1500 : status.enabled ? 3000 : 10_000
-    );
-    return () => clearInterval(iv);
-  }, [fetchStatus, status.running, status.enabled]);
+  }, [fetchStatus]);
 
-  // ── Fetch commits (when expanded or running) ──────────────────────────────
+  // Listen for real-time status updates via SSE
+  useEventBus("self-improve:status", useCallback((raw: unknown) => {
+    setStatus(raw as AgentStatus);
+  }, []));
+
+  // ── Fetch commits (once on mount, then via SSE notification) ──────────────
   const fetchCommits = useCallback(async () => {
     try {
       const res = await fetch("/api/self-improve/commits");
@@ -985,17 +1028,15 @@ export function SelfImproveToggle() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!expanded && !status.running) return;
-    fetchCommits();
-    const iv = setInterval(fetchCommits, status.running ? 4000 : 15_000);
-    return () => clearInterval(iv);
-  }, [fetchCommits, expanded, status.running]);
-
   // Initial commit fetch so count shows in pill right away
   useEffect(() => {
     fetchCommits();
   }, [fetchCommits]);
+
+  // Re-fetch commits when the server detects new git activity
+  useEventBus("self-improve:commits", useCallback(() => {
+    fetchCommits();
+  }, [fetchCommits]));
 
   // ── Detect new commits & trigger celebration ──────────────────────────
   useEffect(() => {
@@ -1121,6 +1162,62 @@ export function SelfImproveToggle() {
               Prompt
             </button>
           </div>
+
+          {/* ── Build health indicator ── */}
+          {buildHealth && (
+            <div className={[
+              "px-3 py-1.5 border-b transition-colors",
+              buildHealth.passed
+                ? "border-emerald-500/10 bg-emerald-950/20"
+                : "border-red-500/10 bg-red-950/20",
+            ].join(" ")}>
+              <button
+                onClick={() => setBuildHealthExpanded(v => !v)}
+                className="w-full flex items-center gap-2 text-left"
+              >
+                {buildHealth.passed ? (
+                  <ShieldCheck size={11} className="text-emerald-400 flex-shrink-0" />
+                ) : buildHealth.reverted ? (
+                  <Undo2 size={11} className="text-amber-400 flex-shrink-0" />
+                ) : (
+                  <ShieldAlert size={11} className="text-red-400 flex-shrink-0" />
+                )}
+                <span className={[
+                  "text-[10px] font-medium flex-1",
+                  buildHealth.passed
+                    ? "text-emerald-400/80"
+                    : buildHealth.reverted
+                      ? "text-amber-400/80"
+                      : "text-red-400/80",
+                ].join(" ")}>
+                  {buildHealth.passed
+                    ? "Build OK"
+                    : buildHealth.reverted
+                      ? "Build failed — auto-reverted"
+                      : "Build failed"}
+                </span>
+                <span className="text-[9px] text-white/20 font-mono flex-shrink-0">
+                  {buildHealth.commitHash.slice(0, 7)}
+                </span>
+                <ChevronRight
+                  size={9}
+                  className={`text-white/20 transition-transform duration-150 flex-shrink-0 ${buildHealthExpanded ? "rotate-90" : ""}`}
+                />
+              </button>
+              {buildHealthExpanded && !buildHealth.passed && buildHealth.errors && (
+                <div className="mt-1.5 max-h-32 overflow-y-auto rounded-md bg-black/30 border border-white/5 p-2">
+                  <pre className="text-[9px] font-mono text-red-300/70 whitespace-pre-wrap break-all leading-relaxed">
+                    {buildHealth.errors.slice(0, 1500)}
+                  </pre>
+                </div>
+              )}
+              {buildHealthExpanded && buildHealth.passed && (
+                <p className="mt-1 text-[9px] text-emerald-400/50">
+                  TypeScript typecheck passed — no errors detected.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* ── Suggestion box ── */}
           <div className="px-3 py-2 border-b border-white/[0.06] bg-white/[0.015]">

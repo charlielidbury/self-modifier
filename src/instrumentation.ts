@@ -4,6 +4,9 @@ export async function register() {
     const { startTelegramPolling } = await import("./lib/telegram-poller");
     startTelegramPolling();
 
+    const { startGitWatcher } = await import("./lib/event-bus");
+    startGitWatcher();
+
     // Import all agent modules so they register themselves with the registry.
     // Add new agent imports here as they're created.
     await import("./lib/self-improve");

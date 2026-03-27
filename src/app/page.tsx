@@ -26,6 +26,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RecentlyModifiedRoute } from "@/app/api/recently-modified/route";
+import { useEventBus } from "@/hooks/use-event-bus";
 
 interface CardInfo {
   href: string;
@@ -260,28 +261,29 @@ export default function Home() {
   const [recentMods, setRecentMods] = useState<Map<string, RecentlyModifiedRoute>>(new Map());
 
   // Fetch recently modified routes
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchRecent() {
-      try {
-        const res = await fetch("/api/recently-modified");
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-        const map = new Map<string, RecentlyModifiedRoute>();
-        for (const route of data.routes ?? []) {
-          map.set(route.route, route);
-        }
-        setRecentMods(map);
-      } catch {
-        // silently fail
+  const fetchRecent = useCallback(async () => {
+    try {
+      const res = await fetch("/api/recently-modified");
+      if (!res.ok) return;
+      const data = await res.json();
+      const map = new Map<string, RecentlyModifiedRoute>();
+      for (const route of data.routes ?? []) {
+        map.set(route.route, route);
       }
+      setRecentMods(map);
+    } catch {
+      // silently fail
     }
-    fetchRecent();
-    // Re-fetch every 30 seconds to catch new commits
-    const interval = setInterval(fetchRecent, 30_000);
-    return () => { cancelled = true; clearInterval(interval); };
   }, []);
+
+  useEffect(() => {
+    fetchRecent();
+  }, [fetchRecent]);
+
+  // Re-fetch when server detects new git activity
+  useEventBus("recently-modified", useCallback(() => {
+    fetchRecent();
+  }, [fetchRecent]));
 
   // Track mouse position across the card grid to create a spotlight border glow.
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { useEventBus } from "@/hooks/use-event-bus";
 
 /**
  * AmbientBorder — a full-viewport edge glow that reflects the self-improve
@@ -28,61 +29,37 @@ export function AmbientBorder() {
     setState(next);
   }, []);
 
-  // Poll the self-improve API to determine agent state
-  useEffect(() => {
-    let cancelled = false;
-    let lastEventId = 0;
+  // Listen to SSE events to determine agent state (replaces polling)
+  useEventBus("self-improve:activity", useCallback((raw: unknown) => {
+    const data = raw as { events?: { id: number; kind: string; content: string }[]; running?: boolean };
+    const newEvents = data.events ?? [];
 
-    async function poll() {
-      if (cancelled) return;
-      try {
-        const res = await fetch(`/api/self-improve/activity?since=${lastEventId}`);
-        if (!res.ok) throw new Error("fetch failed");
-        const data = await res.json();
+    const hasCommit = newEvents.some(
+      (e) => e.kind === "text" && e.content.includes("DONE [")
+    );
 
-        const newEvents: { id: number; kind: string; content: string }[] =
-          data.events ?? [];
-        if (newEvents.length > 0) {
-          lastEventId = newEvents[newEvents.length - 1].id;
-        }
-
-        // Detect commits
-        const hasCommit = newEvents.some(
-          (e) => e.kind === "text" && e.content.includes("DONE [")
-        );
-
-        if (hasCommit) {
-          triggerCommit();
-        } else if (data.running) {
-          if (stateRef.current !== "commit") {
-            updateState("active");
-          }
-        } else {
-          // Check if agent is enabled
-          try {
-            const statusRes = await fetch("/api/self-improve");
-            if (statusRes.ok) {
-              const status = await statusRes.json();
-              if (stateRef.current !== "commit") {
-                updateState(status.enabled ? "idle" : "off");
-              }
-            }
-          } catch {
-            if (stateRef.current !== "commit") updateState("off");
-          }
-        }
-      } catch {
-        // Network error — hold state
+    if (hasCommit) {
+      triggerCommit();
+    } else if (data.running) {
+      if (stateRef.current !== "commit") {
+        updateState("active");
       }
-
-      if (!cancelled) setTimeout(poll, 2000);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateState]));
 
-    poll();
-    return () => {
-      cancelled = true;
-    };
-  }, [updateState]);
+  useEventBus("self-improve:status", useCallback((raw: unknown) => {
+    const data = raw as { enabled?: boolean; running?: boolean };
+    if (stateRef.current === "commit") return;
+
+    if (data.running) {
+      updateState("active");
+    } else if (data.enabled) {
+      updateState("idle");
+    } else {
+      updateState("off");
+    }
+  }, [updateState]));
 
   // Listen for commit celebration events from the self-improve toggle
   useEffect(() => {

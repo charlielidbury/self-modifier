@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useEventBus } from "@/hooks/use-event-bus";
 import {
   GitCommit,
   Loader2,
@@ -566,11 +567,10 @@ export default function EvolutionPage() {
     fetchCommits();
   }, [fetchCommits]);
 
-  // Auto-refresh commits every 60 seconds
-  useEffect(() => {
-    const iv = setInterval(() => fetchCommits(), 60_000);
-    return () => clearInterval(iv);
-  }, [fetchCommits]);
+  // Re-fetch commits when the server detects new git activity
+  useEventBus("self-improve:commits", useCallback(() => {
+    fetchCommits();
+  }, [fetchCommits]));
 
   // Refresh time-ago labels every 30s
   useEffect(() => {

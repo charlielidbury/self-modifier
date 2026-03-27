@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { RecentlyModifiedRoute } from "@/app/api/recently-modified/route";
+import { useEventBus } from "@/hooks/use-event-bus";
 
 /* ─── Star data ──────────────────────────────────────────────────────────── */
 
@@ -111,23 +112,25 @@ export default function ConstellationPage() {
   const lines = useMemo(() => getConstellationLines(), []);
 
   // Fetch recently modified routes
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchRecent() {
-      try {
-        const res = await fetch("/api/recently-modified");
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-        const map = new Map<string, RecentlyModifiedRoute>();
-        for (const route of data.routes ?? []) map.set(route.route, route);
-        setRecentMods(map);
-      } catch { /* silently fail */ }
-    }
-    fetchRecent();
-    const interval = setInterval(fetchRecent, 30_000);
-    return () => { cancelled = true; clearInterval(interval); };
+  const fetchRecent = useCallback(async () => {
+    try {
+      const res = await fetch("/api/recently-modified");
+      if (!res.ok) return;
+      const data = await res.json();
+      const map = new Map<string, RecentlyModifiedRoute>();
+      for (const route of data.routes ?? []) map.set(route.route, route);
+      setRecentMods(map);
+    } catch { /* silently fail */ }
   }, []);
+
+  useEffect(() => {
+    fetchRecent();
+  }, [fetchRecent]);
+
+  // Re-fetch when server detects new git activity
+  useEventBus("recently-modified", useCallback(() => {
+    fetchRecent();
+  }, [fetchRecent]));
 
   const starMap = useMemo(() => {
     const m = new Map<string, Star>();

@@ -1,4 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import {
@@ -8,13 +9,22 @@ import {
   getAgentState,
   setAgentState,
 } from "./agent-registry";
+import { emit } from "./event-bus";
 
 export type ImprovementEntry = {
   id: string;
   startedAt: string;
   completedAt?: string;
   summary?: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "completed" | "failed" | "reverted";
+};
+
+export type BuildHealthStatus = {
+  lastCheck: string; // ISO timestamp
+  passed: boolean;
+  errors: string; // tsc output on failure, empty on success
+  commitHash: string; // the commit that was checked
+  reverted: boolean; // whether the commit was auto-reverted
 };
 
 export type ActivityEvent = {
@@ -42,6 +52,7 @@ type SelfImproveGlobal = {
   loopAlive: boolean;
   activity: ActivityEvent[];
   activitySeq: number;
+  buildHealth: BuildHealthStatus | null;
 };
 
 const g = globalThis as typeof globalThis & {
@@ -56,6 +67,7 @@ if (!g.__selfImprove) {
     loopAlive: false,
     activity: [],
     activitySeq: 0,
+    buildHealth: null,
   };
 } else {
   // Patch in any missing fields so stale HMR state doesn't cause crashes
@@ -64,6 +76,7 @@ if (!g.__selfImprove) {
   g.__selfImprove.loopAlive ??= false;
   g.__selfImprove.activity ??= [];
   g.__selfImprove.activitySeq ??= 0;
+  g.__selfImprove.buildHealth ??= null;
 }
 
 const inMemory: SelfImproveGlobal = g.__selfImprove;
@@ -77,6 +90,7 @@ export const selfImproveState = {
   },
   set enabled(value: boolean) {
     setAgentEnabled("self-improve", value);
+    emitStatus();
   },
 
   get suggestion(): string {
@@ -92,6 +106,7 @@ export const selfImproveState = {
   },
   set running(value: boolean) {
     inMemory.running = value;
+    emitStatus();
   },
 
   get entries(): ImprovementEntry[] {
@@ -121,9 +136,29 @@ export const selfImproveState = {
   set activitySeq(value: number) {
     inMemory.activitySeq = value;
   },
+
+  get buildHealth(): BuildHealthStatus | null {
+    return inMemory.buildHealth;
+  },
+  set buildHealth(value: BuildHealthStatus | null) {
+    inMemory.buildHealth = value;
+  },
 };
 
-/** Push an activity event to the ring buffer. */
+/** Emit the current self-improve status to all SSE subscribers. */
+function emitStatus() {
+  emit({
+    channel: "self-improve:status",
+    data: {
+      enabled: selfImproveState.enabled,
+      running: selfImproveState.running,
+      entries: selfImproveState.entries,
+      suggestion: selfImproveState.suggestion,
+    },
+  });
+}
+
+/** Push an activity event to the ring buffer and broadcast via SSE. */
 function pushActivity(
   kind: ActivityEvent["kind"],
   content: string,
@@ -143,11 +178,21 @@ function pushActivity(
       selfImproveState.activity.length - MAX_ACTIVITY,
     );
   }
+
+  // Push new activity events to all connected browsers
+  emit({
+    channel: "self-improve:activity",
+    data: {
+      events: [evt],
+      running: selfImproveState.running,
+    },
+  });
 }
 
 // ── Improvement prompt (read from .self-improve-prompt.md, editable via UI) ──
 const PROMPT_FILE = path.resolve(process.cwd(), ".self-improve-prompt.md");
-const FALLBACK_PROMPT = "You are a self-improving AI agent. Make one focused improvement to this codebase, commit it, and report what you did.";
+const FALLBACK_PROMPT =
+  "You are a self-improving AI agent. Make one focused improvement to this codebase, commit it, and report what you did.";
 
 function getPrompt(): string {
   try {
@@ -279,6 +324,120 @@ async function runOnce(): Promise<string> {
   return summary;
 }
 
+// ── Build verification ────────────────────────────────────────────────────────
+// After each improvement, run a typecheck. If it introduces NEW errors, auto-revert.
+// Uses a differential approach: captures baseline error count before the agent runs,
+// then compares after. This tolerates pre-existing errors gracefully.
+
+/** Run tsc and return the error output and count of error lines. */
+function runTypecheck(): { errorCount: number; output: string } {
+  const cwd = path.resolve(process.cwd());
+  try {
+    execSync("npx tsc --noEmit 2>&1", {
+      cwd,
+      encoding: "utf-8",
+      timeout: 120_000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return { errorCount: 0, output: "" };
+  } catch (err) {
+    const output = err instanceof Error && "stdout" in err
+      ? String((err as { stdout: unknown }).stdout)
+      : err instanceof Error ? err.message : String(err);
+    // Count lines matching the TS error pattern: "file(line,col): error TSxxxx:"
+    const errorLines = output.split("\n").filter(line => /:\s*error\s+TS\d+/.test(line));
+    return { errorCount: errorLines.length, output: output.slice(0, 3000) };
+  }
+}
+
+/** Baseline error count captured before each agent run. */
+let baselineErrorCount = -1;
+
+function captureBaseline(): void {
+  const cwd = path.resolve(process.cwd());
+  pushActivity("text", "📊 Capturing pre-run typecheck baseline...");
+  try {
+    const result = runTypecheck();
+    baselineErrorCount = result.errorCount;
+    pushActivity("text", `📊 Baseline: ${baselineErrorCount} pre-existing error(s)`);
+  } catch {
+    baselineErrorCount = -1; // couldn't establish baseline — skip verification
+    pushActivity("text", "📊 Could not establish baseline — build verification will be skipped");
+  }
+}
+
+async function verifyBuild(): Promise<{ passed: boolean; errors: string; commitHash: string }> {
+  const cwd = path.resolve(process.cwd());
+
+  // Get the current HEAD commit hash
+  let commitHash = "unknown";
+  try {
+    commitHash = execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8" }).trim();
+  } catch {
+    // ignore
+  }
+
+  // If we couldn't establish a baseline, skip verification (pass by default)
+  if (baselineErrorCount < 0) {
+    pushActivity("text", `⏭️ Skipping build verification (no baseline) for ${commitHash}`);
+    return { passed: true, errors: "", commitHash };
+  }
+
+  pushActivity("text", `🔍 Running build verification on commit ${commitHash}...`);
+
+  const result = runTypecheck();
+
+  if (result.errorCount <= baselineErrorCount) {
+    // No new errors introduced (may even have fixed some!)
+    const delta = baselineErrorCount - result.errorCount;
+    const msg = delta > 0
+      ? `✅ Build OK for ${commitHash} — fixed ${delta} error(s)! (${result.errorCount} remaining)`
+      : `✅ Build OK for ${commitHash} (${result.errorCount} pre-existing error(s), no new ones)`;
+    pushActivity("text", msg);
+    return { passed: true, errors: "", commitHash };
+  }
+
+  // New errors introduced
+  const newErrors = result.errorCount - baselineErrorCount;
+  pushActivity(
+    "error",
+    `❌ Build verification FAILED for ${commitHash}: ${newErrors} new error(s) introduced (was ${baselineErrorCount}, now ${result.errorCount})\n${result.output}`,
+  );
+
+  return { passed: false, errors: result.output, commitHash };
+}
+
+async function rollbackCommit(commitHash: string): Promise<boolean> {
+  const cwd = path.resolve(process.cwd());
+
+  pushActivity("text", `⏪ Auto-reverting broken commit ${commitHash}...`);
+
+  try {
+    execSync("git revert HEAD --no-edit", {
+      cwd,
+      encoding: "utf-8",
+      timeout: 30_000,
+    });
+    pushActivity("text", `✅ Successfully reverted commit ${commitHash}`);
+    return true;
+  } catch (revertErr) {
+    // If revert fails (e.g., conflicts), try a hard reset as last resort
+    pushActivity("error", `⚠️ Revert failed, attempting reset...`);
+    try {
+      execSync("git reset --hard HEAD~1", {
+        cwd,
+        encoding: "utf-8",
+        timeout: 10_000,
+      });
+      pushActivity("text", `✅ Reset to pre-commit state (dropped ${commitHash})`);
+      return true;
+    } catch {
+      pushActivity("error", `❌ Could not rollback commit ${commitHash} — manual intervention needed`);
+      return false;
+    }
+  }
+}
+
 // ── Background loop ───────────────────────────────────────────────────────────
 export function startImprovementLoop() {
   // Already looping — nothing to do (flag lives on globalThis, survives HMR).
@@ -303,6 +462,25 @@ export function startImprovementLoop() {
         try {
           entry.summary = await runOnce();
           entry.status = "completed";
+
+          // ── Build verification gate ──
+          // After the agent commits, verify the build is still healthy.
+          const health = await verifyBuild();
+          selfImproveState.buildHealth = {
+            lastCheck: new Date().toISOString(),
+            passed: health.passed,
+            errors: health.errors,
+            commitHash: health.commitHash,
+            reverted: false,
+          };
+
+          if (!health.passed) {
+            // Build is broken — roll back the commit
+            const reverted = await rollbackCommit(health.commitHash);
+            selfImproveState.buildHealth.reverted = reverted;
+            entry.status = "reverted";
+            entry.summary = `[REVERTED] ${entry.summary ?? "(no summary)"} — build check failed`;
+          }
         } catch (err) {
           entry.status = "failed";
           entry.summary =

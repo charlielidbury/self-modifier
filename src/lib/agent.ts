@@ -5,6 +5,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { StreamEvent } from "./types";
+import { emit } from "./event-bus";
 
 const SYSTEM_PROMPT = `You are an AI assistant embedded in a Next.js application. You can read and modify the application's source code, including the code that powers this very chat interface. The project root is your cwd. Do whatever the user asks.
 
@@ -90,6 +91,14 @@ export function getSessionStatus(sessionId: string): AgentStatus {
   return "unloaded";
 }
 
+/** Broadcast the current status of a session via the event bus. */
+function emitSessionStatus(sessionId: string) {
+  emit({
+    channel: "sessions:status",
+    data: { [sessionId]: getSessionStatus(sessionId) },
+  });
+}
+
 export async function* runAgent(
   message: string,
   sessionId?: string,
@@ -150,7 +159,10 @@ export async function* runAgent(
 
   // For existing sessions we already know the ID; mark running immediately.
   // For brand-new sessions the ID arrives with the first "system" event below.
-  if (state.sessionId) runningSessions.add(state.sessionId);
+  if (state.sessionId) {
+    runningSessions.add(state.sessionId);
+    emitSessionStatus(state.sessionId);
+  }
 
   // Consume SDK events until we see a ResultMessage (end of this turn).
   try {
@@ -168,6 +180,7 @@ export async function* runAgent(
         sessions.set(msg.session_id, state);
         // Mark running now that we have the real ID (new-session path).
         runningSessions.add(msg.session_id);
+        emitSessionStatus(msg.session_id);
         yield { type: "session", sessionId: msg.session_id };
         break;
       }
@@ -234,6 +247,7 @@ export async function* runAgent(
         state.sessionId = msg.session_id;
         sessions.set(msg.session_id, state);
         runningSessions.delete(state.sessionId);
+        emitSessionStatus(state.sessionId);
         yield { type: "done", sessionId: msg.session_id };
         return; // End of this turn — leave subprocess alive for next message.
       }
@@ -242,5 +256,6 @@ export async function* runAgent(
   } finally {
     // Always clear running status, even if an error is thrown.
     runningSessions.delete(state.sessionId);
+    emitSessionStatus(state.sessionId);
   }
 }

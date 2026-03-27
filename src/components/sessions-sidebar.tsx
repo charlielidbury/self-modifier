@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
 import { Trash2, MessageSquare, Pencil, Plus, Pin } from "lucide-react";
 import type { SessionInfo, ChatMessage, ContentPart } from "@/lib/types";
+import { useEventBus } from "@/hooks/use-event-bus";
 import type { AgentStatus } from "@/lib/agent";
 import {
   Tooltip,
@@ -249,11 +250,10 @@ export function SessionsSidebar({
       .finally(() => setIsLoadingSessions(false));
   }, []);
 
-  // Poll statuses every 2 seconds.
+  // Fetch initial statuses, then listen for push updates via SSE
   useEffect(() => {
     let cancelled = false;
-
-    async function poll() {
+    async function fetchInitial() {
       const ids = sessionIdsRef.current;
       if (ids.length === 0) return;
       try {
@@ -270,14 +270,15 @@ export function SessionsSidebar({
         // ignore
       }
     }
-
-    poll();
-    const interval = setInterval(poll, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
+    fetchInitial();
+    return () => { cancelled = true; };
   }, []);
+
+  // Listen for real-time session status updates via SSE
+  useEventBus("sessions:status", useCallback((raw: unknown) => {
+    const update = raw as Record<string, AgentStatus>;
+    setStatuses((prev) => ({ ...prev, ...update }));
+  }, []));
 
   // Keep sessionIdsRef in sync whenever sessions list changes.
   useEffect(() => {
