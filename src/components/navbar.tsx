@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, Swords, Cuboid, Infinity } from "lucide-react";
+import { MessageSquare, Swords, Cuboid, Infinity, TrendingUp } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Tooltip,
@@ -18,6 +18,7 @@ const tabs = [
   { href: "/chess", label: "Chess", Icon: Swords, shortcut: "Alt+2" },
   { href: "/minecraft", label: "Minecraft", Icon: Cuboid, shortcut: "Alt+3" },
   { href: "/fractals", label: "Fractals", Icon: Infinity, shortcut: "Alt+4" },
+  { href: "/evolution", label: "Evolution", Icon: TrendingUp, shortcut: "Alt+5" },
 ];
 
 // Per-page accent colours for the sliding pill background and active tab text.
@@ -27,6 +28,7 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/chess":     { pill: "bg-amber-500/15 dark:bg-amber-400/20", text: "text-amber-700 dark:text-amber-300" },
   "/minecraft": { pill: "bg-green-500/15 dark:bg-green-500/20", text: "text-green-700 dark:text-green-300" },
   "/fractals":  { pill: "bg-violet-500/15 dark:bg-violet-500/20", text: "text-violet-700 dark:text-violet-300" },
+  "/evolution": { pill: "bg-rose-500/15 dark:bg-rose-500/20",   text: "text-rose-700 dark:text-rose-300" },
 };
 
 // Actual color values used for the animated brand accent dot (inline style so
@@ -36,6 +38,7 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/chess":     "#f59e0b", // amber-500
   "/minecraft": "#22c55e", // green-500
   "/fractals":  "#8b5cf6", // violet-500
+  "/evolution": "#f43f5e", // rose-500
 };
 
 // Subtle ambient glow applied to the sliding pill so the active tab feels alive.
@@ -45,6 +48,7 @@ const PAGE_PILL_GLOWS: Record<string, string> = {
   "/chess":     "0 0 14px 3px rgba(245,158,11,0.22)",
   "/minecraft": "0 0 14px 3px rgba(34,197,94,0.22)",
   "/fractals":  "0 0 14px 3px rgba(139,92,246,0.22)",
+  "/evolution": "0 0 14px 3px rgba(244,63,94,0.22)",
 };
 
 // Browser tab titles per page.
@@ -53,6 +57,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/chess":     "Chess — Self-Modifier",
   "/minecraft": "Minecraft — Self-Modifier",
   "/fractals":  "Fractals — Self-Modifier",
+  "/evolution": "Evolution — Self-Modifier",
 };
 
 export function Navbar() {
@@ -73,7 +78,7 @@ export function Navbar() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!e.altKey) return;
-      const index = ["1", "2", "3", "4"].indexOf(e.key);
+      const index = ["1", "2", "3", "4", "5"].indexOf(e.key);
       if (index === -1) return;
       e.preventDefault();
       router.push(tabs[index].href);
@@ -171,6 +176,31 @@ export function Navbar() {
         </div>
 
         <div className="ml-auto flex items-center gap-1">
+          {/* Command palette trigger */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => {
+                  window.dispatchEvent(
+                    new KeyboardEvent("keydown", { key: "k", metaKey: true })
+                  );
+                }}
+                className="flex items-center gap-1.5 h-7 px-2 rounded-md border border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors text-xs"
+                aria-label="Open command palette"
+              >
+                <span className="text-muted-foreground/60">Search…</span>
+                <kbd className="font-mono text-[10px] font-medium text-muted-foreground/70">⌘K</kbd>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <span className="text-xs">
+                Command palette{" "}
+                <kbd className="ml-1 rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+                  ⌘K
+                </kbd>
+              </span>
+            </TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <button

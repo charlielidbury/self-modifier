@@ -23,6 +23,7 @@ import {
   Link,
   Camera,
   Shuffle,
+  TrendingUp,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -115,6 +116,15 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/fractals"),
       keywords: ["mandelbrot", "julia", "webgl", "math"],
+    },
+    {
+      id: "nav-evolution",
+      label: "Go to Evolution",
+      hint: "Alt+5",
+      icon: <TrendingUp size={16} />,
+      group: "Navigation",
+      action: () => router.push("/evolution"),
+      keywords: ["timeline", "history", "commits", "changelog", "self-improve"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {

@@ -28,6 +28,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["Alt", "2"], description: "Go to Chess" },
       { keys: ["Alt", "3"], description: "Go to Minecraft" },
       { keys: ["Alt", "4"], description: "Go to Fractals" },
+      { keys: ["Alt", "5"], description: "Go to Evolution" },
     ],
   },
   {
