@@ -23,6 +23,7 @@ import {
   Zap,
   Compass,
   Bird,
+  FlaskRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -251,6 +252,17 @@ const cards: CardInfo[] = [
     glowColor: "rgba(234,179,8,0.15)",
     category: "Simulation",
   },
+  {
+    href: "/ochre",
+    label: "Ochre",
+    description: "A systems theorem prover combining Rust with dependent types — thesis, slides, and language overview.",
+    Icon: FlaskRound,
+    color: "text-amber-600",
+    bgColor: "bg-amber-600/10 dark:bg-amber-600/15",
+    borderColor: "hover:border-amber-600/40",
+    glowColor: "rgba(217,119,6,0.15)",
+    category: "Research",
+  },
 ];
 
 /** Format a relative time string like "2h ago", "3d ago", "just now" */
@@ -324,8 +336,9 @@ export default function Home() {
   }, []);
 
 
-  const gridCards = cards.filter(c => c.href !== "/chat");
+  const gridCards = cards.filter(c => c.href !== "/chat" && c.href !== "/ochre");
   const chatMod = recentMods.get("/chat");
+  const ochreMod = recentMods.get("/ochre");
 
   return (
     <div className="h-full overflow-y-auto">
@@ -340,45 +353,88 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Featured: Chat */}
-        <Link
-          href="/chat"
-          className={[
-            "group relative block mb-10 rounded-2xl border bg-gradient-to-br from-blue-500/[0.06] via-transparent to-violet-500/[0.06] dark:from-blue-500/[0.08] dark:to-violet-500/[0.08] p-6 sm:p-8 transition-all duration-300 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-500/[0.06] home-featured-in",
-            chatMod ? "border-emerald-500/30 dark:border-emerald-500/20" : "border-border",
-          ].join(" ")}
-        >
-          {chatMod && (
-            <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 dark:bg-emerald-500/15 recently-improved-badge">
-              <span className="recently-improved-dot" aria-hidden="true" />
-              <Zap size={11} className="text-emerald-500" />
-              <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                Improved {timeAgo(chatMod.lastModified)}
-              </span>
-            </div>
-          )}
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500/10 dark:bg-blue-500/15">
-                  <MessageSquare className="text-blue-500" size={20} />
-                </div>
-                <div>
-                  <h2 className="text-xl font-semibold text-foreground">Chat with the AI</h2>
-                  <span className="text-xs font-medium text-blue-500/70 dark:text-blue-400/70 uppercase tracking-wider">Featured</span>
-                </div>
+        {/* Featured row */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+          {/* Featured: Chat */}
+          <Link
+            href="/chat"
+            className={[
+              "group relative block rounded-2xl border bg-gradient-to-br from-blue-500/[0.06] via-transparent to-violet-500/[0.06] dark:from-blue-500/[0.08] dark:to-violet-500/[0.08] p-6 sm:p-8 transition-all duration-300 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-500/[0.06] home-featured-in",
+              chatMod ? "border-emerald-500/30 dark:border-emerald-500/20" : "border-border",
+            ].join(" ")}
+          >
+            {chatMod && (
+              <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 dark:bg-emerald-500/15 recently-improved-badge">
+                <span className="recently-improved-dot" aria-hidden="true" />
+                <Zap size={11} className="text-emerald-500" />
+                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                  Improved {timeAgo(chatMod.lastModified)}
+                </span>
               </div>
-              <p className="text-muted-foreground leading-relaxed max-w-xl">
-                Start a conversation with an AI that has full access to this application&apos;s source code.
-                Ask it to build new features, fix bugs, or explain how anything works — and watch it modify itself in real time.
-              </p>
+            )}
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500/10 dark:bg-blue-500/15">
+                    <MessageSquare className="text-blue-500" size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold text-foreground">Chat with the AI</h2>
+                    <span className="text-xs font-medium text-blue-500/70 dark:text-blue-400/70 uppercase tracking-wider">Featured</span>
+                  </div>
+                </div>
+                <p className="text-muted-foreground leading-relaxed">
+                  Start a conversation with an AI that has full access to this application&apos;s source code.
+                  Ask it to build new features, fix bugs, or explain how anything works — and watch it modify itself in real time.
+                </p>
+              </div>
+              <ArrowRight
+                size={20}
+                className="mt-2 text-muted-foreground/40 group-hover:text-blue-500 group-hover:translate-x-1 transition-all duration-300 flex-shrink-0"
+              />
             </div>
-            <ArrowRight
-              size={20}
-              className="mt-2 text-muted-foreground/40 group-hover:text-blue-500 group-hover:translate-x-1 transition-all duration-300 flex-shrink-0"
-            />
-          </div>
-        </Link>
+          </Link>
+
+          {/* Featured: Ochre */}
+          <Link
+            href="/ochre"
+            className={[
+              "group relative block rounded-2xl border bg-gradient-to-br from-amber-600/[0.06] via-transparent to-orange-500/[0.06] dark:from-amber-600/[0.08] dark:to-orange-500/[0.08] p-6 sm:p-8 transition-all duration-300 hover:border-amber-600/30 hover:shadow-lg hover:shadow-amber-600/[0.06] home-featured-in",
+              ochreMod ? "border-emerald-500/30 dark:border-emerald-500/20" : "border-border",
+            ].join(" ")}
+            style={{ animationDelay: "120ms" }}
+          >
+            {ochreMod && (
+              <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 dark:bg-emerald-500/15 recently-improved-badge">
+                <span className="recently-improved-dot" aria-hidden="true" />
+                <Zap size={11} className="text-emerald-500" />
+                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                  Improved {timeAgo(ochreMod.lastModified)}
+                </span>
+              </div>
+            )}
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-amber-600/10 dark:bg-amber-600/15">
+                    <FlaskRound className="text-amber-600" size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold text-foreground">Ochre</h2>
+                    <span className="text-xs font-medium text-amber-600/70 dark:text-amber-500/70 uppercase tracking-wider">Featured</span>
+                  </div>
+                </div>
+                <p className="text-muted-foreground leading-relaxed">
+                  A systems theorem prover combining Rust with dependent types — explore the thesis, slides, and deep dive into the language design.
+                </p>
+              </div>
+              <ArrowRight
+                size={20}
+                className="mt-2 text-muted-foreground/40 group-hover:text-amber-600 group-hover:translate-x-1 transition-all duration-300 flex-shrink-0"
+              />
+            </div>
+          </Link>
+        </div>
 
         {/* Grid with mouse-tracking spotlight */}
         <div
