@@ -35,6 +35,7 @@ const SECTIONS: ShortcutSection[] = [
     rows: [
       { keys: ["Alt", "N"], description: "New session" },
       { keys: ["Alt", "B"], description: "Toggle session sidebar" },
+      { keys: ["Alt", "F"], description: "Focus session search" },
       { keys: ["↓"], description: "Focus session list from filter box" },
       { keys: ["↑", "↓"], description: "Navigate between sessions" },
       { keys: ["Enter"], description: "Open highlighted session" },
@@ -95,22 +96,32 @@ function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Renders `text` with occurrences of `query` highlighted. */
+/** Renders `text` with ALL occurrences of `query` highlighted. */
 function HighlightText({ text, query }: { text: string; query: string }) {
   if (!query) return <>{text}</>;
   const lower = text.toLowerCase();
   const lowerQuery = query.toLowerCase();
-  const idx = lower.indexOf(lowerQuery);
-  if (idx === -1) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, idx)}
-      <mark className="bg-yellow-200 dark:bg-yellow-700/60 text-inherit rounded-[2px] px-0">
+
+  const parts: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let idx = lower.indexOf(lowerQuery);
+
+  while (idx !== -1) {
+    if (idx > lastIdx) parts.push(text.slice(lastIdx, idx));
+    parts.push(
+      <mark
+        key={idx}
+        className="bg-yellow-200 dark:bg-yellow-700/60 text-inherit rounded-[2px] px-0"
+      >
         {text.slice(idx, idx + query.length)}
-      </mark>
-      {text.slice(idx + query.length)}
-    </>
-  );
+      </mark>,
+    );
+    lastIdx = idx + query.length;
+    idx = lower.indexOf(lowerQuery, lastIdx);
+  }
+
+  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+  return <>{parts}</>;
 }
 
 export function KeyboardShortcutsModal() {
@@ -239,9 +250,26 @@ export function KeyboardShortcutsModal() {
                         />
                       </span>
                       <div className="flex items-center gap-1 flex-shrink-0 ml-3">
-                        {row.keys.map((k, j) => (
-                          <Kbd key={j}>{k}</Kbd>
-                        ))}
+                        {row.keys.map((k, j) => {
+                          const keyMatches =
+                            trimmedQuery &&
+                            k
+                              .toLowerCase()
+                              .includes(trimmedQuery.toLowerCase());
+                          return (
+                            <kbd
+                              key={j}
+                              className={cn(
+                                "inline-flex items-center justify-center rounded border px-1.5 py-0.5 font-mono text-[11px] font-medium shadow-sm transition-colors",
+                                keyMatches
+                                  ? "border-yellow-400 bg-yellow-100 text-yellow-800 dark:border-yellow-600 dark:bg-yellow-900/40 dark:text-yellow-200"
+                                  : "border-border bg-muted text-muted-foreground",
+                              )}
+                            >
+                              {k}
+                            </kbd>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
