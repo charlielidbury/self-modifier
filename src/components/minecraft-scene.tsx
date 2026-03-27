@@ -196,6 +196,17 @@ export default function MinecraftScene() {
     let isDragging = false;
     let lastPointerX = 0;
 
+    // ── Scroll-to-zoom state ──
+    const MIN_CAM_Z = 7;
+    const MAX_CAM_Z = 38;
+    let camZ = 18;
+    let targetCamZ = 18;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      targetCamZ = Math.max(MIN_CAM_Z, Math.min(MAX_CAM_Z, targetCamZ + e.deltaY * 0.04));
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       isDragging = true;
       lastPointerX = e.clientX;
@@ -234,6 +245,7 @@ export default function MinecraftScene() {
     renderer.domElement.addEventListener('pointermove', onPointerMove);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
     renderer.domElement.addEventListener('pointercancel', onPointerUp);
+    renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
     // ── Lights ──
     scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -323,6 +335,10 @@ export default function MinecraftScene() {
       rafId = requestAnimationFrame(animate);
       t += 0.012;
 
+      // Smooth zoom interpolation
+      camZ += (targetCamZ - camZ) * 0.1;
+      camera.position.setZ(camZ);
+
       // Spin the whole world (auto-rotate when not dragging; add user drag delta always)
       if (!isDragging) {
         rotY += 0.012 * 0.55;
@@ -383,6 +399,7 @@ export default function MinecraftScene() {
       renderer.domElement.removeEventListener('pointermove', onPointerMove);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       renderer.domElement.removeEventListener('pointercancel', onPointerUp);
+      renderer.domElement.removeEventListener('wheel', onWheel);
       renderer.dispose();
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);
