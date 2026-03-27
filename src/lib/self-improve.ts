@@ -46,6 +46,8 @@ type SelfImproveGlobal = {
 const g = globalThis as typeof globalThis & {
   __selfImprove?: SelfImproveGlobal;
 };
+// Initialise or patch — an old globalThis shape from a previous code version
+// may exist but lack fields we now expect (e.g. after HMR during refactors).
 if (!g.__selfImprove) {
   g.__selfImprove = {
     running: false,
@@ -54,6 +56,13 @@ if (!g.__selfImprove) {
     activity: [],
     activitySeq: 0,
   };
+} else {
+  // Patch in any missing fields so stale HMR state doesn't cause crashes
+  g.__selfImprove.running ??= false;
+  g.__selfImprove.entries ??= [];
+  g.__selfImprove.loopAlive ??= false;
+  g.__selfImprove.activity ??= [];
+  g.__selfImprove.activitySeq ??= 0;
 }
 
 const inMemory: SelfImproveGlobal = g.__selfImprove;
