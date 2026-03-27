@@ -390,6 +390,68 @@ body {
   animation: homeFooterIn 600ms ease 400ms both;
 }
 
+/* ── Recently-improved pulse indicators ──────────────────────────────────── */
+
+/* Breathing emerald glow overlay on cards that were recently modified */
+@keyframes recentlyImprovedGlow {
+  0%, 100% {
+    box-shadow:
+      inset 0 0 20px -4px rgba(52, 211, 153, 0.06),
+      0 0 12px -2px rgba(52, 211, 153, 0.04);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 30px -4px rgba(52, 211, 153, 0.12),
+      0 0 20px -2px rgba(52, 211, 153, 0.08);
+  }
+}
+
+.recently-improved-glow {
+  animation: recentlyImprovedGlow 3s ease-in-out infinite;
+}
+
+.dark .recently-improved-glow {
+  animation-name: recentlyImprovedGlowDark;
+}
+
+@keyframes recentlyImprovedGlowDark {
+  0%, 100% {
+    box-shadow:
+      inset 0 0 24px -4px rgba(52, 211, 153, 0.08),
+      0 0 16px -2px rgba(52, 211, 153, 0.06);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 36px -4px rgba(52, 211, 153, 0.16),
+      0 0 24px -2px rgba(52, 211, 153, 0.10);
+  }
+}
+
+/* Small pulsing dot in the badge */
+@keyframes recentlyImprovedDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+.recently-improved-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background-color: #34d399;
+  animation: recentlyImprovedDot 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+/* Badge entrance */
+@keyframes recentlyImprovedBadgeIn {
+  from { opacity: 0; transform: scale(0.85); }
+  to   { opacity: 1; transform: scale(1);     }
+}
+
+.recently-improved-badge {
+  animation: recentlyImprovedBadgeIn 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
 /* ── Ambient border glow: reflects self-improve agent state ─────────────── */
 
 .ambient-border {

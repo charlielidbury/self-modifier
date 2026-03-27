@@ -20,9 +20,11 @@ import {
   BarChart3,
   Droplets,
   ArrowRight,
+  Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { RecentlyModifiedRoute } from "@/app/api/recently-modified/route";
 
 interface CardInfo {
   href: string;
@@ -226,13 +228,50 @@ const cards: CardInfo[] = [
   },
 ];
 
+/** Format a relative time string like "2h ago", "3d ago", "just now" */
+function timeAgo(isoDate: string): string {
+  const now = Date.now();
+  const then = new Date(isoDate).getTime();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}d ago`;
+}
+
 export default function Home() {
   const gridRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
+  const [recentMods, setRecentMods] = useState<Map<string, RecentlyModifiedRoute>>(new Map());
+
+  // Fetch recently modified routes
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchRecent() {
+      try {
+        const res = await fetch("/api/recently-modified");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const map = new Map<string, RecentlyModifiedRoute>();
+        for (const route of data.routes ?? []) {
+          map.set(route.route, route);
+        }
+        setRecentMods(map);
+      } catch {
+        // silently fail
+      }
+    }
+    fetchRecent();
+    // Re-fetch every 30 seconds to catch new commits
+    const interval = setInterval(fetchRecent, 30_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
 
   // Track mouse position across the card grid to create a spotlight border glow.
-  // Each card has a ::before pseudo-element whose radial-gradient origin is set
-  // via CSS custom properties --mx and --my (mouse position relative to the card).
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
@@ -282,6 +321,7 @@ export default function Home() {
   }, []);
 
   const gridCards = cards.filter(c => c.href !== "/chat");
+  const chatMod = recentMods.get("/chat");
 
   return (
     <div className="h-full overflow-y-auto">
@@ -299,8 +339,20 @@ export default function Home() {
         {/* Featured: Chat */}
         <Link
           href="/chat"
-          className="group relative block mb-10 rounded-2xl border border-border bg-gradient-to-br from-blue-500/[0.06] via-transparent to-violet-500/[0.06] dark:from-blue-500/[0.08] dark:to-violet-500/[0.08] p-6 sm:p-8 transition-all duration-300 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-500/[0.06] home-featured-in"
+          className={[
+            "group relative block mb-10 rounded-2xl border bg-gradient-to-br from-blue-500/[0.06] via-transparent to-violet-500/[0.06] dark:from-blue-500/[0.08] dark:to-violet-500/[0.08] p-6 sm:p-8 transition-all duration-300 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-500/[0.06] home-featured-in",
+            chatMod ? "border-emerald-500/30 dark:border-emerald-500/20" : "border-border",
+          ].join(" ")}
         >
+          {chatMod && (
+            <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 dark:bg-emerald-500/15 recently-improved-badge">
+              <span className="recently-improved-dot" aria-hidden="true" />
+              <Zap size={11} className="text-emerald-500" />
+              <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                Improved {timeAgo(chatMod.lastModified)}
+              </span>
+            </div>
+          )}
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-3">
@@ -331,54 +383,78 @@ export default function Home() {
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
-          {gridCards.map((card, i) => (
-            <Link
-              key={card.href}
-              href={card.href}
-              data-spotlight
-              className={[
-                "home-card group relative flex flex-col rounded-xl border border-border bg-card/50 p-5 transition-all duration-300",
-                card.borderColor,
-                "hover:shadow-lg hover:-translate-y-0.5",
-              ].join(" ")}
-              style={{
-                // @ts-expect-error -- CSS custom properties for spotlight + glow
-                "--card-glow": card.glowColor,
-                "--spotlight-color": card.glowColor,
-                "--stagger": `${i * 50}ms`,
-              }}
-            >
-              {/* Spotlight border glow overlay */}
-              <div
-                className="home-card-spotlight pointer-events-none absolute -inset-px rounded-xl opacity-0 transition-opacity duration-300"
+          {gridCards.map((card, i) => {
+            const mod = recentMods.get(card.href);
+            return (
+              <Link
+                key={card.href}
+                href={card.href}
+                data-spotlight
+                className={[
+                  "home-card group relative flex flex-col rounded-xl border bg-card/50 p-5 transition-all duration-300",
+                  card.borderColor,
+                  "hover:shadow-lg hover:-translate-y-0.5",
+                  mod ? "border-emerald-500/25 dark:border-emerald-500/15" : "border-border",
+                ].join(" ")}
                 style={{
-                  background: `radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), var(--spotlight-color, transparent), transparent 60%)`,
+                  // @ts-expect-error -- CSS custom properties for spotlight + glow
+                  "--card-glow": card.glowColor,
+                  "--spotlight-color": card.glowColor,
+                  "--stagger": `${i * 50}ms`,
                 }}
-                aria-hidden="true"
-              />
-              <div className="relative z-10 flex items-center gap-3 mb-3">
-                <div className={`flex items-center justify-center w-9 h-9 rounded-lg ${card.bgColor}`}>
-                  <card.Icon className={card.color} size={18} />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-foreground text-sm">{card.label}</h3>
-                  <span className="text-[11px] text-muted-foreground/60 uppercase tracking-wider font-medium">
-                    {card.category}
-                  </span>
-                </div>
-              </div>
-              <p className="relative z-10 text-sm text-muted-foreground leading-relaxed flex-1">
-                {card.description}
-              </p>
-              <div className="relative z-10 mt-4 flex items-center gap-1 text-xs font-medium text-muted-foreground/50 group-hover:text-muted-foreground transition-colors">
-                <span>Open</span>
-                <ArrowRight
-                  size={12}
-                  className="group-hover:translate-x-0.5 transition-transform duration-200"
+              >
+                {/* Spotlight border glow overlay */}
+                <div
+                  className="home-card-spotlight pointer-events-none absolute -inset-px rounded-xl opacity-0 transition-opacity duration-300"
+                  style={{
+                    background: `radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), var(--spotlight-color, transparent), transparent 60%)`,
+                  }}
+                  aria-hidden="true"
                 />
-              </div>
-            </Link>
-          ))}
+
+                {/* Recently improved pulse overlay */}
+                {mod && (
+                  <div
+                    className="pointer-events-none absolute -inset-px rounded-xl recently-improved-glow"
+                    aria-hidden="true"
+                  />
+                )}
+
+                <div className="relative z-10 flex items-center gap-3 mb-3">
+                  <div className={`flex items-center justify-center w-9 h-9 rounded-lg ${card.bgColor}`}>
+                    <card.Icon className={card.color} size={18} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-foreground text-sm">{card.label}</h3>
+                      {mod && (
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 dark:bg-emerald-500/15 recently-improved-badge">
+                          <span className="recently-improved-dot" aria-hidden="true" />
+                          <Zap size={9} className="text-emerald-500" />
+                          <span className="text-[9px] font-medium text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            {timeAgo(mod.lastModified)}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground/60 uppercase tracking-wider font-medium">
+                      {card.category}
+                    </span>
+                  </div>
+                </div>
+                <p className="relative z-10 text-sm text-muted-foreground leading-relaxed flex-1">
+                  {card.description}
+                </p>
+                <div className="relative z-10 mt-4 flex items-center gap-1 text-xs font-medium text-muted-foreground/50 group-hover:text-muted-foreground transition-colors">
+                  <span>Open</span>
+                  <ArrowRight
+                    size={12}
+                    className="group-hover:translate-x-0.5 transition-transform duration-200"
+                  />
+                </div>
+              </Link>
+            );
+          })}
         </div>
 
         {/* Footer hint */}
