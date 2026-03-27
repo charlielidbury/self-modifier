@@ -11,6 +11,7 @@ import {
 // ── Tab order used to determine slide direction ─────────────────────────────
 const TAB_ORDER = [
   "/",
+  "/chat",
   "/chess",
   "/minecraft",
   "/fractals",

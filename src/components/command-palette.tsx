@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Home,
   MessageSquare,
   Swords,
   Cuboid,
@@ -92,13 +93,21 @@ function useCommands(): Command[] {
   return [
     // ── Navigation ────────────────────────────────────────────────────────────
     {
+      id: "nav-home",
+      label: "Go to Home",
+      icon: <Home size={16} />,
+      group: "Navigation",
+      action: () => router.push("/"),
+      keywords: ["home", "landing", "overview", "index"],
+    },
+    {
       id: "nav-chat",
       label: "Go to Chat",
       hint: "Alt+1",
       icon: <MessageSquare size={16} />,
       group: "Navigation",
-      action: () => router.push("/"),
-      keywords: ["home", "ai", "conversation", "message"],
+      action: () => router.push("/chat"),
+      keywords: ["ai", "conversation", "message"],
     },
     {
       id: "nav-chess",
@@ -235,7 +244,7 @@ function useCommands(): Command[] {
       },
       keywords: ["help", "keys", "hotkeys", "bindings"],
     },
-    ...(pathname === "/"
+    ...(pathname === "/chat"
       ? [
           {
             id: "new-session",
