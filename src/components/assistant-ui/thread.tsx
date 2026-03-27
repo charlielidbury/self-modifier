@@ -1,3 +1,5 @@
+"use client";
+
 import {
   ComposerAddAttachment,
   ComposerAttachments,
@@ -36,7 +38,7 @@ import {
   SparklesIcon,
   SquareIcon,
 } from "lucide-react";
-import type { FC, ElementType } from "react";
+import { useState, type FC, type ElementType } from "react";
 
 export const Thread: FC = () => {
   return (
@@ -177,6 +179,8 @@ const ThreadSuggestions: FC = () => {
 };
 
 const Composer: FC = () => {
+  const [charCount, setCharCount] = useState(0);
+
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
       <ComposerPrimitive.AttachmentDropzone asChild>
@@ -191,46 +195,61 @@ const Composer: FC = () => {
             rows={1}
             autoFocus
             aria-label="Message input"
+            onChange={(e) => setCharCount(e.target.value.length)}
           />
-          <ComposerAction />
+          <ComposerAction charCount={charCount} />
         </div>
       </ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
   );
 };
 
-const ComposerAction: FC = () => {
+const ComposerAction: FC<{ charCount?: number }> = ({ charCount = 0 }) => {
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <ComposerAddAttachment />
-      <AuiIf condition={(s) => !s.thread.isRunning}>
-        <ComposerPrimitive.Send asChild>
-          <TooltipIconButton
-            tooltip="Send message"
-            side="bottom"
-            type="button"
-            variant="default"
-            size="icon"
-            className="aui-composer-send size-8 rounded-full"
-            aria-label="Send message"
-          >
-            <ArrowUpIcon className="aui-composer-send-icon size-4" />
-          </TooltipIconButton>
-        </ComposerPrimitive.Send>
-      </AuiIf>
-      <AuiIf condition={(s) => s.thread.isRunning}>
-        <ComposerPrimitive.Cancel asChild>
-          <Button
-            type="button"
-            variant="default"
-            size="icon"
-            className="aui-composer-cancel size-8 rounded-full"
-            aria-label="Stop generating"
-          >
-            <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
-          </Button>
-        </ComposerPrimitive.Cancel>
-      </AuiIf>
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "text-[11px] tabular-nums transition-all duration-150",
+            charCount > 0
+              ? "opacity-100 text-muted-foreground/60"
+              : "opacity-0 pointer-events-none select-none",
+          )}
+          aria-live="polite"
+          aria-label={`${charCount} characters`}
+        >
+          {charCount}
+        </span>
+        <AuiIf condition={(s) => !s.thread.isRunning}>
+          <ComposerPrimitive.Send asChild>
+            <TooltipIconButton
+              tooltip="Send message"
+              side="bottom"
+              type="button"
+              variant="default"
+              size="icon"
+              className="aui-composer-send size-8 rounded-full"
+              aria-label="Send message"
+            >
+              <ArrowUpIcon className="aui-composer-send-icon size-4" />
+            </TooltipIconButton>
+          </ComposerPrimitive.Send>
+        </AuiIf>
+        <AuiIf condition={(s) => s.thread.isRunning}>
+          <ComposerPrimitive.Cancel asChild>
+            <Button
+              type="button"
+              variant="default"
+              size="icon"
+              className="aui-composer-cancel size-8 rounded-full"
+              aria-label="Stop generating"
+            >
+              <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
+            </Button>
+          </ComposerPrimitive.Cancel>
+        </AuiIf>
+      </div>
     </div>
   );
 };
