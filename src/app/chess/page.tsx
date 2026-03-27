@@ -421,6 +421,7 @@ export default function ChessPage() {
   // ── Game duration tracking ─────────────────────────────────────────────────
   const gameStartRef = useRef<number>(Date.now());
   const [gameDuration, setGameDuration] = useState<number | null>(null);
+  const [gameEndOpeningName, setGameEndOpeningName] = useState<string | null>(null);
   const [pgnCopied, setPgnCopied] = useState(false);
   const [fenCopied, setFenCopied] = useState(false);
   const boardInnerRef = useRef<HTMLDivElement>(null);
@@ -476,6 +477,11 @@ export default function ChessPage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [confettiKey, setConfettiKey] = useState(0);
   const confettiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Resign confirmation state ─────────────────────────────────────────────
+  // First click "arms" the button; second click within 3 s confirms.
+  const [armedResign, setArmedResign] = useState(false);
+  const resignTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Sound effects ────────────────────────────────────────────────────────
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
@@ -677,7 +683,7 @@ export default function ChessPage() {
   }, [whiteTime, blackTime]);
 
   const isGameOver =
-    status.includes("Checkmate") || status.includes("Stalemate") || status.includes("on time");
+    status.includes("Checkmate") || status.includes("Stalemate") || status.includes("on time") || status.includes("resigns");
 
   // ── Low-time tick sound ───────────────────────────────────────────────────
   // Plays a short metronome click once per second when the active player has
@@ -706,6 +712,19 @@ export default function ChessPage() {
     if (isGameOver) {
       setGameDuration(Date.now() - gameStartRef.current);
     }
+  }, [isGameOver]);
+
+  // Capture the detected opening name when the game ends so it can be shown
+  // in the game-over overlay even after the 20-half-move detection window closes.
+  useEffect(() => {
+    if (isGameOver) {
+      setGameEndOpeningName(getOpeningName(moveHistory));
+    } else {
+      setGameEndOpeningName(null);
+    }
+    // moveHistory is intentionally omitted: we want a one-shot snapshot of
+    // the opening at the moment isGameOver flips, not on every move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isGameOver]);
 
   // Auto-scroll move history to bottom when moves are added
@@ -1126,7 +1145,29 @@ export default function ChessPage() {
     // Clear any active confetti
     setShowConfetti(false);
     if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
+    // Disarm any pending resign confirmation
+    setArmedResign(false);
+    if (resignTimerRef.current) clearTimeout(resignTimerRef.current);
   };
+
+  /**
+   * Two-click resign: first click arms the confirmation, second click
+   * within 3 s ends the game in favour of the opponent.
+   */
+  const resign = useCallback(() => {
+    if (!armedResign) {
+      setArmedResign(true);
+      if (resignTimerRef.current) clearTimeout(resignTimerRef.current);
+      resignTimerRef.current = setTimeout(() => setArmedResign(false), 3000);
+      return;
+    }
+    // Confirmed — end the game
+    if (resignTimerRef.current) clearTimeout(resignTimerRef.current);
+    setArmedResign(false);
+    const resigning = turn === "w" ? "White" : "Black";
+    const winning   = turn === "w" ? "Black" : "White";
+    setStatus(`${winning} wins — ${resigning} resigns!`);
+  }, [armedResign, turn]);
 
   // Called when the player selects a promotion piece from the dialog
   const confirmPromotion = useCallback((promoteTo: PieceType) => {
@@ -1396,6 +1437,22 @@ export default function ChessPage() {
             {isHinting ? "…" : "💡 Hint"}
           </button>
 
+          {/* Resign button — only shown when a game is in progress and it's the player's turn */}
+          {!autoPlay && !isGameOver && !isThinking && !(vsAI && turn !== playerColor) && (
+            <button
+              onClick={resign}
+              title={armedResign ? "Click again to confirm resignation" : "Resign the current game"}
+              className={[
+                "px-3 py-1 text-sm rounded-md transition-all",
+                armedResign
+                  ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800/50 scale-105"
+                  : "bg-secondary text-secondary-foreground hover:bg-accent",
+              ].join(" ")}
+            >
+              {armedResign ? "⚑ Confirm?" : "⚑ Resign"}
+            </button>
+          )}
+
           {/* Sound toggle */}
           <button
             onClick={() => setSoundEnabled((s) => !s)}
@@ -1610,6 +1667,8 @@ export default function ChessPage() {
                     <span className="text-4xl select-none" aria-hidden="true">
                       {status.includes("on time")
                         ? "⏱"
+                        : status.includes("resigns")
+                        ? "🏳️"
                         : status.includes("White wins")
                         ? "♔"
                         : status.includes("Black wins")
@@ -1619,6 +1678,11 @@ export default function ChessPage() {
                     <p className="text-base font-semibold text-foreground text-center leading-snug">
                       {status}
                     </p>
+                    {gameEndOpeningName && (
+                      <p className="text-xs text-muted-foreground/70 italic -mt-1 text-center">
+                        {gameEndOpeningName}
+                      </p>
+                    )}
                     {gameDuration !== null && (
                       <p className="text-xs text-muted-foreground/70 -mt-1 tabular-nums">
                         {moveHistory.length > 0
@@ -1739,6 +1803,69 @@ export default function ChessPage() {
                   })}
                 </div>
               ))}
+
+              {/* ── Hint move arrow overlay ──────────────────────────────────
+                   Draws a directional arrow from the hint's source square to
+                   its destination square, on top of the board pieces.       */}
+              {hint && (() => {
+                const SQUARE = 56;
+                const [[fromR, fromC], [toR, toC]] = hint;
+                // Map logical (r,c) → visual (row,col) accounting for board flip
+                const vFromC = flipped ? 7 - fromC : fromC;
+                const vFromR = flipped ? 7 - fromR : fromR;
+                const vToC   = flipped ? 7 - toC   : toC;
+                const vToR   = flipped ? 7 - toR   : toR;
+                const x1 = vFromC * SQUARE + SQUARE / 2;
+                const y1 = vFromR * SQUARE + SQUARE / 2;
+                const x2 = vToC   * SQUARE + SQUARE / 2;
+                const y2 = vToR   * SQUARE + SQUARE / 2;
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                if (len < 1) return null;
+                // Unit vector along arrow direction and its perpendicular
+                const ux = dx / len;
+                const uy = dy / len;
+                const px = -uy; // perpendicular x
+                const py =  ux; // perpendicular y
+                // Shaft starts a little inside the source square (avoids hiding under piece)
+                const startX = x1 + ux * 16;
+                const startY = y1 + uy * 16;
+                // Shaft ends before the arrowhead begins
+                const headLen = 18;
+                const headWidth = 11;
+                const shaftX2 = x2 - ux * headLen;
+                const shaftY2 = y2 - uy * headLen;
+                // Triangle arrowhead: tip at (x2,y2), base at shaftX2/shaftY2 ± perpendicular
+                const arrowPoints = [
+                  `${x2},${y2}`,
+                  `${shaftX2 + px * headWidth},${shaftY2 + py * headWidth}`,
+                  `${shaftX2 - px * headWidth},${shaftY2 - py * headWidth}`,
+                ].join(' ');
+                return (
+                  <svg
+                    className="absolute inset-0 pointer-events-none"
+                    style={{ zIndex: 25 }}
+                    width={SQUARE * 8}
+                    height={SQUARE * 8}
+                    aria-hidden="true"
+                  >
+                    {/* Arrow shaft */}
+                    <line
+                      x1={startX} y1={startY}
+                      x2={shaftX2} y2={shaftY2}
+                      stroke="rgba(74,159,212,0.75)"
+                      strokeWidth="7"
+                      strokeLinecap="round"
+                    />
+                    {/* Arrowhead triangle */}
+                    <polygon
+                      points={arrowPoints}
+                      fill="rgba(74,159,212,0.85)"
+                    />
+                  </svg>
+                );
+              })()}
             </div>
 
             {/* Bottom captures row: white side when normal, black side when flipped */}
