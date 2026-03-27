@@ -35,6 +35,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
 import { dispatchAmbientEvent } from "@/components/ambient-canvas";
 import { NeuralPulse } from "@/components/neural-pulse";
+import { CodebaseHeartbeat } from "@/components/codebase-heartbeat";
 import type { LucideIcon } from "lucide-react";
 
 // Hue values for each page's accent colour (used to tint the ambient canvas).
@@ -345,6 +346,7 @@ export function Navbar() {
               </span>
             </TooltipContent>
           </Tooltip>
+          <CodebaseHeartbeat />
           <ThemeToggle />
         </div>
       </nav>
