@@ -461,6 +461,41 @@ const MessageError: FC = () => {
   );
 };
 
+/**
+ * Shows three animated bouncing dots while the AI is processing a response
+ * but hasn't yet produced any visible text content. Disappears as soon as
+ * streaming text begins, keeping the UI clean once output arrives.
+ */
+const StreamingIndicator: FC = () => {
+  const isRunning = useMessage((m) => m.status?.type === "running");
+  const hasTextContent = useMessage((m) =>
+    (m.content ?? []).some(
+      (p): p is { type: "text"; text: string } =>
+        p.type === "text" &&
+        typeof (p as { type: "text"; text: string }).text === "string" &&
+        (p as { type: "text"; text: string }).text.length > 0
+    )
+  );
+
+  if (!isRunning || hasTextContent) return null;
+
+  return (
+    <div
+      className="flex items-center gap-1 py-2 text-muted-foreground/50"
+      aria-label="AI is generating a response"
+      aria-live="polite"
+    >
+      {([0, 160, 320] as const).map((delay, i) => (
+        <span
+          key={i}
+          className="size-1.5 rounded-full bg-current"
+          style={{ animation: `dot-bounce 1.4s ease-in-out ${delay}ms infinite` }}
+        />
+      ))}
+    </div>
+  );
+};
+
 /** Counts words and estimates reading time for a completed assistant message. */
 const MessageWordCount: FC = () => {
   const content = useMessage((m) => m.content);
@@ -506,6 +541,7 @@ const AssistantMessage: FC = () => {
             tools: { Fallback: ToolFallback },
           }}
         />
+        <StreamingIndicator />
         <MessageError />
       </div>
 
