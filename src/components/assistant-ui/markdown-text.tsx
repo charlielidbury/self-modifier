@@ -10,7 +10,14 @@ import {
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 import { type FC, memo, useEffect, useRef, useState } from "react";
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  WrapTextIcon,
+} from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
@@ -246,6 +253,7 @@ const defaultComponents = memoizeMarkdownComponents({
     const COLLAPSE_HEIGHT = 320;
     const [isTall, setIsTall] = useState(false);
     const [collapsed, setCollapsed] = useState(true);
+    const [wordWrap, setWordWrap] = useState(false);
     const preRef = useRef<HTMLPreElement>(null);
 
     useEffect(() => {
@@ -257,7 +265,7 @@ const defaultComponents = memoizeMarkdownComponents({
     }, []);
 
     return (
-      <div className="relative">
+      <div className="relative group/codeblock">
         <pre
           ref={preRef}
           className={cn(
@@ -265,6 +273,8 @@ const defaultComponents = memoizeMarkdownComponents({
             // Remove bottom rounding when the toggle button is attached below
             isTall ? "rounded-b-none" : "rounded-b-lg",
             isTall && collapsed && "overflow-y-hidden",
+            // Word wrap mode: break long lines instead of scrolling
+            wordWrap && "whitespace-pre-wrap break-all",
             className,
           )}
           style={isTall && collapsed ? { maxHeight: `${COLLAPSE_HEIGHT}px` } : undefined}
@@ -272,6 +282,25 @@ const defaultComponents = memoizeMarkdownComponents({
         >
           {children}
         </pre>
+
+        {/* Word-wrap toggle — appears on hover (or always visible when active) */}
+        <button
+          type="button"
+          onClick={() => setWordWrap((w) => !w)}
+          title={wordWrap ? "Disable word wrap" : "Enable word wrap"}
+          aria-label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
+          aria-pressed={wordWrap}
+          className={cn(
+            "absolute top-2 right-2 flex items-center justify-center size-6 rounded",
+            "border transition-all duration-150",
+            "opacity-0 group-hover/codeblock:opacity-100 focus-visible:opacity-100",
+            wordWrap
+              ? "opacity-100 border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
+              : "border-transparent bg-muted/0 text-muted-foreground/50 hover:border-border hover:bg-muted/60 hover:text-muted-foreground",
+          )}
+        >
+          <WrapTextIcon className="size-3" />
+        </button>
 
         {/* Fade gradient overlay — only shown when collapsed */}
         {isTall && collapsed && (
