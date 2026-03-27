@@ -23,7 +23,6 @@ import {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  BotIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -33,12 +32,14 @@ import {
   LayoutDashboardIcon,
   LightbulbIcon,
   MoreHorizontalIcon,
+  MoonIcon,
   PencilIcon,
   RefreshCwIcon,
   SparklesIcon,
   SquareIcon,
+  SunIcon,
 } from "lucide-react";
-import { useState, type FC, type ElementType } from "react";
+import { useMemo, useState, type FC, type ElementType } from "react";
 
 export const Thread: FC = () => {
   return (
@@ -89,21 +90,54 @@ const ThreadScrollToBottom: FC = () => {
   );
 };
 
+type Greeting = { text: string; subtext: string; Icon: ElementType };
+
+function getGreeting(): Greeting {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) {
+    return {
+      text: "Good morning!",
+      subtext: "What can I help you with today?",
+      Icon: SunIcon,
+    };
+  } else if (hour >= 12 && hour < 17) {
+    return {
+      text: "Good afternoon!",
+      subtext: "How can I help you today?",
+      Icon: SunIcon,
+    };
+  } else if (hour >= 17 && hour < 22) {
+    return {
+      text: "Good evening!",
+      subtext: "What can I assist you with tonight?",
+      Icon: MoonIcon,
+    };
+  } else {
+    return {
+      text: "Still up?",
+      subtext: "I'm here whenever you need me.",
+      Icon: MoonIcon,
+    };
+  }
+}
+
 const ThreadWelcome: FC = () => {
+  const { text, subtext, Icon } = useMemo(getGreeting, []);
+
   return (
     <div className="aui-thread-welcome-root mx-auto my-auto flex w-full max-w-(--thread-max-width) grow flex-col">
       <div className="aui-thread-welcome-center flex w-full grow flex-col items-center justify-center">
         <div className="aui-thread-welcome-message flex size-full flex-col justify-center px-4">
           <div className="fade-in slide-in-from-bottom-1 animate-in fill-mode-both duration-200 mb-3">
             <div className="inline-flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-              <BotIcon className="size-6" />
+              <Icon className="size-6" />
             </div>
           </div>
           <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both font-semibold text-2xl duration-200">
-            Hello there!
+            {text}
           </h1>
           <p className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-muted-foreground text-xl delay-75 duration-200">
-            How can I help you today?
+            {subtext}
           </p>
         </div>
       </div>
