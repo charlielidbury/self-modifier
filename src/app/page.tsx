@@ -20,6 +20,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
 
 interface CardInfo {
   href: string;
@@ -202,11 +203,67 @@ const cards: CardInfo[] = [
 ];
 
 export default function Home() {
+  const gridRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number>(0);
+
+  // Track mouse position across the card grid to create a spotlight border glow.
+  // Each card has a ::before pseudo-element whose radial-gradient origin is set
+  // via CSS custom properties --mx and --my (mouse position relative to the card).
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      const grid = gridRef.current;
+      if (!grid) return;
+      const cards = grid.querySelectorAll<HTMLElement>("[data-spotlight]");
+      cards.forEach((card) => {
+        const rect = card.getBoundingClientRect();
+        card.style.setProperty("--mx", `${e.clientX - rect.left}px`);
+        card.style.setProperty("--my", `${e.clientY - rect.top}px`);
+      });
+    });
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
+    const grid = gridRef.current;
+    if (!grid) return;
+    const cards = grid.querySelectorAll<HTMLElement>("[data-spotlight]");
+    cards.forEach((card) => {
+      card.style.removeProperty("--mx");
+      card.style.removeProperty("--my");
+    });
+  }, []);
+
+  // Staggered entrance animation via IntersectionObserver
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const cards = grid.querySelectorAll<HTMLElement>("[data-spotlight]");
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            (entry.target as HTMLElement).classList.add("home-card-visible");
+            observerRef.current?.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -40px 0px" }
+    );
+    cards.forEach((card) => {
+      observerRef.current!.observe(card);
+    });
+    return () => observerRef.current?.disconnect();
+  }, []);
+
+  const gridCards = cards.filter(c => c.href !== "/chat");
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-6xl mx-auto px-6 py-12 sm:py-16">
         {/* Hero */}
-        <div className="mb-12 sm:mb-16">
+        <div className="mb-12 sm:mb-16 home-hero-in">
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-foreground mb-4">
             Self-Modifier
           </h1>
@@ -218,7 +275,7 @@ export default function Home() {
         {/* Featured: Chat */}
         <Link
           href="/chat"
-          className="group relative block mb-10 rounded-2xl border border-border bg-gradient-to-br from-blue-500/[0.06] via-transparent to-violet-500/[0.06] dark:from-blue-500/[0.08] dark:to-violet-500/[0.08] p-6 sm:p-8 transition-all duration-300 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-500/[0.06]"
+          className="group relative block mb-10 rounded-2xl border border-border bg-gradient-to-br from-blue-500/[0.06] via-transparent to-violet-500/[0.06] dark:from-blue-500/[0.08] dark:to-violet-500/[0.08] p-6 sm:p-8 transition-all duration-300 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-500/[0.06] home-featured-in"
         >
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
@@ -243,29 +300,39 @@ export default function Home() {
           </div>
         </Link>
 
-        {/* Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {cards.filter(c => c.href !== "/chat").map((card) => (
+        {/* Grid with mouse-tracking spotlight */}
+        <div
+          ref={gridRef}
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+        >
+          {gridCards.map((card, i) => (
             <Link
               key={card.href}
               href={card.href}
+              data-spotlight
               className={[
-                "group relative flex flex-col rounded-xl border border-border bg-card/50 p-5 transition-all duration-300",
+                "home-card group relative flex flex-col rounded-xl border border-border bg-card/50 p-5 transition-all duration-300",
                 card.borderColor,
                 "hover:shadow-lg hover:-translate-y-0.5",
               ].join(" ")}
               style={{
-                // @ts-expect-error -- CSS custom property for hover glow
+                // @ts-expect-error -- CSS custom properties for spotlight + glow
                 "--card-glow": card.glowColor,
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget.style.boxShadow = `0 8px 30px -4px var(--card-glow)`);
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = "";
+                "--spotlight-color": card.glowColor,
+                "--stagger": `${i * 50}ms`,
               }}
             >
-              <div className="flex items-center gap-3 mb-3">
+              {/* Spotlight border glow overlay */}
+              <div
+                className="home-card-spotlight pointer-events-none absolute -inset-px rounded-xl opacity-0 transition-opacity duration-300"
+                style={{
+                  background: `radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), var(--spotlight-color, transparent), transparent 60%)`,
+                }}
+                aria-hidden="true"
+              />
+              <div className="relative z-10 flex items-center gap-3 mb-3">
                 <div className={`flex items-center justify-center w-9 h-9 rounded-lg ${card.bgColor}`}>
                   <card.Icon className={card.color} size={18} />
                 </div>
@@ -276,10 +343,10 @@ export default function Home() {
                   </span>
                 </div>
               </div>
-              <p className="text-sm text-muted-foreground leading-relaxed flex-1">
+              <p className="relative z-10 text-sm text-muted-foreground leading-relaxed flex-1">
                 {card.description}
               </p>
-              <div className="mt-4 flex items-center gap-1 text-xs font-medium text-muted-foreground/50 group-hover:text-muted-foreground transition-colors">
+              <div className="relative z-10 mt-4 flex items-center gap-1 text-xs font-medium text-muted-foreground/50 group-hover:text-muted-foreground transition-colors">
                 <span>Open</span>
                 <ArrowRight
                   size={12}
@@ -291,7 +358,7 @@ export default function Home() {
         </div>
 
         {/* Footer hint */}
-        <div className="mt-12 text-center">
+        <div className="mt-12 text-center home-footer-in">
           <p className="text-xs text-muted-foreground/50">
             Press{" "}
             <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/70">
