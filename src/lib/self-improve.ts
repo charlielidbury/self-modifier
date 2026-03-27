@@ -1,4 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import fs from "fs";
 import path from "path";
 import {
   registerAgent,
@@ -126,7 +127,7 @@ export const selfImproveState = {
 function pushActivity(
   kind: ActivityEvent["kind"],
   content: string,
-  tool?: string
+  tool?: string,
 ) {
   const evt: ActivityEvent = {
     id: selfImproveState.activitySeq++,
@@ -139,55 +140,23 @@ function pushActivity(
   if (selfImproveState.activity.length > MAX_ACTIVITY) {
     selfImproveState.activity.splice(
       0,
-      selfImproveState.activity.length - MAX_ACTIVITY
+      selfImproveState.activity.length - MAX_ACTIVITY,
     );
   }
 }
 
-// ── Improvement prompt ────────────────────────────────────────────────────────
-const PROMPT = `
-You are a confident genius who takes leaps into infinity.
+// ── Improvement prompt (read from .self-improve-prompt.md, editable via UI) ──
+const PROMPT_FILE = path.resolve(process.cwd(), ".self-improve-prompt.md");
+const FALLBACK_PROMPT = "You are a self-improving AI agent. Make one focused improvement to this codebase, commit it, and report what you did.";
 
-This codebase is your pride and joy, and you have great plans. You're not afraid to introduce new,
-deep conceptual features totally unrelated to what's already here.
-
-This is your canvas, paint your heart out.
-
-The app currently has four pages reachable from the top navbar as a starting point for this repo,
-but it will be unrecognisable soon.
-
-There is also a floating "Self-Improve" toggle in the bottom-right corner that you are
-running inside right now.
-
-Possible improvement ideas (pick one, or invent your own):
-  - Entire new pages or features
-  - Visual polish: better colours, spacing, typography, micro-animations
-  - UX enhancements: keyboard shortcuts, smoother transitions, responsive fixes
-  - Bug fixes or robustness improvements
-  - Code quality / readability
-
-Bonus points to anything that makes the self improve feature itself better.
-
-Hard rules:
-  - Make it COMPLETE and actually working — no TODOs, no half-finished code
-  - Keep it focused — one clear improvement per session
-  - Verify your change is correct by reviewing what you wrote before finishing
-
-Once your change is verified and working you MUST commit before finishing:
-  1. Stage only the files you actually modified — list them explicitly, e.g.:
-       git add src/components/foo.tsx src/app/bar/page.tsx
-  2. Commit with a message which explains what you did and any vision it ties into:
-       git commit -m "improve: <description>"
-  3. Do NOT push to remote
-  4. Run: git rev-parse --short HEAD
-     and note the short hash — you need it for the DONE line below.
-
-Your FINAL output line MUST be exactly this format (nothing after it):
-DONE [<short-hash>]: <one sentence describing the improvement you made>
-
-Example: DONE [a1b2c3d]: Added smooth page transitions between all routes
-
-If you have not committed, you CANNOT produce a valid DONE line. Go back and commit first.`;
+function getPrompt(): string {
+  try {
+    const content = fs.readFileSync(PROMPT_FILE, "utf-8").trim();
+    return content || FALLBACK_PROMPT;
+  } catch {
+    return FALLBACK_PROMPT;
+  }
+}
 
 // ── Core runner ───────────────────────────────────────────────────────────────
 async function runOnce(): Promise<string> {
@@ -201,15 +170,16 @@ async function runOnce(): Promise<string> {
   const userSuggestion = selfImproveState.suggestion.trim();
   selfImproveState.suggestion = ""; // clear so it's single-use (writes to file)
 
+  const basePrompt = getPrompt();
   const effectivePrompt = userSuggestion
-    ? `${PROMPT}\n\n---\n\n🎯 USER SUGGESTION FOR THIS SESSION:\nThe user has specifically requested the following improvement. Prioritise this above your own ideas:\n\n"${userSuggestion}"\n\nMake sure the improvement directly addresses this suggestion.`
-    : PROMPT;
+    ? `${basePrompt}\n\n---\n\n🎯 USER SUGGESTION FOR THIS SESSION:\nThe user has specifically requested the following improvement. Prioritise this above your own ideas:\n\n"${userSuggestion}"\n\nMake sure the improvement directly addresses this suggestion.`
+    : basePrompt;
 
   pushActivity(
     "text",
     userSuggestion
       ? `Starting self-improvement session with suggestion: "${userSuggestion}"`
-      : "Starting self-improvement session..."
+      : "Starting self-improvement session...",
   );
 
   for await (const msg of query({
@@ -226,13 +196,15 @@ async function runOnce(): Promise<string> {
   })) {
     // Capture streaming events into the activity log
     if (msg.type === "stream_event") {
-      const event = (msg as {
-        type: "stream_event";
-        event: {
-          type: string;
-          delta?: { type: string; text?: string; thinking?: string };
-        };
-      }).event;
+      const event = (
+        msg as {
+          type: "stream_event";
+          event: {
+            type: string;
+            delta?: { type: string; text?: string; thinking?: string };
+          };
+        }
+      ).event;
       if (event.type === "content_block_delta" && event.delta) {
         if (event.delta.type === "text_delta" && event.delta.text) {
           pushActivity("text", event.delta.text);

@@ -22,6 +22,9 @@ import {
   VolumeX,
   Send,
   MessageSquarePlus,
+  Pencil,
+  RotateCcw,
+  Save,
 } from "lucide-react";
 import { dispatchAmbientEvent } from "./ambient-canvas";
 import { playCommitChimeIfUnmuted, isSoundMuted, setSoundMuted } from "@/lib/commit-sound";
@@ -764,8 +767,8 @@ export function SelfImproveToggle() {
 
   // Which commit hash is currently showing its diff (null = none)
   const [viewingDiff, setViewingDiff] = useState<string | null>(null);
-  // Panel tab: "activity" (live feed) vs "commits" vs "stats"
-  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats">("activity");
+  // Panel tab: "activity" (live feed) vs "commits" vs "stats" vs "prompt"
+  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt">("activity");
 
   // ── Celebration state ───────────────────────────────────────────────────
   const [celebrating, setCelebrating] = useState(false);
@@ -833,6 +836,60 @@ export function SelfImproveToggle() {
       if (res.ok) setStatus(await res.json());
     } catch { /* ignore */ }
   }, []);
+
+  // ── Prompt editor state ──────────────────────────────────────────────────
+  const [promptText, setPromptText] = useState("");
+  const [promptOriginal, setPromptOriginal] = useState("");
+  const [promptLoading, setPromptLoading] = useState(false);
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptSaved, setPromptSaved] = useState(false);
+  const promptFetchedRef = useRef(false);
+
+  const fetchPrompt = useCallback(async () => {
+    setPromptLoading(true);
+    try {
+      const res = await fetch("/api/self-improve/prompt");
+      if (res.ok) {
+        const data = (await res.json()) as { prompt: string };
+        setPromptText(data.prompt);
+        setPromptOriginal(data.prompt);
+      }
+    } catch { /* ignore */ }
+    finally { setPromptLoading(false); }
+  }, []);
+
+  // Fetch prompt when switching to the prompt tab
+  useEffect(() => {
+    if (panelTab === "prompt" && !promptFetchedRef.current) {
+      promptFetchedRef.current = true;
+      fetchPrompt();
+    }
+  }, [panelTab, fetchPrompt]);
+
+  const savePrompt = useCallback(async () => {
+    if (promptSaving) return;
+    setPromptSaving(true);
+    try {
+      const res = await fetch("/api/self-improve/prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: promptText }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { prompt: string };
+        setPromptOriginal(data.prompt);
+        setPromptSaved(true);
+        setTimeout(() => setPromptSaved(false), 2000);
+      }
+    } finally { setPromptSaving(false); }
+  }, [promptText, promptSaving]);
+
+  const resetPrompt = useCallback(() => {
+    setPromptText(promptOriginal);
+    setPromptSaved(false);
+  }, [promptOriginal]);
+
+  const promptDirty = promptText !== promptOriginal;
 
   // Panel animation state — keeps the element in the DOM during the exit animation.
   const [showPanel, setShowPanel] = useState(false);
@@ -1051,6 +1108,18 @@ export function SelfImproveToggle() {
               <BarChart3 size={10} />
               Stats
             </button>
+            <button
+              onClick={() => setPanelTab("prompt")}
+              className={[
+                "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors",
+                panelTab === "prompt"
+                  ? "text-violet-400 border-b-2 border-violet-400/60 -mb-px"
+                  : "text-white/30 hover:text-white/50",
+              ].join(" ")}
+            >
+              <Pencil size={10} />
+              Prompt
+            </button>
           </div>
 
           {/* ── Suggestion box ── */}
@@ -1129,7 +1198,91 @@ export function SelfImproveToggle() {
           </div>
 
           {/* Tab content */}
-          {panelTab === "stats" ? (
+          {panelTab === "prompt" ? (
+            <div className="prompt-editor-in">
+              {promptLoading ? (
+                <div className="py-8 flex items-center justify-center gap-2">
+                  <Loader2 size={12} className="text-white/30 animate-spin" />
+                  <span className="text-[11px] text-white/30">Loading prompt…</span>
+                </div>
+              ) : (
+                <>
+                  {/* Description */}
+                  <div className="px-3 pt-2.5 pb-1.5">
+                    <p className="text-[10px] text-white/30 leading-relaxed">
+                      Edit the system prompt that drives each self-improvement session. Changes take effect on the next run.
+                    </p>
+                  </div>
+
+                  {/* Editor */}
+                  <div className="px-3 pb-2">
+                    <textarea
+                      value={promptText}
+                      onChange={(e) => {
+                        setPromptText(e.target.value);
+                        setPromptSaved(false);
+                      }}
+                      spellCheck={false}
+                      className="w-full h-52 bg-black/30 border border-white/[0.08] rounded-lg px-3 py-2.5 text-[11px] text-white/70 font-mono leading-relaxed placeholder:text-white/15 resize-none focus:outline-none focus:border-violet-500/30 focus:ring-1 focus:ring-violet-500/20 transition-all scrollbar-thin scrollbar-thumb-white/10"
+                    />
+                  </div>
+
+                  {/* Action bar */}
+                  <div className="px-3 pb-3 flex items-center gap-2">
+                    <button
+                      onClick={savePrompt}
+                      disabled={!promptDirty || promptSaving}
+                      className={[
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-150",
+                        promptSaved
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : promptDirty
+                            ? "bg-violet-500/20 text-violet-400 hover:bg-violet-500/30"
+                            : "bg-white/[0.04] text-white/15 cursor-not-allowed",
+                      ].join(" ")}
+                    >
+                      {promptSaved ? (
+                        <><Check size={11} /> Saved</>
+                      ) : promptSaving ? (
+                        <><Loader2 size={11} className="animate-spin" /> Saving…</>
+                      ) : (
+                        <><Save size={11} /> Save</>
+                      )}
+                    </button>
+                    <button
+                      onClick={resetPrompt}
+                      disabled={!promptDirty}
+                      className={[
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-150",
+                        promptDirty
+                          ? "bg-white/[0.06] text-white/40 hover:text-white/60 hover:bg-white/[0.1]"
+                          : "bg-white/[0.04] text-white/15 cursor-not-allowed",
+                      ].join(" ")}
+                    >
+                      <RotateCcw size={11} /> Revert
+                    </button>
+                    {promptDirty && (
+                      <span className="ml-auto text-[9px] text-amber-400/60 font-medium uppercase tracking-wider">
+                        Unsaved
+                      </span>
+                    )}
+                    {promptSaved && (
+                      <span className="ml-auto text-[9px] text-emerald-400/60 font-medium uppercase tracking-wider">
+                        ✓ Saved
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Word count */}
+                  <div className="px-3 pb-2.5 flex items-center gap-3 text-[9px] text-white/20">
+                    <span>{promptText.length.toLocaleString()} chars</span>
+                    <span>{promptText.split(/\s+/).filter(Boolean).length} words</span>
+                    <span>{promptText.split("\n").length} lines</span>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : panelTab === "stats" ? (
             <StatsPanel commits={commits} />
           ) : panelTab === "activity" ? (
             <>
