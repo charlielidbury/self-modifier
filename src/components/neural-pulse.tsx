@@ -20,8 +20,9 @@ import { useEffect, useRef, useCallback, useState } from "react";
 type PulseState = "off" | "idle" | "active" | "commit";
 
 // Canvas dimensions (CSS pixels — scaled by DPR internally)
-const WIDTH = 72;
-const HEIGHT = 24;
+// Full navbar height (h-12 = 48px minus 8px vertical padding = 40px)
+const WIDTH = 120;
+const HEIGHT = 40;
 
 // ── IQ cosine color palettes ────────────────────────────────────────────────
 // color(t) = a + b * cos(2π(c*t + d))
@@ -229,7 +230,6 @@ export function NeuralPulse() {
     // ── Target parameters based on state ──────────────────────────────────
     let targetMaxIter: number;
     let targetAnimSpeed: number;
-    let targetZoom: number;
     let targetBrightness: number;
     let targetPalette: Palette;
 
@@ -237,21 +237,18 @@ export function NeuralPulse() {
       case "off":
         targetMaxIter = 12;
         targetAnimSpeed = 0.0003;
-        targetZoom = 3.0;
         targetBrightness = 0.35;
         targetPalette = PALETTE_OFF;
         break;
       case "idle":
         targetMaxIter = 24;
         targetAnimSpeed = 0.0015;
-        targetZoom = 3.0;
         targetBrightness = 0.85;
         targetPalette = PALETTE_IDLE;
         break;
       case "active":
         targetMaxIter = 40;
         targetAnimSpeed = 0.006;
-        targetZoom = 3.2;
         targetBrightness = 1.0;
         targetPalette = PALETTE_ACTIVE;
         break;
@@ -259,7 +256,6 @@ export function NeuralPulse() {
         const flash = commitFlashRef.current / 120;
         targetMaxIter = 32;
         targetAnimSpeed = 0.003;
-        targetZoom = 3.0 + Math.sin(flash * Math.PI) * 0.5;
         targetBrightness = 0.9 + flash * 0.3;
         targetPalette = lerpPalette(PALETTE_IDLE, PALETTE_COMMIT, flash);
         break;
@@ -267,10 +263,10 @@ export function NeuralPulse() {
     }
 
     // ── Smooth interpolation toward targets ───────────────────────────────
+    // (zoom is handled dynamically below, not via static targets)
     const lerp = 0.06;
     sm.maxIter = sm.maxIter + (targetMaxIter - sm.maxIter) * lerp;
     sm.animSpeed = sm.animSpeed + (targetAnimSpeed - sm.animSpeed) * lerp;
-    sm.zoom = sm.zoom + (targetZoom - sm.zoom) * lerp;
     sm.brightness = sm.brightness + (targetBrightness - sm.brightness) * lerp;
     sm.palette = lerpPalette(sm.palette, targetPalette, lerp);
 
@@ -282,6 +278,58 @@ export function NeuralPulse() {
     sm.cReal = -0.72 + 0.18 * Math.sin(t * 2.1) + 0.06 * Math.cos(t * 5.3);
     sm.cImag = 0.27 + 0.12 * Math.cos(t * 1.7) + 0.04 * Math.sin(t * 4.1);
 
+    // ── Dynamic zoom: estimate Julia set extent via coarse sampling ──────
+    // Sample a grid of points in a wide view to find the bounding box of
+    // the interior (iter === maxIter), then compute a zoom that fits it
+    // with some padding. This runs every frame but is cheap (coarse grid).
+    const probeIter = Math.round(sm.maxIter);
+    const probeSize = 4.0; // wide view in complex plane
+    const probeSamples = 32; // 32×32 = 1024 samples — very fast
+    const probeStep = probeSize / probeSamples;
+    let extMinR = Infinity, extMaxR = -Infinity;
+    let extMinI = Infinity, extMaxI = -Infinity;
+    let foundInterior = false;
+
+    for (let sy = 0; sy < probeSamples; sy++) {
+      const szi = -probeSize / 2 + sy * probeStep;
+      for (let sx = 0; sx < probeSamples; sx++) {
+        const szr = -probeSize / 2 + sx * probeStep;
+        let zr = szr, zi = szi;
+        let it = 0;
+        while (it < probeIter) {
+          const zr2 = zr * zr;
+          const zi2 = zi * zi;
+          if (zr2 + zi2 > 4.0) break;
+          zi = 2 * zr * zi + sm.cImag;
+          zr = zr2 - zi2 + sm.cReal;
+          it++;
+        }
+        if (it === probeIter) {
+          foundInterior = true;
+          if (szr < extMinR) extMinR = szr;
+          if (szr > extMaxR) extMaxR = szr;
+          if (szi < extMinI) extMinI = szi;
+          if (szi > extMaxI) extMaxI = szi;
+        }
+      }
+    }
+
+    // Compute dynamic zoom from bounding box
+    const aspect = pw / ph;
+    if (foundInterior) {
+      // Add padding (20%) around the fractal + account for glow halo
+      const pad = 0.25;
+      const extW = (extMaxR - extMinR) * (1 + pad);
+      const extH = (extMaxI - extMinI) * (1 + pad);
+      // Fit both axes: zoom = 2.0 / max(extH, extW/aspect)
+      const needed = Math.max(extH, extW / aspect);
+      const dynamicZoom = needed > 0.01 ? 2.0 / needed : 3.0;
+      // Clamp zoom to reasonable bounds
+      const clampedZoom = Math.max(1.0, Math.min(5.0, dynamicZoom));
+      sm.zoom = sm.zoom + (clampedZoom - sm.zoom) * 0.08; // smooth zoom transitions
+    }
+    // If no interior found (degenerate c), keep current zoom
+
     // ── Render the Julia set ──────────────────────────────────────────────
     const maxIter = Math.round(sm.maxIter);
     const zoom = sm.zoom;
@@ -292,7 +340,6 @@ export function NeuralPulse() {
     const data = imgDataRef.current.data;
 
     // The view window in complex plane coordinates
-    const aspect = pw / ph;
     const rangeY = 2.0 / zoom;
     const rangeX = rangeY * aspect;
     const minR = -rangeX / 2;
