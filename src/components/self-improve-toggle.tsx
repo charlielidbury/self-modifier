@@ -771,6 +771,314 @@ function StatsPanel({ commits }: { commits: Commit[] }) {
   );
 }
 
+// ── Genome panel ────────────────────────────────────────────────────────────
+
+type GenomeData = {
+  id: string;
+  generation: number;
+  focus: string;
+  ambition: number;
+  creativity: number;
+  thoroughness: number;
+  fitness: number;
+  timesUsed: number;
+  parentId: string | null;
+};
+
+type GenePoolData = {
+  genomes: GenomeData[];
+  generationCount: number;
+  activeGenomeId: string | null;
+  totalSessions: number;
+};
+
+const FOCUS_COLORS: Record<string, string> = {
+  "visual-polish": "text-pink-400",
+  "code-quality": "text-blue-400",
+  "new-feature": "text-emerald-400",
+  "ux-enhancement": "text-amber-400",
+  "meta-improvement": "text-violet-400",
+  "bug-fix": "text-red-400",
+  performance: "text-cyan-400",
+};
+
+const FOCUS_ICONS: Record<string, string> = {
+  "visual-polish": "🎨",
+  "code-quality": "🧹",
+  "new-feature": "✨",
+  "ux-enhancement": "🖱️",
+  "meta-improvement": "🧬",
+  "bug-fix": "🐛",
+  performance: "⚡",
+};
+
+/** A single gene bar showing a 0–1 value with color gradient. */
+function GeneBar({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[9px] text-white/30 w-20 text-right font-medium uppercase tracking-wider">
+        {label}
+      </span>
+      <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${color}`}
+          style={{ width: `${Math.max(2, value * 100)}%` }}
+        />
+      </div>
+      <span className="text-[9px] text-white/20 w-6 font-mono">{value.toFixed(2)}</span>
+    </div>
+  );
+}
+
+/** A mini genome card showing focus + genes + fitness. */
+function GenomeCard({
+  genome,
+  isActive,
+  rank,
+}: {
+  genome: GenomeData;
+  isActive: boolean;
+  rank: number;
+}) {
+  const avgFitness =
+    genome.timesUsed > 0
+      ? (genome.fitness / genome.timesUsed).toFixed(2)
+      : "—";
+  const focusColor = FOCUS_COLORS[genome.focus] ?? "text-white/50";
+  const focusIcon = FOCUS_ICONS[genome.focus] ?? "🔵";
+
+  return (
+    <div
+      className={[
+        "px-3 py-2 border-b border-white/[0.04] transition-colors",
+        isActive
+          ? "bg-emerald-950/30 border-l-2 border-l-emerald-400/60"
+          : "hover:bg-white/[0.02]",
+      ].join(" ")}
+    >
+      {/* Header row */}
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-[9px] text-white/15 font-mono w-4">#{rank}</span>
+        <span className="text-xs">{focusIcon}</span>
+        <span className={`text-[10px] font-medium ${focusColor}`}>
+          {genome.focus}
+        </span>
+        <span className="text-[9px] text-white/15 font-mono ml-auto">
+          Gen {genome.generation}
+        </span>
+        {isActive && (
+          <span className="relative flex h-1.5 w-1.5 ml-1">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          </span>
+        )}
+      </div>
+
+      {/* Gene bars */}
+      <div className="space-y-1 mb-1.5">
+        <GeneBar label="Ambition" value={genome.ambition} color="bg-amber-400/70" />
+        <GeneBar label="Creative" value={genome.creativity} color="bg-violet-400/70" />
+        <GeneBar label="Thorough" value={genome.thoroughness} color="bg-cyan-400/70" />
+      </div>
+
+      {/* Footer stats */}
+      <div className="flex items-center gap-3 text-[9px] text-white/20">
+        <span>
+          Fitness:{" "}
+          <span
+            className={
+              genome.fitness > 0
+                ? "text-emerald-400/70"
+                : genome.fitness < 0
+                  ? "text-red-400/70"
+                  : "text-white/30"
+            }
+          >
+            {genome.fitness > 0 ? "+" : ""}
+            {genome.fitness.toFixed(1)}
+          </span>
+        </span>
+        <span>Avg: {avgFitness}</span>
+        <span>Used: {genome.timesUsed}×</span>
+        <span className="font-mono text-white/10 ml-auto">
+          {genome.id.slice(0, 6)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function GenomePanel() {
+  const [pool, setPool] = useState<GenePoolData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [resetting, setResetting] = useState(false);
+
+  const fetchPool = useCallback(async () => {
+    try {
+      const res = await fetch("/api/self-improve/genome");
+      if (res.ok) {
+        const data = (await res.json()) as GenePoolData;
+        setPool(data);
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPool();
+  }, [fetchPool]);
+
+  const resetPool = useCallback(async () => {
+    setResetting(true);
+    try {
+      const res = await fetch("/api/self-improve/genome", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reset: true }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as GenePoolData;
+        setPool(data);
+      }
+    } finally {
+      setResetting(false);
+    }
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="py-8 flex items-center justify-center gap-2">
+        <Loader2 size={12} className="text-white/30 animate-spin" />
+        <span className="text-[11px] text-white/30">Loading gene pool…</span>
+      </div>
+    );
+  }
+
+  if (!pool || pool.genomes.length === 0) {
+    return (
+      <div className="px-4 py-8 text-center">
+        <Zap size={20} className="text-white/10 mx-auto mb-2" />
+        <p className="text-[11px] text-white/20">No gene pool yet.</p>
+        <p className="text-[9px] text-white/10 mt-1">
+          Strategy genomes evolve automatically as
+          <br />
+          the self-improve agent runs sessions.
+        </p>
+      </div>
+    );
+  }
+
+  // Sort by average fitness (best first), untested last
+  const sorted = [...pool.genomes].sort((a, b) => {
+    const aAvg = a.timesUsed > 0 ? a.fitness / a.timesUsed : -999;
+    const bAvg = b.timesUsed > 0 ? b.fitness / b.timesUsed : -999;
+    return bAvg - aAvg;
+  });
+
+  const totalFitness = pool.genomes.reduce((s, g) => s + g.fitness, 0);
+  const testedCount = pool.genomes.filter((g) => g.timesUsed > 0).length;
+
+  // Focus distribution
+  const focusCounts: Record<string, number> = {};
+  for (const g of pool.genomes) {
+    focusCounts[g.focus] = (focusCounts[g.focus] ?? 0) + 1;
+  }
+
+  return (
+    <div>
+      {/* Summary header */}
+      <div className="px-3 py-2 border-b border-white/[0.06] bg-white/[0.015]">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-[10px] text-white/40 font-semibold uppercase tracking-wider">
+            🧬 Gene Pool
+          </span>
+          <span className="text-[9px] text-white/15 font-mono ml-auto">
+            Gen {pool.generationCount}
+          </span>
+          <button
+            onClick={resetPool}
+            disabled={resetting}
+            title="Reset gene pool (start fresh evolution)"
+            className="p-1 rounded text-white/15 hover:text-amber-400/70 hover:bg-amber-500/10 transition-colors"
+          >
+            {resetting ? (
+              <Loader2 size={10} className="animate-spin" />
+            ) : (
+              <RotateCcw size={10} />
+            )}
+          </button>
+        </div>
+
+        {/* Stats row */}
+        <div className="flex items-center gap-3 text-[9px] text-white/25">
+          <span>{pool.genomes.length} genomes</span>
+          <span>{testedCount} tested</span>
+          <span>{pool.totalSessions} sessions</span>
+          <span
+            className={
+              totalFitness > 0
+                ? "text-emerald-400/50"
+                : totalFitness < 0
+                  ? "text-red-400/50"
+                  : ""
+            }
+          >
+            Σ fitness: {totalFitness > 0 ? "+" : ""}
+            {totalFitness.toFixed(1)}
+          </span>
+        </div>
+
+        {/* Focus distribution as tiny colored dots */}
+        <div className="flex items-center gap-1 mt-1.5">
+          {Object.entries(focusCounts).map(([focus, count]) => (
+            <div
+              key={focus}
+              className="flex items-center gap-0.5"
+              title={`${focus}: ${count}`}
+            >
+              <span className="text-[8px]">{FOCUS_ICONS[focus] ?? "?"}</span>
+              <span className="text-[8px] text-white/15">{count}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Genome list */}
+      <div className="max-h-72 overflow-y-auto">
+        {sorted.map((genome, i) => (
+          <GenomeCard
+            key={genome.id}
+            genome={genome}
+            isActive={genome.id === pool.activeGenomeId}
+            rank={i + 1}
+          />
+        ))}
+      </div>
+
+      {/* Explanation footer */}
+      <div className="px-3 py-2 border-t border-white/[0.04]">
+        <p className="text-[8px] text-white/15 leading-relaxed">
+          Each session selects a genome via tournament selection. Outcomes update
+          fitness scores. Every 3 sessions, the pool evolves: top performers
+          reproduce with crossover + mutation, weak genomes are replaced, and one
+          random immigrant maintains genetic diversity.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Memory types & panel ─────────────────────────────────────────────────────
 
 type MemoryEntry = {
@@ -960,8 +1268,8 @@ export function SelfImproveToggle() {
 
   // Which commit hash is currently showing its diff (null = none)
   const [viewingDiff, setViewingDiff] = useState<string | null>(null);
-  // Panel tab: "activity" (live feed) vs "commits" vs "stats" vs "prompt"
-  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt" | "memory">("activity");
+  // Panel tab: "activity" (live feed) vs "commits" vs "stats" vs "prompt" vs "memory" vs "genome"
+  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt" | "memory" | "genome">("activity");
 
   // ── Celebration state ───────────────────────────────────────────────────
   const [celebrating, setCelebrating] = useState(false);
@@ -1348,6 +1656,18 @@ export function SelfImproveToggle() {
               <Brain size={10} />
               Memory
             </button>
+            <button
+              onClick={() => setPanelTab("genome")}
+              className={[
+                "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors",
+                panelTab === "genome"
+                  ? "text-emerald-400 border-b-2 border-emerald-400/60 -mb-px"
+                  : "text-white/30 hover:text-white/50",
+              ].join(" ")}
+            >
+              <Zap size={10} />
+              DNA
+            </button>
           </div>
 
           {/* ── Build health indicator ── */}
@@ -1482,7 +1802,9 @@ export function SelfImproveToggle() {
           </div>
 
           {/* Tab content */}
-          {panelTab === "memory" ? (
+          {panelTab === "genome" ? (
+            <GenomePanel />
+          ) : panelTab === "memory" ? (
             <MemoryPanel />
           ) : panelTab === "prompt" ? (
             <div className="prompt-editor-in">

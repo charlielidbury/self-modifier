@@ -11,6 +11,12 @@ import {
 } from "./agent-registry";
 import { emit } from "./event-bus";
 import { addMemory, buildMemoryContext } from "./self-improve-memory";
+import {
+  selectGenome,
+  recordOutcome,
+  buildStrategyDirective,
+  type Genome,
+} from "./strategy-genes";
 
 export type ImprovementEntry = {
   id: string;
@@ -205,12 +211,16 @@ function getPrompt(): string {
 }
 
 // ── Core runner ───────────────────────────────────────────────────────────────
-async function runOnce(): Promise<string> {
+async function runOnce(): Promise<{ summary: string; genome: Genome }> {
   const cwd = path.resolve(process.cwd());
   let summary = "(no summary)";
 
   // Clear activity buffer for the new run
   selfImproveState.activity = [];
+
+  // Select a genome through tournament selection
+  const genome = selectGenome();
+  const strategyDirective = buildStrategyDirective(genome);
 
   // Consume the user's suggestion (if any) for this session
   const userSuggestion = selfImproveState.suggestion.trim();
@@ -218,7 +228,7 @@ async function runOnce(): Promise<string> {
 
   const basePrompt = getPrompt();
   const memoryContext = buildMemoryContext();
-  let effectivePrompt = basePrompt + memoryContext;
+  let effectivePrompt = basePrompt + strategyDirective + memoryContext;
   if (userSuggestion) {
     effectivePrompt += `\n\n---\n\n🎯 USER SUGGESTION FOR THIS SESSION:\nThe user has specifically requested the following improvement. Prioritise this above your own ideas:\n\n"${userSuggestion}"\n\nMake sure the improvement directly addresses this suggestion.`;
   }
@@ -227,7 +237,11 @@ async function runOnce(): Promise<string> {
     "text",
     userSuggestion
       ? `Starting self-improvement session with suggestion: "${userSuggestion}"`
-      : "Starting self-improvement session...",
+      : `Starting self-improvement session...`,
+  );
+  pushActivity(
+    "text",
+    `🧬 Genome selected: Gen ${genome.generation} | Focus: ${genome.focus} | Ambition: ${genome.ambition} | Creativity: ${genome.creativity} | Thoroughness: ${genome.thoroughness}`,
   );
 
   for await (const msg of query({
@@ -324,7 +338,7 @@ async function runOnce(): Promise<string> {
   }
 
   pushActivity("text", `Session complete: ${summary}`);
-  return summary;
+  return { summary, genome };
 }
 
 // ── Build verification ────────────────────────────────────────────────────────
@@ -462,8 +476,11 @@ export function startImprovementLoop() {
         if (selfImproveState.entries.length > 30)
           selfImproveState.entries.length = 30;
 
+        let activeGenomeId: string | null = null;
         try {
-          entry.summary = await runOnce();
+          const result = await runOnce();
+          entry.summary = result.summary;
+          activeGenomeId = result.genome.id;
           entry.status = "completed";
 
           // ── Build verification gate ──
@@ -492,6 +509,22 @@ export function startImprovementLoop() {
           entry.completedAt = new Date().toISOString();
           selfImproveState.running = false;
 
+          // ── Record genome fitness ──
+          const outcome = entry.status === "completed"
+            ? "completed" as const
+            : entry.status === "reverted"
+              ? "reverted" as const
+              : "failed" as const;
+
+          if (activeGenomeId) {
+            try {
+              recordOutcome(activeGenomeId, outcome);
+              pushActivity("text", `🧬 Genome fitness updated (${outcome})`);
+            } catch (gErr) {
+              pushActivity("text", `⚠️ Could not update genome: ${gErr instanceof Error ? gErr.message : String(gErr)}`);
+            }
+          }
+
           // ── Record memory for evolutionary learning ──
           try {
             let commitHash = "unknown";
@@ -501,12 +534,6 @@ export function startImprovementLoop() {
                 encoding: "utf-8",
               }).trim();
             } catch { /* ignore */ }
-
-            const outcome = entry.status === "completed"
-              ? "completed" as const
-              : entry.status === "reverted"
-                ? "reverted" as const
-                : "failed" as const;
 
             // Extract a lesson from the outcome
             let lesson = entry.summary ?? "";
