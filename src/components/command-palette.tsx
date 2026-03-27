@@ -38,6 +38,7 @@ import {
   Brain,
   BarChart3,
   Droplets,
+  Compass,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -248,6 +249,14 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/fluid"),
       keywords: ["fluid", "water", "navier", "stokes", "simulation", "dye", "smoke", "liquid", "dynamics"],
+    },
+    {
+      id: "nav-constellation",
+      label: "Go to Constellation Map",
+      icon: <Compass size={16} />,
+      group: "Navigation",
+      action: () => router.push("/constellation"),
+      keywords: ["constellation", "map", "stars", "navigate", "overview", "starfield", "categories"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {

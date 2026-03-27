@@ -21,6 +21,7 @@ import {
   Droplets,
   ArrowRight,
   Zap,
+  Compass,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -225,6 +226,17 @@ const cards: CardInfo[] = [
     borderColor: "hover:border-red-500/40",
     glowColor: "rgba(239,68,68,0.15)",
     category: "Physics",
+  },
+  {
+    href: "/constellation",
+    label: "Constellation",
+    description: "An interactive star map — every simulation is a star, grouped into constellations by category.",
+    Icon: Compass,
+    color: "text-sky-400",
+    bgColor: "bg-sky-500/10 dark:bg-sky-500/15",
+    borderColor: "hover:border-sky-400/40",
+    glowColor: "rgba(56,189,248,0.15)",
+    category: "Navigation",
   },
 ];
 

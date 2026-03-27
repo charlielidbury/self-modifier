@@ -644,3 +644,40 @@ body {
     opacity: 0;
   }
 }
+
+/* ─── Constellation Map ─────────────────────────────────────────────── */
+
+.constellation-twinkle {
+  animation: constellationTwinkle 3s ease-in-out infinite alternate;
+  opacity: 0.15;
+}
+
+@keyframes constellationTwinkle {
+  0% { opacity: 0.08; }
+  50% { opacity: 0.6; }
+  100% { opacity: 0.12; }
+}
+
+.constellation-improved-pulse {
+  animation: constellationImprovedPulse 2s ease-in-out infinite;
+}
+
+@keyframes constellationImprovedPulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.15);
+  }
+}
+
+.constellation-improved-dot {
+  animation: constellationImprovedDot 1.5s ease-in-out infinite;
+}
+
+@keyframes constellationImprovedDot {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
