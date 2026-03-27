@@ -9,11 +9,26 @@ export type ImprovementEntry = {
   status: "running" | "completed" | "failed";
 };
 
+export type ActivityEvent = {
+  id: number;
+  ts: number; // Date.now()
+  kind: "thinking" | "tool_call" | "tool_result" | "text" | "error";
+  content: string;
+  /** For tool_call events, the tool name */
+  tool?: string;
+};
+
+const MAX_ACTIVITY = 200;
+
 type SelfImproveGlobal = {
   enabled: boolean;
   running: boolean;
   entries: ImprovementEntry[];
   loopAlive: boolean; // true while the background loop promise is executing
+  /** Ring buffer of recent activity events from the running agent */
+  activity: ActivityEvent[];
+  /** Monotonically increasing event counter */
+  activitySeq: number;
 };
 
 // ── Persistent global state ───────────────────────────────────────────────────
@@ -29,7 +44,29 @@ if (!g.__selfImprove) {
     running: false,
     entries: [],
     loopAlive: false,
+    activity: [],
+    activitySeq: 0,
   };
+}
+
+/** Push an activity event to the ring buffer. */
+function pushActivity(
+  kind: ActivityEvent["kind"],
+  content: string,
+  tool?: string
+) {
+  const state = selfImproveState;
+  const evt: ActivityEvent = {
+    id: state.activitySeq++,
+    ts: Date.now(),
+    kind,
+    content: content.slice(0, 2000), // cap individual event size
+    tool,
+  };
+  state.activity.push(evt);
+  if (state.activity.length > MAX_ACTIVITY) {
+    state.activity.splice(0, state.activity.length - MAX_ACTIVITY);
+  }
 }
 export const selfImproveState: SelfImproveGlobal = g.__selfImprove;
 
@@ -83,6 +120,11 @@ async function runOnce(): Promise<string> {
   const cwd = path.resolve(process.cwd());
   let summary = "(no summary)";
 
+  // Clear activity buffer for the new run
+  selfImproveState.activity = [];
+
+  pushActivity("text", "Starting self-improvement session...");
+
   for await (const msg of query({
     prompt: PROMPT,
     options: {
@@ -91,9 +133,49 @@ async function runOnce(): Promise<string> {
       allowedTools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"],
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
+      includePartialMessages: true,
       maxTurns: 50,
     },
   })) {
+    // Capture streaming events into the activity log
+    if (msg.type === "stream_event") {
+      const event = (msg as { type: "stream_event"; event: { type: string; delta?: { type: string; text?: string; thinking?: string } } }).event;
+      if (event.type === "content_block_delta" && event.delta) {
+        if (event.delta.type === "text_delta" && event.delta.text) {
+          pushActivity("text", event.delta.text);
+        } else if (event.delta.type === "thinking_delta" && event.delta.thinking) {
+          pushActivity("thinking", event.delta.thinking);
+        }
+      }
+    } else if (msg.type === "assistant") {
+      const assistantMsg = msg as { type: "assistant"; message?: { content?: Array<{ type: string; name?: string; input?: unknown }> } };
+      if (assistantMsg.message?.content) {
+        for (const block of assistantMsg.message.content) {
+          if (block.type === "tool_use" && block.name) {
+            const inputStr = typeof block.input === "string"
+              ? block.input
+              : JSON.stringify(block.input ?? {});
+            pushActivity("tool_call", inputStr, block.name);
+          }
+        }
+      }
+    } else if (msg.type === "user") {
+      const userMsg = msg as { type: "user"; message?: { content?: unknown } };
+      if (userMsg.message && typeof userMsg.message.content !== "string" && Array.isArray(userMsg.message.content)) {
+        for (const block of userMsg.message.content) {
+          if (typeof block === "object" && block !== null && "type" in block) {
+            const b = block as { type: string; content?: string | unknown[] };
+            if (b.type === "tool_result") {
+              const resultStr = typeof b.content === "string"
+                ? b.content
+                : JSON.stringify(b.content ?? "");
+              pushActivity("tool_result", resultStr);
+            }
+          }
+        }
+      }
+    }
+
     if ("result" in msg && msg.result) {
       const match = msg.result.match(/DONE\s*(?:\[[^\]]*\])?:\s*(.+)/);
       if (match) {
@@ -108,6 +190,7 @@ async function runOnce(): Promise<string> {
     }
   }
 
+  pushActivity("text", `Session complete: ${summary}`);
   return summary;
 }
 

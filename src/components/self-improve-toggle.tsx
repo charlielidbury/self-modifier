@@ -23,6 +23,23 @@ type AgentStatus = {
   entries: { id: string; startedAt: string; status: string }[];
 };
 
+type ActivityEvent = {
+  id: number;
+  ts: number;
+  kind: "thinking" | "tool_call" | "tool_result" | "text" | "error";
+  content: string;
+  tool?: string;
+};
+
+/** Coalesce consecutive text/thinking events into single display lines */
+type DisplayLine = {
+  id: number;
+  kind: ActivityEvent["kind"];
+  content: string;
+  tool?: string;
+  ts: number;
+};
+
 type Commit = {
   hash: string;
   shortHash: string;
@@ -343,6 +360,191 @@ function CommitDiffPanel({
   );
 }
 
+// ── Activity feed sub-component ─────────────────────────────────────────────
+
+function coalesceEvents(events: ActivityEvent[]): DisplayLine[] {
+  const lines: DisplayLine[] = [];
+  for (const evt of events) {
+    // Coalesce consecutive text or thinking deltas
+    const last = lines[lines.length - 1];
+    if (
+      last &&
+      last.kind === evt.kind &&
+      (evt.kind === "text" || evt.kind === "thinking")
+    ) {
+      last.content += evt.content;
+      last.ts = evt.ts;
+      continue;
+    }
+    lines.push({
+      id: evt.id,
+      kind: evt.kind,
+      content: evt.content,
+      tool: evt.tool,
+      ts: evt.ts,
+    });
+  }
+  return lines;
+}
+
+function ActivityLine({ line }: { line: DisplayLine }) {
+  if (line.kind === "tool_call") {
+    // Truncate long tool inputs
+    const preview = line.content.length > 120
+      ? line.content.slice(0, 120) + "..."
+      : line.content;
+    return (
+      <div className="flex items-start gap-1.5 px-2.5 py-1 text-[10px] leading-[16px] font-mono border-l-2 border-blue-400/40 bg-blue-500/5">
+        <span className="text-blue-400 font-semibold flex-shrink-0 uppercase text-[9px] mt-px">
+          {line.tool ?? "tool"}
+        </span>
+        <span className="text-white/50 truncate">{preview}</span>
+      </div>
+    );
+  }
+
+  if (line.kind === "tool_result") {
+    const preview = line.content.length > 200
+      ? line.content.slice(0, 200) + "..."
+      : line.content;
+    return (
+      <div className="px-2.5 py-1 text-[10px] leading-[16px] font-mono text-white/30 border-l-2 border-emerald-500/30 bg-emerald-500/5 truncate">
+        {preview}
+      </div>
+    );
+  }
+
+  if (line.kind === "thinking") {
+    const preview = line.content.length > 300
+      ? line.content.slice(-300)
+      : line.content;
+    return (
+      <div className="px-2.5 py-1 text-[10px] leading-[16px] text-violet-300/60 italic border-l-2 border-violet-400/30">
+        {preview}
+      </div>
+    );
+  }
+
+  if (line.kind === "error") {
+    return (
+      <div className="px-2.5 py-1 text-[10px] leading-[16px] text-red-400/80 border-l-2 border-red-400/40">
+        {line.content}
+      </div>
+    );
+  }
+
+  // kind === "text"
+  const preview = line.content.length > 300
+    ? line.content.slice(-300)
+    : line.content;
+  return (
+    <div className="px-2.5 py-1 text-[10px] leading-[16px] text-white/60">
+      {preview}
+    </div>
+  );
+}
+
+function ActivityFeed({ isRunning }: { isRunning: boolean }) {
+  const [lines, setLines] = useState<DisplayLine[]>([]);
+  const cursorRef = useRef<number>(-1);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef(true);
+
+  // Poll for new activity events
+  useEffect(() => {
+    if (!isRunning && lines.length === 0) return;
+
+    const poll = async () => {
+      try {
+        const url = cursorRef.current >= 0
+          ? `/api/self-improve/activity?since=${cursorRef.current}`
+          : "/api/self-improve/activity";
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json() as { events: ActivityEvent[]; running: boolean };
+        if (data.events.length > 0) {
+          cursorRef.current = data.events[data.events.length - 1].id;
+          setLines((prev) => {
+            const newLines = coalesceEvents(data.events);
+            const merged = [...prev];
+
+            for (const nl of newLines) {
+              const last = merged[merged.length - 1];
+              // Coalesce with the tail of existing lines
+              if (
+                last &&
+                last.kind === nl.kind &&
+                (nl.kind === "text" || nl.kind === "thinking")
+              ) {
+                last.content += nl.content;
+                last.ts = nl.ts;
+              } else {
+                merged.push(nl);
+              }
+            }
+
+            // Cap at 100 display lines
+            if (merged.length > 100) {
+              merged.splice(0, merged.length - 100);
+            }
+            return merged;
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    poll();
+    const iv = setInterval(poll, isRunning ? 800 : 5000);
+    return () => clearInterval(iv);
+  }, [isRunning, lines.length]);
+
+  // Auto-scroll to bottom when new content arrives
+  useEffect(() => {
+    if (autoScrollRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [lines]);
+
+  // Detect if user has scrolled up (disable auto-scroll)
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+    autoScrollRef.current = atBottom;
+  }, []);
+
+  if (lines.length === 0 && !isRunning) {
+    return (
+      <div className="px-4 py-6 text-center text-[11px] text-white/20">
+        Activity will appear here when the agent runs.
+      </div>
+    );
+  }
+
+  if (lines.length === 0 && isRunning) {
+    return (
+      <div className="px-4 py-6 flex items-center justify-center gap-2">
+        <Loader2 size={12} className="text-emerald-400/50 animate-spin" />
+        <span className="text-[11px] text-white/30">Waiting for agent output...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      className="max-h-52 overflow-y-auto overflow-x-hidden divide-y divide-white/[0.03] bg-black/30"
+    >
+      {lines.map((line, i) => (
+        <ActivityLine key={`${line.id}-${i}`} line={line} />
+      ))}
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function SelfImproveToggle() {
@@ -358,6 +560,8 @@ export function SelfImproveToggle() {
 
   // Which commit hash is currently showing its diff (null = none)
   const [viewingDiff, setViewingDiff] = useState<string | null>(null);
+  // Panel tab: "activity" (live feed) vs "commits"
+  const [panelTab, setPanelTab] = useState<"activity" | "commits">("activity");
 
   // ── Celebration state ───────────────────────────────────────────────────
   const [celebrating, setCelebrating] = useState(false);
@@ -421,6 +625,10 @@ export function SelfImproveToggle() {
     if (status.running !== prevRunningRef.current) {
       prevRunningRef.current = status.running;
       dispatchAmbientEvent({ type: "self-improve-running", running: status.running });
+      // Auto-switch to live tab when agent starts running
+      if (status.running) {
+        setPanelTab("activity");
+      }
     }
   }, [status.running]);
 
@@ -529,35 +737,65 @@ export function SelfImproveToggle() {
       {showPanel && (
         <div className={`w-80 rounded-2xl border border-white/10 bg-neutral-900/92 backdrop-blur-md shadow-2xl overflow-hidden ${panelClosing ? "self-improve-panel-out" : "self-improve-panel-in"}`}>
 
-          {/* Current session (if running) */}
-          {status.running && runningEntry && (
-            <div className="px-4 py-3 flex items-center gap-3 border-b border-white/10 bg-emerald-950/40">
-              <Loader2 size={13} className="text-emerald-400 animate-spin flex-shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-emerald-300">Improving…</p>
-                <p className="text-[10px] text-white/30 mt-0.5">
-                  {elapsed(runningEntry.startedAt)} elapsed
-                </p>
-              </div>
-            </div>
-          )}
+          {/* Tab bar */}
+          <div className="flex items-center border-b border-white/10">
+            <button
+              onClick={() => setPanelTab("activity")}
+              className={[
+                "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors",
+                panelTab === "activity"
+                  ? "text-emerald-400 border-b-2 border-emerald-400/60 -mb-px"
+                  : "text-white/30 hover:text-white/50",
+              ].join(" ")}
+            >
+              {status.running && (
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                </span>
+              )}
+              Live
+            </button>
+            <button
+              onClick={() => { setPanelTab("commits"); setViewingDiff(null); }}
+              className={[
+                "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors",
+                panelTab === "commits"
+                  ? "text-white/70 border-b-2 border-white/40 -mb-px"
+                  : "text-white/30 hover:text-white/50",
+              ].join(" ")}
+            >
+              <GitCommit size={10} />
+              Commits
+              {commits.length > 0 && (
+                <span className="text-[9px] font-mono text-white/30 ml-0.5">
+                  {commits.length}
+                </span>
+              )}
+            </button>
+          </div>
 
-          {/* Diff viewer (replaces commit list when viewing a specific commit) */}
-          {viewingDiff ? (
+          {/* Tab content */}
+          {panelTab === "activity" ? (
+            <>
+              {/* Running session header */}
+              {status.running && runningEntry && (
+                <div className="px-3 py-2 flex items-center gap-2.5 border-b border-white/[0.06] bg-emerald-950/30">
+                  <Loader2 size={11} className="text-emerald-400 animate-spin flex-shrink-0" />
+                  <p className="text-[10px] font-medium text-emerald-300/80">
+                    Improving... <span className="text-white/25 font-normal">{elapsed(runningEntry.startedAt)}</span>
+                  </p>
+                </div>
+              )}
+              <ActivityFeed isRunning={status.running} />
+            </>
+          ) : viewingDiff ? (
             <CommitDiffPanel
               hash={viewingDiff}
               onClose={() => setViewingDiff(null)}
             />
           ) : (
             <>
-              {/* Header */}
-              <div className="px-4 py-2.5 border-b border-white/10 flex items-center gap-2">
-                <GitCommit size={12} className="text-white/40" />
-                <p className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">
-                  Recent Commits
-                </p>
-              </div>
-
               {/* Commits list */}
               <div className="max-h-64 overflow-y-auto divide-y divide-white/5">
                 {commits.length === 0 ? (
