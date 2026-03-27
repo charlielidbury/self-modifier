@@ -29,6 +29,8 @@ type SelfImproveGlobal = {
   activity: ActivityEvent[];
   /** Monotonically increasing event counter */
   activitySeq: number;
+  /** Optional user suggestion for the next improvement session */
+  suggestion: string;
 };
 
 // ── Persistent global state ───────────────────────────────────────────────────
@@ -46,6 +48,7 @@ if (!g.__selfImprove) {
     loopAlive: false,
     activity: [],
     activitySeq: 0,
+    suggestion: "",
   };
 }
 
@@ -123,10 +126,23 @@ async function runOnce(): Promise<string> {
   // Clear activity buffer for the new run
   selfImproveState.activity = [];
 
-  pushActivity("text", "Starting self-improvement session...");
+  // Consume the user's suggestion (if any) for this session
+  const userSuggestion = selfImproveState.suggestion.trim();
+  selfImproveState.suggestion = ""; // clear so it's single-use
+
+  const effectivePrompt = userSuggestion
+    ? `${PROMPT}\n\n---\n\n🎯 USER SUGGESTION FOR THIS SESSION:\nThe user has specifically requested the following improvement. Prioritise this above your own ideas:\n\n"${userSuggestion}"\n\nMake sure the improvement directly addresses this suggestion.`
+    : PROMPT;
+
+  pushActivity(
+    "text",
+    userSuggestion
+      ? `Starting self-improvement session with suggestion: "${userSuggestion}"`
+      : "Starting self-improvement session..."
+  );
 
   for await (const msg of query({
-    prompt: PROMPT,
+    prompt: effectivePrompt,
     options: {
       model: "claude-opus-4-6",
       cwd,

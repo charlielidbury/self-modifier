@@ -20,6 +20,8 @@ import {
   Zap,
   Volume2,
   VolumeX,
+  Send,
+  MessageSquarePlus,
 } from "lucide-react";
 import { dispatchAmbientEvent } from "./ambient-canvas";
 import { playCommitChimeIfUnmuted, isSoundMuted, setSoundMuted } from "@/lib/commit-sound";
@@ -28,6 +30,7 @@ type AgentStatus = {
   enabled: boolean;
   running: boolean;
   entries: { id: string; startedAt: string; status: string }[];
+  suggestion: string;
 };
 
 type ActivityEvent = {
@@ -752,6 +755,7 @@ export function SelfImproveToggle() {
     enabled: false,
     running: false,
     entries: [],
+    suggestion: "",
   });
   const [commits, setCommits] = useState<Commit[]>([]);
   const [expanded, setExpanded] = useState(false);
@@ -779,6 +783,55 @@ export function SelfImproveToggle() {
       setSoundMuted(next);
       return next;
     });
+  }, []);
+
+  // ── Suggestion state ─────────────────────────────────────────────────────
+  const [suggestionInput, setSuggestionInput] = useState("");
+  const [suggestionSaving, setSuggestionSaving] = useState(false);
+  const [suggestionSaved, setSuggestionSaved] = useState(false);
+
+  // Sync local input with server state on first load
+  const suggestionSyncedRef = useRef(false);
+  useEffect(() => {
+    if (!suggestionSyncedRef.current && status.suggestion) {
+      setSuggestionInput(status.suggestion);
+      suggestionSyncedRef.current = true;
+    } else if (!suggestionSyncedRef.current && status.suggestion === "") {
+      suggestionSyncedRef.current = true;
+    }
+  }, [status.suggestion]);
+
+  const submitSuggestion = useCallback(async () => {
+    const text = suggestionInput.trim();
+    if (!text || suggestionSaving) return;
+    setSuggestionSaving(true);
+    try {
+      const res = await fetch("/api/self-improve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suggestion: text }),
+      });
+      if (res.ok) {
+        setStatus(await res.json());
+        setSuggestionSaved(true);
+        setTimeout(() => setSuggestionSaved(false), 2000);
+      }
+    } finally {
+      setSuggestionSaving(false);
+    }
+  }, [suggestionInput, suggestionSaving]);
+
+  const clearSuggestion = useCallback(async () => {
+    setSuggestionInput("");
+    setSuggestionSaved(false);
+    try {
+      const res = await fetch("/api/self-improve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suggestion: "" }),
+      });
+      if (res.ok) setStatus(await res.json());
+    } catch { /* ignore */ }
   }, []);
 
   // Panel animation state — keeps the element in the DOM during the exit animation.
@@ -997,6 +1050,81 @@ export function SelfImproveToggle() {
               <BarChart3 size={10} />
               Stats
             </button>
+          </div>
+
+          {/* ── Suggestion box ── */}
+          <div className="px-3 py-2 border-b border-white/[0.06] bg-white/[0.015]">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <MessageSquarePlus size={10} className="text-violet-400/70" />
+              <span className="text-[9px] uppercase tracking-wider text-white/30 font-semibold">
+                Next suggestion
+              </span>
+              {status.suggestion && !status.running && (
+                <span className="ml-auto text-[8px] text-emerald-400/60 font-medium uppercase tracking-wider">
+                  Queued
+                </span>
+              )}
+              {status.running && status.suggestion && (
+                <span className="ml-auto text-[8px] text-amber-400/60 font-medium uppercase tracking-wider">
+                  In use
+                </span>
+              )}
+            </div>
+            <div className="flex items-end gap-1.5">
+              <textarea
+                value={suggestionInput}
+                onChange={(e) => {
+                  setSuggestionInput(e.target.value);
+                  setSuggestionSaved(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    submitSuggestion();
+                  }
+                }}
+                placeholder="e.g. Add a dark mode particle effect..."
+                rows={2}
+                className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[11px] text-white/70 placeholder:text-white/15 resize-none focus:outline-none focus:border-violet-500/30 focus:ring-1 focus:ring-violet-500/20 transition-all leading-relaxed"
+              />
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={submitSuggestion}
+                  disabled={!suggestionInput.trim() || suggestionSaving}
+                  title="Queue suggestion (Enter)"
+                  className={[
+                    "p-1.5 rounded-md transition-all duration-150",
+                    suggestionSaved
+                      ? "bg-emerald-500/20 text-emerald-400"
+                      : suggestionInput.trim()
+                        ? "bg-violet-500/20 text-violet-400 hover:bg-violet-500/30"
+                        : "bg-white/[0.04] text-white/15 cursor-not-allowed",
+                  ].join(" ")}
+                >
+                  {suggestionSaved ? (
+                    <Check size={12} />
+                  ) : suggestionSaving ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Send size={12} />
+                  )}
+                </button>
+                {suggestionInput.trim() && (
+                  <button
+                    onClick={clearSuggestion}
+                    title="Clear suggestion"
+                    className="p-1.5 rounded-md bg-white/[0.04] text-white/20 hover:text-white/50 hover:bg-white/[0.08] transition-all duration-150"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+            {suggestionSaved && (
+              <p className="text-[9px] text-emerald-400/50 mt-1.5 leading-tight">
+                ✓ Queued — will be used in the next improvement session.
+              </p>
+            )}
           </div>
 
           {/* Tab content */}
