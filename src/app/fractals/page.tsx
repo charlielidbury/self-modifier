@@ -39,7 +39,7 @@ uniform float u_zoom;
 uniform float u_maxIter;
 uniform float u_cx;
 uniform float u_cy;
-uniform int   u_mode;       // 0=mandelbrot  1=julia  2=burningship
+uniform int   u_mode;       // 0=mandelbrot  1=julia  2=burningship  3=newton
 uniform float u_colorShift;
 uniform float u_palIdx;     // 0-3 selects colour palette
 
@@ -64,6 +64,52 @@ vec3 colour(float t) {
 
 void main() {
   vec2 uv = (gl_FragCoord.xy - u_res * 0.5) / (min(u_res.x, u_res.y) * u_zoom) + u_center;
+
+  // ── Newton fractal: Newton-Raphson on z^3 - 1 = 0 ─────────────────────────
+  // Three roots: (1,0), (-0.5, +√3/2), (-0.5, -√3/2)
+  // Colour each basin differently; convergence speed modulates brightness.
+  if (u_mode == 3) {
+    vec2 z = uv;
+    float rootIdx = -1.0;
+    float conv = u_maxIter;
+    for (int n = 0; n < 1024; n++) {
+      if (float(n) >= u_maxIter) break;
+      // z^2
+      vec2 z2 = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y);
+      // z^3 = z^2 * z
+      vec2 z3 = vec2(z2.x*z.x - z2.y*z.y, z2.x*z.y + z2.y*z.x);
+      // f(z)  = z^3 - 1,  f'(z) = 3z^2
+      vec2 fz  = z3 - vec2(1.0, 0.0);
+      vec2 dfz = 3.0 * z2;
+      float denom = dfz.x*dfz.x + dfz.y*dfz.y;
+      if (denom < 1e-10) break;
+      // Complex division fz / dfz, then Newton step
+      vec2 delta = vec2(fz.x*dfz.x + fz.y*dfz.y, fz.y*dfz.x - fz.x*dfz.y) / denom;
+      z -= delta;
+      // Proximity to each root
+      float d0 = dot(z - vec2( 1.0,  0.0     ), z - vec2( 1.0,  0.0     ));
+      float d1 = dot(z - vec2(-0.5,  0.866025), z - vec2(-0.5,  0.866025));
+      float d2 = dot(z - vec2(-0.5, -0.866025), z - vec2(-0.5, -0.866025));
+      float minD = min(d0, min(d1, d2));
+      if (minD < 0.0001) {
+        conv = float(n);
+        if      (d0 <= d1 && d0 <= d2) rootIdx = 0.0;
+        else if (d1 <= d0 && d1 <= d2) rootIdx = 1.0;
+        else                            rootIdx = 2.0;
+        break;
+      }
+    }
+    if (rootIdx < 0.0) {
+      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+      return;
+    }
+    // Root basin sets hue; convergence speed sets brightness
+    float bright = pow(1.0 - conv / u_maxIter, 0.4);
+    vec3 col = colour(fract(rootIdx / 3.0));
+    col *= 0.25 + 0.75 * bright;
+    gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+    return;
+  }
 
   vec2 z, c;
   if (u_mode == 1) { z = uv; c = vec2(u_cx, u_cy); }
@@ -122,9 +168,10 @@ function buildProgram(gl: WebGLRenderingContext) {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const FRACTAL_MODES = [
-  { key: "mandelbrot", label: "Mandelbrot", glMode: 0 },
-  { key: "julia",      label: "Julia",      glMode: 1 },
+  { key: "mandelbrot", label: "Mandelbrot",   glMode: 0 },
+  { key: "julia",      label: "Julia",        glMode: 1 },
   { key: "burning",    label: "Burning Ship", glMode: 2 },
+  { key: "newton",     label: "Newton",       glMode: 3 },
 ] as const;
 
 type FractalKey = (typeof FRACTAL_MODES)[number]["key"];
@@ -235,6 +282,25 @@ const PRESETS: Preset[] = [
     mode: "burning",
     center: { x: -1.7656, y: -0.0418 },
     zoom: 28,
+  },
+  // ── Newton ──
+  {
+    name: "Newton: Three Basins",
+    mode: "newton",
+    center: { x: 0, y: 0 },
+    zoom: 0.5,
+  },
+  {
+    name: "Newton: Root Boundary",
+    mode: "newton",
+    center: { x: 0.52, y: 0.17 },
+    zoom: 5,
+  },
+  {
+    name: "Newton: Deep Tendrils",
+    mode: "newton",
+    center: { x: 0.5, y: 0.04 },
+    zoom: 30,
   },
 ];
 
@@ -602,6 +668,14 @@ export default function FractalsPage() {
           playingRef.current = !playingRef.current;
           setPlaying((p) => !p);
           break;
+        case "z":
+        case "Z":
+          if (!e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            if (e.shiftKey) goForward();
+            else goBack();
+          }
+          break;
         case "r":
         case "R": {
           // Reset to defaults for the current mode
@@ -619,6 +693,9 @@ export default function FractalsPage() {
           } else if (m === "julia") {
             centerRef.current = { x: 0.0, y: 0 };
             zoomRef.current = 0.45;
+          } else if (m === "newton") {
+            centerRef.current = { x: 0.0, y: 0 };
+            zoomRef.current = 0.5;
           } else {
             centerRef.current = { x: -0.4, y: 0.6 };
             zoomRef.current = 0.4;
@@ -689,6 +766,7 @@ export default function FractalsPage() {
           if (nextMode === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: -0.5, y: 0 }); }
           if (nextMode === "julia")      { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.45; setZoomLevel(0.45); setCenterDisplay({ x: 0.0, y: 0 }); }
           if (nextMode === "burning")    { centerRef.current = { x: -0.4, y: 0.6 }; zoomRef.current = 0.4; setZoomLevel(0.4); setCenterDisplay({ x: -0.4, y: 0.6 }); }
+          if (nextMode === "newton")     { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.5; setZoomLevel(0.5); setCenterDisplay({ x: 0.0, y: 0 }); }
           needsDrawRef.current = true;
           break;
         }
@@ -738,7 +816,7 @@ export default function FractalsPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [resetHintTimer, toggleFullscreen, showPresetToast]); // all refs and state setters are stable; these callbacks are also stable
+  }, [resetHintTimer, toggleFullscreen, showPresetToast, goBack, goForward]); // all refs and state setters are stable; these callbacks are also stable
 
   // ── Pointer events (pan + pinch-to-zoom) ────────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
@@ -797,7 +875,7 @@ export default function FractalsPage() {
       lastPinchDistRef.current = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
     }
     resetHintTimer();
-  }, [resetHintTimer]);
+  }, [resetHintTimer, pushNavHistory]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -954,6 +1032,7 @@ export default function FractalsPage() {
     if (m === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: -0.5, y: 0 }); }
     if (m === "julia")      { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.45; setZoomLevel(0.45); setCenterDisplay({ x: 0.0, y: 0 }); }
     if (m === "burning")    { centerRef.current = { x: -0.4, y: 0.6 }; zoomRef.current = 0.4; setZoomLevel(0.4); setCenterDisplay({ x: -0.4, y: 0.6 }); }
+    if (m === "newton")     { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.5; setZoomLevel(0.5); setCenterDisplay({ x: 0.0, y: 0 }); }
     needsDrawRef.current = true;
   };
 
