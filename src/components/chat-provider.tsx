@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import {
   useExternalStoreRuntime,
   AssistantRuntimeProvider,
@@ -14,6 +14,12 @@ import type {
   ThreadMessageLike,
 } from "@assistant-ui/react";
 import type { ChatMessage, ContentPart, StreamEvent } from "@/lib/types";
+
+/** Set of message IDs that are queued (waiting for agent to finish). */
+const QueuedMessageIdsContext = createContext<Set<string>>(new Set());
+export function useQueuedMessageIds() {
+  return useContext(QueuedMessageIdsContext);
+}
 
 /** Container tool names whose sub-tool calls should be nested as children. */
 const CONTAINER_TOOLS = new Set(["Agent"]);
@@ -244,6 +250,12 @@ function convertMessage(msg: ChatMessage): ThreadMessageLike {
   } as ThreadMessageLike;
 }
 
+type QueuedMessage = {
+  text: string;
+  images?: string[];
+  userMsgId: string; // ID of the user ChatMessage already displayed
+};
+
 export function ChatProvider({
   messages,
   setMessages,
@@ -257,6 +269,9 @@ export function ChatProvider({
 
   // True while THIS window is processing its own POST stream — ignore SSE events.
   const isSendingRef = useRef(false);
+
+  // Queue for messages sent while the agent is busy.
+  const messageQueueRef = useRef<QueuedMessage[]>([]);
 
   // Mutable state for SSE event handling (avoids stale closures in the effect).
   const sseStateRef = useRef<{
@@ -380,33 +395,19 @@ export function ChatProvider({
     };
   }, [activeSessionId, setMessages, setIsRunning]);
 
-  const onNew = useCallback(
-    async (message: AppendMessage) => {
-      const text = (message.content as (TextMessagePart | ImageMessagePart)[])
-        .filter((p): p is TextMessagePart => p.type === "text")
-        .map((p) => p.text)
-        .join("");
+  // Reference to the latest messages so sendMessage can read current state
+  // without needing it as a dependency.
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-      // Images come from attachments (via SimpleImageAttachmentAdapter), not message.content.
-      // Each completed attachment has a `content` array with image parts.
-      const images = (
-        (message as { attachments?: CompleteAttachment[] }).attachments ?? []
-      ).flatMap((att) =>
-        (att.content ?? [])
-          .filter((p): p is ImageMessagePart => p.type === "image")
-          .map((p) => p.image)
-      );
+  const activeSessionIdRef = useRef(activeSessionId);
+  useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
 
-      if (!text.trim() && images.length === 0) return;
-
-      const userMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: text,
-        images: images.length > 0 ? images : undefined,
-        createdAt: Date.now(),
-      };
-
+  // Core send function — actually POSTs a message to the server and streams
+  // the response. Expects the user message to already be in the messages list.
+  // `baseMessages` is the messages array at the point this send starts.
+  const sendMessage = useCallback(
+    async (text: string, images: string[] | undefined, userMsgId: string) => {
       const assistantId = crypto.randomUUID();
       const assistantMsg: ChatMessage = {
         id: assistantId,
@@ -415,14 +416,19 @@ export function ChatProvider({
         parts: [],
       };
 
-      setMessages([...messages, userMsg, assistantMsg]);
+      // Un-mark the user message as queued, and append the assistant placeholder.
+      const base = messagesRef.current.map((m) =>
+        m.id === userMsgId ? { ...m, queued: undefined } : m
+      );
+      const withAssistant = [...base, assistantMsg];
+      setMessages(withAssistant);
       setIsRunning(true);
       isSendingRef.current = true;
 
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
 
-      let currentMessages = [...messages, userMsg, assistantMsg];
+      let currentMessages = withAssistant;
 
       try {
         const res = await fetch("/api/chat", {
@@ -430,8 +436,8 @@ export function ChatProvider({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: text,
-            sessionId: activeSessionId ?? undefined,
-            images: images.length > 0 ? images : undefined,
+            sessionId: activeSessionIdRef.current ?? undefined,
+            images: images && images.length > 0 ? images : undefined,
           }),
           signal: abortController.signal,
         });
@@ -528,17 +534,81 @@ export function ChatProvider({
         setIsRunning(false);
         isSendingRef.current = false;
         abortControllerRef.current = null;
+        // After this turn finishes, check the queue for pending messages.
+        const next = messageQueueRef.current.shift();
+        if (next) {
+          // Small delay to let state settle before starting the next turn.
+          setTimeout(() => {
+            sendMessage(next.text, next.images, next.userMsgId);
+          }, 50);
+        }
       }
     },
-    [messages, activeSessionId, setMessages, setIsRunning, setActiveSessionId]
+    [setMessages, setIsRunning, setActiveSessionId]
+  );
+
+  const onNew = useCallback(
+    async (message: AppendMessage) => {
+      const text = (message.content as (TextMessagePart | ImageMessagePart)[])
+        .filter((p): p is TextMessagePart => p.type === "text")
+        .map((p) => p.text)
+        .join("");
+
+      // Images come from attachments (via SimpleImageAttachmentAdapter), not message.content.
+      const images = (
+        (message as { attachments?: CompleteAttachment[] }).attachments ?? []
+      ).flatMap((att) =>
+        (att.content ?? [])
+          .filter((p): p is ImageMessagePart => p.type === "image")
+          .map((p) => p.image)
+      );
+
+      if (!text.trim() && images.length === 0) return;
+
+      const userMsgId = crypto.randomUUID();
+      const userMsg: ChatMessage = {
+        id: userMsgId,
+        role: "user",
+        content: text,
+        images: images.length > 0 ? images : undefined,
+        createdAt: Date.now(),
+      };
+
+      if (isRunning) {
+        // Agent is busy — queue the message and show it as "queued" in the UI.
+        const queuedUserMsg = { ...userMsg, queued: true };
+        const next = [...messagesRef.current, queuedUserMsg];
+        setMessages(next);
+        messageQueueRef.current.push({
+          text,
+          images: images.length > 0 ? images : undefined,
+          userMsgId,
+        });
+        return;
+      }
+
+      // Agent is idle — send immediately.
+      setMessages([...messagesRef.current, userMsg]);
+      sendMessage(text, images.length > 0 ? images : undefined, userMsgId);
+    },
+    [isRunning, setMessages, sendMessage]
   );
 
   const onCancel = useCallback(async () => {
     abortControllerRef.current?.abort();
+    // Clear any queued messages and remove them from the displayed messages.
+    messageQueueRef.current = [];
+    setMessages(messagesRef.current.filter((m) => !m.queued));
     setIsRunning(false);
-  }, [setIsRunning]);
+  }, [setIsRunning, setMessages]);
 
   const attachmentsAdapter = useMemo(() => new SimpleImageAttachmentAdapter(), []);
+
+  // Derive the set of queued message IDs for the UI context.
+  const queuedIds = useMemo(
+    () => new Set(messages.filter((m) => m.queued).map((m) => m.id)),
+    [messages]
+  );
 
   const runtime = useExternalStoreRuntime({
     messages,
@@ -551,8 +621,10 @@ export function ChatProvider({
   });
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      {children}
-    </AssistantRuntimeProvider>
+    <QueuedMessageIdsContext.Provider value={queuedIds}>
+      <AssistantRuntimeProvider runtime={runtime}>
+        {children}
+      </AssistantRuntimeProvider>
+    </QueuedMessageIdsContext.Provider>
   );
 }

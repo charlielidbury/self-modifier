@@ -41,4 +41,5 @@ export type ChatMessage = {
   toolUses?: { tool: string; input: Record<string, unknown> }[];
   toolResults?: { tool: string; content: string }[];
   createdAt?: number; // Unix timestamp in ms — set when the message is created/completed
+  queued?: boolean; // True if this user message is waiting to be sent (agent is busy)
 };

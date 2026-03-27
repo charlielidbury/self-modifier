@@ -240,37 +240,34 @@ export function SessionsSidebar({
   }, [onNewSession]);
 
   useEffect(() => {
-    fetch("/api/sessions")
-      .then((r) => r.json())
-      .then((data: SessionInfo[]) => {
+    let cancelled = false;
+    async function fetchSessionsAndStatuses() {
+      try {
+        const res = await fetch("/api/sessions");
+        const data: SessionInfo[] = await res.json();
+        if (cancelled) return;
         setSessions(data);
         sessionIdsRef.current = data.map((s) => s.sessionId);
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingSessions(false));
-  }, []);
 
-  // Fetch initial statuses, then listen for push updates via SSE
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchInitial() {
-      const ids = sessionIdsRef.current;
-      if (ids.length === 0) return;
-      try {
-        const res = await fetch("/api/sessions/status", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionIds: ids }),
-        });
-        if (!cancelled) {
-          const data = await res.json();
-          setStatuses(data as Record<string, AgentStatus>);
+        // Now fetch statuses — we have the IDs available.
+        if (data.length > 0) {
+          const statusRes = await fetch("/api/sessions/status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionIds: data.map((s) => s.sessionId) }),
+          });
+          if (!cancelled) {
+            const statusData = await statusRes.json();
+            setStatuses(statusData as Record<string, AgentStatus>);
+          }
         }
       } catch {
         // ignore
+      } finally {
+        if (!cancelled) setIsLoadingSessions(false);
       }
     }
-    fetchInitial();
+    fetchSessionsAndStatuses();
     return () => { cancelled = true; };
   }, []);
 
