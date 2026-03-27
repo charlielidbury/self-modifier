@@ -28,32 +28,35 @@ const HEIGHT = 24;
 // Each palette is [a, b, c, d] where each is [r, g, b]
 type Palette = [[number, number, number], [number, number, number], [number, number, number], [number, number, number]];
 
+// Neon palettes — vivid, saturated colours that pop against any background.
+// Inspired by the main fractals page: hot pink ↔ electric cyan ↔ acid green.
+
 const PALETTE_IDLE: Palette = [
-  [0.4, 0.4, 0.45],    // a — base gray-blue
-  [0.15, 0.15, 0.2],   // b — subtle variation
+  [0.55, 0.25, 0.65],  // a — magenta-violet base
+  [0.45, 0.35, 0.35],  // b — strong variation
   [1.0, 1.0, 1.0],     // c — frequency
-  [0.0, 0.1, 0.2],     // d — phase offsets
+  [0.0, 0.33, 0.67],   // d — rainbow phase spread
 ];
 
 const PALETTE_ACTIVE: Palette = [
-  [0.5, 0.5, 0.55],    // a — brighter base
-  [0.35, 0.4, 0.5],    // b — vivid variation
-  [1.0, 1.0, 1.0],     // c
-  [0.0, 0.15, 0.35],   // d — blue-violet phase
+  [0.5, 0.3, 0.7],     // a — electric violet base
+  [0.5, 0.5, 0.4],     // b — vivid swings
+  [1.0, 1.2, 0.8],     // c — varied frequency for shimmer
+  [0.0, 0.25, 0.55],   // d — cyan-magenta-gold phase
 ];
 
 const PALETTE_COMMIT: Palette = [
-  [0.3, 0.7, 0.5],     // a — emerald-shifted base
-  [0.3, 0.35, 0.3],    // b
-  [1.0, 1.0, 0.8],     // c
-  [0.0, 0.1, 0.15],    // d
+  [0.2, 0.9, 0.5],     // a — neon green base
+  [0.4, 0.3, 0.5],     // b — green→cyan→magenta
+  [1.0, 0.8, 1.2],     // c
+  [0.0, 0.15, 0.5],    // d
 ];
 
 const PALETTE_OFF: Palette = [
-  [0.35, 0.35, 0.35],  // a — neutral gray
-  [0.08, 0.08, 0.08],  // b — barely any variation
+  [0.4, 0.2, 0.5],     // a — muted violet
+  [0.2, 0.15, 0.25],   // b — subtle neon hint
   [1.0, 1.0, 1.0],     // c
-  [0.0, 0.0, 0.0],     // d
+  [0.0, 0.33, 0.67],   // d — same rainbow spread, just dimmer
 ];
 
 function iqColor(t: number, pal: Palette): [number, number, number] {
@@ -88,11 +91,11 @@ export function NeuralPulse() {
 
   // Smoothly interpolated values for rendering
   const smoothRef = useRef({
-    maxIter: 6,
+    maxIter: 10,
     cReal: -0.7,
     cImag: 0.27015,
-    zoom: 1.4,
-    brightness: 0.4,
+    zoom: 3.0,
+    brightness: 0.12,
     palette: PALETTE_OFF as Palette,
     animSpeed: 0.0005,
   });
@@ -232,33 +235,32 @@ export function NeuralPulse() {
 
     switch (state) {
       case "off":
-        targetMaxIter = 8;
+        targetMaxIter = 10;
         targetAnimSpeed = 0.0003;
-        targetZoom = 1.3;
-        targetBrightness = 0.35;
+        targetZoom = 3.0;
+        targetBrightness = 0.12;
         targetPalette = PALETTE_OFF;
         break;
       case "idle":
-        targetMaxIter = 16;
+        targetMaxIter = 20;
         targetAnimSpeed = 0.0015;
-        targetZoom = 1.4;
-        targetBrightness = 0.65;
+        targetZoom = 3.0;
+        targetBrightness = 0.7;
         targetPalette = PALETTE_IDLE;
         break;
       case "active":
-        targetMaxIter = 32;
+        targetMaxIter = 36;
         targetAnimSpeed = 0.006;
-        targetZoom = 1.5;
+        targetZoom = 3.2;
         targetBrightness = 1.0;
         targetPalette = PALETTE_ACTIVE;
         break;
       case "commit": {
         const flash = commitFlashRef.current / 120;
-        targetMaxIter = 28;
+        targetMaxIter = 30;
         targetAnimSpeed = 0.003;
-        // Zoom pulse: zooms in then back out
-        targetZoom = 1.4 + Math.sin(flash * Math.PI) * 0.4;
-        targetBrightness = 0.7 + flash * 0.5;
+        targetZoom = 3.0 + Math.sin(flash * Math.PI) * 0.5;
+        targetBrightness = 0.8 + flash * 0.4;
         targetPalette = lerpPalette(PALETTE_IDLE, PALETTE_COMMIT, flash);
         break;
       }
@@ -323,25 +325,39 @@ export function NeuralPulse() {
         const idx = (py * pw + px) * 4;
 
         if (iter === maxIter) {
-          // Inside the set — fully transparent (show page background)
-          data[idx] = 0;
-          data[idx + 1] = 0;
-          data[idx + 2] = 0;
-          data[idx + 3] = 0;
-        } else {
-          // Smooth iteration count for anti-banding
-          const zr2 = zr * zr;
-          const zi2 = zi * zi;
-          const smooth = iter + 1 - Math.log(Math.log(Math.sqrt(zr2 + zi2))) / Math.LN2;
-          const colorT = smooth / maxIter;
+          // Inside the Julia set — this is the compact, bounded region.
+          // Color it based on the final orbit position for variety.
+          const mag = Math.sqrt(zr * zr + zi * zi);
+          const angle = Math.atan2(zi, zr);
+          const colorT = (angle / Math.PI + 1) * 0.5; // 0..1 based on angle
+          const depthT = Math.min(1, mag * 0.5);       // variation from magnitude
 
-          const [r, g, b] = iqColor(colorT, pal);
-          // Use alpha so the fractal floats on the page background
-          const alpha = Math.min(1, brightness * (0.5 + colorT * 0.5));
-          data[idx] = Math.round(r * 255);
-          data[idx + 1] = Math.round(g * 255);
-          data[idx + 2] = Math.round(b * 255);
-          data[idx + 3] = Math.round(alpha * 255);
+          const [r, g, b] = iqColor(colorT * 0.5 + depthT * 0.5, pal);
+          data[idx] = Math.round(r * brightness * 255);
+          data[idx + 1] = Math.round(g * brightness * 255);
+          data[idx + 2] = Math.round(b * brightness * 255);
+          data[idx + 3] = Math.round(brightness * 255);
+        } else {
+          // Outside the Julia set — transparent. Points very near the
+          // boundary (high iteration count) get a faint glow for smooth
+          // anti-aliasing of the set edge.
+          const colorT = iter / maxIter;
+          if (colorT > 0.7) {
+            // Near-boundary glow for anti-aliasing
+            const glowT = (colorT - 0.7) / 0.3; // 0..1
+            const [r, g, b] = iqColor(glowT, pal);
+            const alpha = glowT * glowT * brightness * 0.6;
+            data[idx] = Math.round(r * 255);
+            data[idx + 1] = Math.round(g * 255);
+            data[idx + 2] = Math.round(b * 255);
+            data[idx + 3] = Math.round(alpha * 255);
+          } else {
+            // Far from boundary — fully transparent
+            data[idx] = 0;
+            data[idx + 1] = 0;
+            data[idx + 2] = 0;
+            data[idx + 3] = 0;
+          }
         }
       }
     }
@@ -361,7 +377,7 @@ export function NeuralPulse() {
       ref={canvasRef}
       width={WIDTH}
       height={HEIGHT}
-      className="flex-shrink-0 rounded-sm opacity-90 hover:opacity-100 transition-opacity cursor-default"
+      className="flex-shrink-0 opacity-90 hover:opacity-100 transition-opacity cursor-default"
       style={{
         width: WIDTH,
         height: HEIGHT,
