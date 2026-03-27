@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
 import { Trash2, MessageSquare, Pencil } from "lucide-react";
 import type { SessionInfo, ChatMessage } from "@/lib/types";
 import type { AgentStatus } from "@/lib/agent";
@@ -11,22 +11,32 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-/** Renders `text` with any occurrence of `query` wrapped in a highlight span. */
+/** Renders `text` with ALL occurrences of `query` wrapped in a highlight span. */
 function HighlightedText({ text, query }: { text: string; query: string }) {
   if (!query) return <>{text}</>;
   const lowerText = text.toLowerCase();
   const lowerQuery = query.toLowerCase();
-  const idx = lowerText.indexOf(lowerQuery);
-  if (idx === -1) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, idx)}
-      <mark className="bg-yellow-200 dark:bg-yellow-700/60 text-inherit rounded-[2px] px-0">
+
+  const parts: (string | React.ReactElement)[] = [];
+  let lastIdx = 0;
+  let idx = lowerText.indexOf(lowerQuery);
+
+  while (idx !== -1) {
+    if (idx > lastIdx) parts.push(text.slice(lastIdx, idx));
+    parts.push(
+      <mark
+        key={idx}
+        className="bg-yellow-200 dark:bg-yellow-700/60 text-inherit rounded-[2px] px-0"
+      >
         {text.slice(idx, idx + query.length)}
       </mark>
-      {text.slice(idx + query.length)}
-    </>
-  );
+    );
+    lastIdx = idx + query.length;
+    idx = lowerText.indexOf(lowerQuery, lastIdx);
+  }
+
+  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+  return <>{parts}</>;
 }
 
 /** Convert a Unix-ms timestamp into a human-readable relative string. */
@@ -127,6 +137,8 @@ export function SessionsSidebar({
   const [isOpen, setIsOpen] = useState(true);
   // Track which session is "armed" for deletion (first click arms, second click deletes)
   const [armedForDelete, setArmedForDelete] = useState<string | null>(null);
+  // IDs currently mid-exit-animation (fade out before removal)
+  const [exitingSessionIds, setExitingSessionIds] = useState<Set<string>>(new Set());
   // Inline rename state
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -149,7 +161,7 @@ export function SessionsSidebar({
     setIsOpen(window.innerWidth >= 1024);
   }, []);
 
-  // Alt+B: toggle sidebar open/closed  Alt+N: new session
+  // Alt+B: toggle sidebar open/closed  Alt+N: new session  Alt+F: focus session search
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!e.altKey) return;
@@ -159,6 +171,14 @@ export function SessionsSidebar({
       } else if (e.key.toLowerCase() === "n") {
         e.preventDefault();
         onNewSession();
+      } else if (e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        // Open sidebar first if collapsed, then focus search after transition starts
+        setIsOpen(true);
+        setTimeout(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        }, 50);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -263,16 +283,22 @@ export function SessionsSidebar({
         return;
       }
 
-      // Confirmed — delete the session
+      // Confirmed — start exit animation, fire API, then remove from list
       setArmedForDelete(null);
-      try {
-        const res = await fetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
-        if (res.ok) {
-          setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));
-        }
-      } catch {
-        // Silently ignore network errors
-      }
+      setExitingSessionIds((prev) => new Set([...prev, sessionId]));
+
+      // Fire the DELETE request immediately (don't block on animation)
+      fetch(`/api/sessions/${sessionId}`, { method: "DELETE" }).catch(() => {});
+
+      // After the CSS transition finishes, remove from local state
+      setTimeout(() => {
+        setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));
+        setExitingSessionIds((prev) => {
+          const next = new Set(prev);
+          next.delete(sessionId);
+          return next;
+        });
+      }, 220);
     },
     [armedForDelete]
   );
@@ -514,6 +540,7 @@ export function SessionsSidebar({
             const isActive = activeSessionId === s.sessionId;
             const isKbdFocused = kbdFocusIndex === idx;
             const isRenaming = renamingSessionId === s.sessionId;
+            const isExiting = exitingSessionIds.has(s.sessionId);
 
             // Date group header — only shown when not actively searching
             const group = !searchQuery ? getSessionGroup(s.lastModified, now) : null;
@@ -532,8 +559,10 @@ export function SessionsSidebar({
               <div
                 ref={(el) => { itemRefs.current[idx] = el; }}
                 className={[
-                  "group relative flex items-center text-sm transition-colors mx-1 rounded-md",
-                  isActive
+                  "group relative flex items-center text-sm transition-all duration-200 mx-1 rounded-md",
+                  isExiting
+                    ? "opacity-0 -translate-x-3 pointer-events-none"
+                    : isActive
                     ? "bg-neutral-200 dark:bg-neutral-700"
                     : isKbdFocused
                     ? "bg-neutral-100 dark:bg-neutral-800 ring-1 ring-inset ring-neutral-300 dark:ring-neutral-600"
