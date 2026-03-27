@@ -1667,7 +1667,7 @@ export default function ChessPage() {
                     if (isSelected) bgColor = "#f6f669";
 
                     const interactive =
-                      !isGameOver && !isThinking && (!vsAI || turn === "w");
+                      !isGameOver && !isThinking && !autoPlay && (!vsAI || turn === playerColor);
 
                     const isDragSource =
                       dragging !== null &&
