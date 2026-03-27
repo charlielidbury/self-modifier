@@ -65,6 +65,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["+"], description: "Zoom in" },
       { keys: ["-"], description: "Zoom out" },
       { keys: ["R"], description: "Reset view" },
+      { keys: ["S"], description: "Save screenshot as PNG" },
     ],
   },
   {
