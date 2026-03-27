@@ -36,6 +36,7 @@ import {
   Mountain,
   FlaskConical,
   Brain,
+  GitCommitHorizontal,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -230,6 +231,14 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/neural"),
       keywords: ["neural", "network", "nn", "brain", "machine learning", "ml", "backpropagation", "classifier", "train", "playground"],
+    },
+    {
+      id: "nav-changelog",
+      label: "Go to Changelog",
+      icon: <GitCommitHorizontal size={16} />,
+      group: "Navigation",
+      action: () => router.push("/changelog"),
+      keywords: ["changelog", "history", "commits", "git", "log", "timeline", "self-improve", "evolution", "diff"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {
