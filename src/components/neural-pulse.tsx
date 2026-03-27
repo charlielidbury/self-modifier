@@ -91,11 +91,11 @@ export function NeuralPulse() {
 
   // Smoothly interpolated values for rendering
   const smoothRef = useRef({
-    maxIter: 10,
+    maxIter: 12,
     cReal: -0.7,
     cImag: 0.27015,
     zoom: 3.0,
-    brightness: 0.12,
+    brightness: 0.35,
     palette: PALETTE_OFF as Palette,
     animSpeed: 0.0005,
   });
@@ -235,21 +235,21 @@ export function NeuralPulse() {
 
     switch (state) {
       case "off":
-        targetMaxIter = 10;
+        targetMaxIter = 12;
         targetAnimSpeed = 0.0003;
         targetZoom = 3.0;
-        targetBrightness = 0.12;
+        targetBrightness = 0.35;
         targetPalette = PALETTE_OFF;
         break;
       case "idle":
-        targetMaxIter = 20;
+        targetMaxIter = 24;
         targetAnimSpeed = 0.0015;
         targetZoom = 3.0;
-        targetBrightness = 0.7;
+        targetBrightness = 0.85;
         targetPalette = PALETTE_IDLE;
         break;
       case "active":
-        targetMaxIter = 36;
+        targetMaxIter = 40;
         targetAnimSpeed = 0.006;
         targetZoom = 3.2;
         targetBrightness = 1.0;
@@ -257,10 +257,10 @@ export function NeuralPulse() {
         break;
       case "commit": {
         const flash = commitFlashRef.current / 120;
-        targetMaxIter = 30;
+        targetMaxIter = 32;
         targetAnimSpeed = 0.003;
         targetZoom = 3.0 + Math.sin(flash * Math.PI) * 0.5;
-        targetBrightness = 0.8 + flash * 0.4;
+        targetBrightness = 0.9 + flash * 0.3;
         targetPalette = lerpPalette(PALETTE_IDLE, PALETTE_COMMIT, flash);
         break;
       }
@@ -325,34 +325,34 @@ export function NeuralPulse() {
         const idx = (py * pw + px) * 4;
 
         if (iter === maxIter) {
-          // Inside the Julia set — this is the compact, bounded region.
-          // Color it based on the final orbit position for variety.
+          // Inside the Julia set — the compact, bounded fractal region.
+          // Color based on final orbit position for rich internal detail.
           const mag = Math.sqrt(zr * zr + zi * zi);
           const angle = Math.atan2(zi, zr);
-          const colorT = (angle / Math.PI + 1) * 0.5; // 0..1 based on angle
-          const depthT = Math.min(1, mag * 0.5);       // variation from magnitude
+          const colorT = (angle / Math.PI + 1) * 0.5;
+          const depthT = Math.min(1, mag * 0.5);
 
           const [r, g, b] = iqColor(colorT * 0.5 + depthT * 0.5, pal);
-          data[idx] = Math.round(r * brightness * 255);
-          data[idx + 1] = Math.round(g * brightness * 255);
-          data[idx + 2] = Math.round(b * brightness * 255);
-          data[idx + 3] = Math.round(brightness * 255);
+          // Keep RGB vivid (full neon), control visibility via alpha only
+          const alpha = Math.min(1, brightness * (0.6 + depthT * 0.4));
+          data[idx] = Math.round(r * 255);
+          data[idx + 1] = Math.round(g * 255);
+          data[idx + 2] = Math.round(b * 255);
+          data[idx + 3] = Math.round(alpha * 255);
         } else {
           // Outside the Julia set — transparent. Points very near the
-          // boundary (high iteration count) get a faint glow for smooth
-          // anti-aliasing of the set edge.
-          const colorT = iter / maxIter;
-          if (colorT > 0.7) {
-            // Near-boundary glow for anti-aliasing
-            const glowT = (colorT - 0.7) / 0.3; // 0..1
+          // boundary get a neon glow halo for anti-aliasing.
+          const nearness = iter / maxIter;
+          if (nearness > 0.6) {
+            const glowT = (nearness - 0.6) / 0.4; // 0..1
             const [r, g, b] = iqColor(glowT, pal);
-            const alpha = glowT * glowT * brightness * 0.6;
+            // Neon glow: full colour, alpha fades in
+            const alpha = Math.pow(glowT, 1.5) * brightness * 0.7;
             data[idx] = Math.round(r * 255);
             data[idx + 1] = Math.round(g * 255);
             data[idx + 2] = Math.round(b * 255);
-            data[idx + 3] = Math.round(alpha * 255);
+            data[idx + 3] = Math.round(Math.min(1, alpha) * 255);
           } else {
-            // Far from boundary — fully transparent
             data[idx] = 0;
             data[idx + 1] = 0;
             data[idx + 2] = 0;
