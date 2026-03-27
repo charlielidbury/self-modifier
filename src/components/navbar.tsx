@@ -20,6 +20,15 @@ const tabs = [
   { href: "/fractals", label: "Fractals", Icon: Infinity, shortcut: "Alt+4" },
 ];
 
+// Per-page accent colours for the sliding pill background and active tab text.
+// Using literal Tailwind class strings so the compiler includes them in the build.
+const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
+  "/":          { pill: "bg-blue-500/15 dark:bg-blue-500/20",   text: "text-blue-700 dark:text-blue-300" },
+  "/chess":     { pill: "bg-amber-500/15 dark:bg-amber-400/20", text: "text-amber-700 dark:text-amber-300" },
+  "/minecraft": { pill: "bg-green-500/15 dark:bg-green-500/20", text: "text-green-700 dark:text-green-300" },
+  "/fractals":  { pill: "bg-violet-500/15 dark:bg-violet-500/20", text: "text-violet-700 dark:text-violet-300" },
+};
+
 export function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -70,14 +79,18 @@ export function Navbar() {
           {/* Animated sliding pill background */}
           {pill && (
             <div
-              className="absolute inset-y-1 rounded-md bg-accent pointer-events-none"
+              className={[
+                "absolute inset-y-1 rounded-md pointer-events-none",
+                PAGE_ACCENTS[pathname]?.pill ?? "bg-accent",
+              ].join(" ")}
               style={{
                 left: pill.left,
                 width: pill.width,
-                // Only animate after initial placement to avoid slide-in from 0
+                // Only animate position after initial placement to avoid slide-in from 0.
+                // Always animate background-color so page-specific accent transitions smoothly.
                 transition: initializedRef.current
-                  ? "left 200ms cubic-bezier(0.4,0,0.2,1), width 200ms cubic-bezier(0.4,0,0.2,1)"
-                  : "none",
+                  ? "left 200ms cubic-bezier(0.4,0,0.2,1), width 200ms cubic-bezier(0.4,0,0.2,1), background-color 200ms ease"
+                  : "background-color 200ms ease",
               }}
             />
           )}
@@ -95,7 +108,7 @@ export function Navbar() {
                     className={[
                       "relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                       active
-                        ? "text-accent-foreground"
+                        ? PAGE_ACCENTS[href]?.text ?? "text-accent-foreground"
                         : "text-muted-foreground hover:text-foreground hover:bg-accent/40",
                     ].join(" ")}
                   >
