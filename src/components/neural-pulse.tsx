@@ -3,30 +3,99 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 
 /**
- * NeuralPulse — a tiny animated EKG/brainwave SVG that lives in the navbar.
+ * NeuralPulse — a tiny animated Julia set fractal that lives in the navbar.
  *
- * It polls the self-improve activity API to determine agent state:
- *  - **off**:     no waveform, just a dormant dot
- *  - **idle**:    gentle sine wave (agent enabled but not actively running)
- *  - **active**:  fast, complex brainwave pattern (agent is thinking/working)
- *  - **commit**:  sharp spike burst then settle (commit just landed)
+ * It polls the self-improve activity API to determine agent state, then renders
+ * a continuously morphing Julia set whose complexity and intensity reflect
+ * the agent's consciousness:
  *
- * The waveform is drawn via requestAnimationFrame for butter-smooth 60fps.
+ *  - **off**:     Near-static, low-iteration, faintly glowing fractal
+ *  - **idle**:    Slow graceful drift through parameter space, soft colors
+ *  - **active**:  Rapid morphing, high iterations, vivid saturated palette
+ *  - **commit**:  Emerald flash + zoom pulse, then settle
+ *
+ * Rendered pixel-by-pixel via ImageData for maximum performance at 60fps.
  */
 
 type PulseState = "off" | "idle" | "active" | "commit";
 
-const WIDTH = 64;
-const HEIGHT = 20;
-const MID_Y = HEIGHT / 2;
+// Canvas dimensions (CSS pixels — scaled by DPR internally)
+const WIDTH = 72;
+const HEIGHT = 24;
+
+// ── IQ cosine color palettes ────────────────────────────────────────────────
+// color(t) = a + b * cos(2π(c*t + d))
+// Each palette is [a, b, c, d] where each is [r, g, b]
+type Palette = [[number, number, number], [number, number, number], [number, number, number], [number, number, number]];
+
+const PALETTE_IDLE: Palette = [
+  [0.4, 0.4, 0.45],    // a — base gray-blue
+  [0.15, 0.15, 0.2],   // b — subtle variation
+  [1.0, 1.0, 1.0],     // c — frequency
+  [0.0, 0.1, 0.2],     // d — phase offsets
+];
+
+const PALETTE_ACTIVE: Palette = [
+  [0.5, 0.5, 0.55],    // a — brighter base
+  [0.35, 0.4, 0.5],    // b — vivid variation
+  [1.0, 1.0, 1.0],     // c
+  [0.0, 0.15, 0.35],   // d — blue-violet phase
+];
+
+const PALETTE_COMMIT: Palette = [
+  [0.3, 0.7, 0.5],     // a — emerald-shifted base
+  [0.3, 0.35, 0.3],    // b
+  [1.0, 1.0, 0.8],     // c
+  [0.0, 0.1, 0.15],    // d
+];
+
+const PALETTE_OFF: Palette = [
+  [0.35, 0.35, 0.35],  // a — neutral gray
+  [0.08, 0.08, 0.08],  // b — barely any variation
+  [1.0, 1.0, 1.0],     // c
+  [0.0, 0.0, 0.0],     // d
+];
+
+function iqColor(t: number, pal: Palette): [number, number, number] {
+  const [a, b, c, d] = pal;
+  const tau = Math.PI * 2;
+  return [
+    Math.max(0, Math.min(1, a[0] + b[0] * Math.cos(tau * (c[0] * t + d[0])))),
+    Math.max(0, Math.min(1, a[1] + b[1] * Math.cos(tau * (c[1] * t + d[1])))),
+    Math.max(0, Math.min(1, a[2] + b[2] * Math.cos(tau * (c[2] * t + d[2])))),
+  ];
+}
+
+// Lerp between two palettes
+function lerpPalette(a: Palette, b: Palette, t: number): Palette {
+  const l = (x: number, y: number) => x + (y - x) * t;
+  return [
+    [l(a[0][0], b[0][0]), l(a[0][1], b[0][1]), l(a[0][2], b[0][2])],
+    [l(a[1][0], b[1][0]), l(a[1][1], b[1][1]), l(a[1][2], b[1][2])],
+    [l(a[2][0], b[2][0]), l(a[2][1], b[2][1]), l(a[2][2], b[2][2])],
+    [l(a[3][0], b[3][0]), l(a[3][1], b[3][1]), l(a[3][2], b[3][2])],
+  ];
+}
 
 export function NeuralPulse() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef<PulseState>("off");
-  const commitFlashRef = useRef(0); // countdown frames for commit spike
+  const commitFlashRef = useRef(0);
   const frameRef = useRef(0);
   const rafRef = useRef<number>(0);
+  const imgDataRef = useRef<ImageData | null>(null);
   const [currentState, setCurrentState] = useState<PulseState>("off");
+
+  // Smoothly interpolated values for rendering
+  const smoothRef = useRef({
+    maxIter: 6,
+    cReal: -0.7,
+    cImag: 0.27015,
+    zoom: 1.4,
+    brightness: 0.4,
+    palette: PALETTE_OFF as Palette,
+    animSpeed: 0.0005,
+  });
 
   // Poll the self-improve activity endpoint to determine state
   useEffect(() => {
@@ -46,22 +115,19 @@ export function NeuralPulse() {
           lastEventId = newEvents[newEvents.length - 1].id;
         }
 
-        // Detect commits by checking for text events mentioning "DONE ["
         const hasCommit = newEvents.some(
           (e) => e.kind === "text" && e.content.includes("DONE [")
         );
 
         if (hasCommit) {
           stateRef.current = "commit";
-          commitFlashRef.current = 90; // ~1.5s at 60fps
+          commitFlashRef.current = 120; // ~2s at 60fps
           setCurrentState("commit");
         } else if (data.running) {
-          // If we got new events, agent is actively working
           if (newEvents.length > lastEventCount) {
             stateRef.current = "active";
             setCurrentState("active");
           } else {
-            // Running but no new events — still active (might be between tool calls)
             if (stateRef.current !== "commit") {
               stateRef.current = "active";
               setCurrentState("active");
@@ -69,7 +135,6 @@ export function NeuralPulse() {
           }
           lastEventCount = newEvents.length;
         } else {
-          // Check if enabled at all
           try {
             const statusRes = await fetch("/api/self-improve");
             if (statusRes.ok) {
@@ -87,7 +152,6 @@ export function NeuralPulse() {
               }
             }
           } catch {
-            // If status fetch fails, assume off
             if (stateRef.current !== "commit") {
               stateRef.current = "off";
               setCurrentState("off");
@@ -104,23 +168,20 @@ export function NeuralPulse() {
     }
 
     poll();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  // Listen for commit celebration events dispatched by the self-improve toggle
+  // Listen for commit events from the self-improve toggle
   useEffect(() => {
     function handleCommit() {
       stateRef.current = "commit";
-      commitFlashRef.current = 90;
+      commitFlashRef.current = 120;
       setCurrentState("commit");
     }
     window.addEventListener("self-improve:commit", handleCommit);
     return () => window.removeEventListener("self-improve:commit", handleCommit);
   }, []);
 
-  // The drawing loop
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) {
@@ -128,23 +189,30 @@ export function NeuralPulse() {
       return;
     }
 
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) {
       rafRef.current = requestAnimationFrame(draw);
       return;
     }
 
     const dpr = window.devicePixelRatio || 1;
-    if (canvas.width !== WIDTH * dpr || canvas.height !== HEIGHT * dpr) {
-      canvas.width = WIDTH * dpr;
-      canvas.height = HEIGHT * dpr;
-      ctx.scale(dpr, dpr);
+    const pw = Math.round(WIDTH * dpr);
+    const ph = Math.round(HEIGHT * dpr);
+
+    if (canvas.width !== pw || canvas.height !== ph) {
+      canvas.width = pw;
+      canvas.height = ph;
+      imgDataRef.current = null;
     }
 
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    if (!imgDataRef.current || imgDataRef.current.width !== pw || imgDataRef.current.height !== ph) {
+      imgDataRef.current = ctx.createImageData(pw, ph);
+    }
+
     frameRef.current++;
     const f = frameRef.current;
     const state = stateRef.current;
+    const sm = smoothRef.current;
 
     // Handle commit flash countdown
     if (commitFlashRef.current > 0) {
@@ -155,119 +223,136 @@ export function NeuralPulse() {
       }
     }
 
-    if (state === "off") {
-      // Dormant: just a subtle breathing dot
-      const breathe = Math.sin(f * 0.03) * 0.3 + 0.4;
-      ctx.beginPath();
-      ctx.arc(WIDTH / 2, MID_Y, 1.5, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(120, 120, 120, ${breathe})`;
-      ctx.fill();
-      rafRef.current = requestAnimationFrame(draw);
-      return;
+    // ── Target parameters based on state ──────────────────────────────────
+    let targetMaxIter: number;
+    let targetAnimSpeed: number;
+    let targetZoom: number;
+    let targetBrightness: number;
+    let targetPalette: Palette;
+
+    switch (state) {
+      case "off":
+        targetMaxIter = 8;
+        targetAnimSpeed = 0.0003;
+        targetZoom = 1.3;
+        targetBrightness = 0.35;
+        targetPalette = PALETTE_OFF;
+        break;
+      case "idle":
+        targetMaxIter = 16;
+        targetAnimSpeed = 0.0015;
+        targetZoom = 1.4;
+        targetBrightness = 0.65;
+        targetPalette = PALETTE_IDLE;
+        break;
+      case "active":
+        targetMaxIter = 32;
+        targetAnimSpeed = 0.006;
+        targetZoom = 1.5;
+        targetBrightness = 1.0;
+        targetPalette = PALETTE_ACTIVE;
+        break;
+      case "commit": {
+        const flash = commitFlashRef.current / 120;
+        targetMaxIter = 28;
+        targetAnimSpeed = 0.003;
+        // Zoom pulse: zooms in then back out
+        targetZoom = 1.4 + Math.sin(flash * Math.PI) * 0.4;
+        targetBrightness = 0.7 + flash * 0.5;
+        targetPalette = lerpPalette(PALETTE_IDLE, PALETTE_COMMIT, flash);
+        break;
+      }
     }
 
-    // Draw the waveform line
-    ctx.beginPath();
-    ctx.lineWidth = 1.2;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
+    // ── Smooth interpolation toward targets ───────────────────────────────
+    const lerp = 0.06;
+    sm.maxIter = sm.maxIter + (targetMaxIter - sm.maxIter) * lerp;
+    sm.animSpeed = sm.animSpeed + (targetAnimSpeed - sm.animSpeed) * lerp;
+    sm.zoom = sm.zoom + (targetZoom - sm.zoom) * lerp;
+    sm.brightness = sm.brightness + (targetBrightness - sm.brightness) * lerp;
+    sm.palette = lerpPalette(sm.palette, targetPalette, lerp);
 
-    // Color based on state
-    let color: string;
-    let glowColor: string;
-    if (state === "commit") {
-      const flash = commitFlashRef.current / 90;
-      color = `rgba(52, 211, 153, ${0.6 + flash * 0.4})`; // emerald
-      glowColor = `rgba(52, 211, 153, ${0.3 * flash})`;
-    } else if (state === "active") {
-      color = "rgba(96, 165, 250, 0.8)"; // blue-400
-      glowColor = "rgba(96, 165, 250, 0.15)";
-    } else {
-      color = "rgba(156, 163, 175, 0.5)"; // gray-400
-      glowColor = "rgba(156, 163, 175, 0.05)";
-    }
+    // ── Animate the Julia set c parameter ─────────────────────────────────
+    // Trace a path through interesting Julia set territory near the
+    // Mandelbrot set boundary — a Lissajous-like orbit that visits
+    // dendrites, spirals, and Douady rabbits.
+    const t = f * sm.animSpeed;
+    sm.cReal = -0.72 + 0.18 * Math.sin(t * 2.1) + 0.06 * Math.cos(t * 5.3);
+    sm.cImag = 0.27 + 0.12 * Math.cos(t * 1.7) + 0.04 * Math.sin(t * 4.1);
 
-    // Optional glow for active/commit states
-    if (state !== "idle") {
-      ctx.save();
-      ctx.shadowColor = glowColor;
-      ctx.shadowBlur = 4;
-      ctx.restore();
-    }
+    // ── Render the Julia set ──────────────────────────────────────────────
+    const maxIter = Math.round(sm.maxIter);
+    const zoom = sm.zoom;
+    const cR = sm.cReal;
+    const cI = sm.cImag;
+    const brightness = sm.brightness;
+    const pal = sm.palette;
+    const data = imgDataRef.current.data;
 
-    ctx.strokeStyle = color;
+    // The view window in complex plane coordinates
+    const aspect = pw / ph;
+    const rangeY = 2.0 / zoom;
+    const rangeX = rangeY * aspect;
+    const minR = -rangeX / 2;
+    const minI = -rangeY / 2;
+    const stepR = rangeX / pw;
+    const stepI = rangeY / ph;
 
-    // Generate waveform points
-    for (let x = 0; x < WIDTH; x++) {
-      const t = x / WIDTH;
-      let y = MID_Y;
+    // Escape radius squared
+    const escSq = 4.0;
 
-      if (state === "idle") {
-        // Gentle sine wave
-        y = MID_Y + Math.sin(t * Math.PI * 3 + f * 0.04) * 2.5;
-      } else if (state === "active") {
-        // Complex brainwave: sum of multiple frequencies
-        const wave1 = Math.sin(t * Math.PI * 4 + f * 0.08) * 3;
-        const wave2 = Math.sin(t * Math.PI * 7 + f * 0.12) * 1.5;
-        const wave3 = Math.sin(t * Math.PI * 13 + f * 0.05) * 1;
-        // Occasional spike
-        const spike = Math.pow(Math.sin(t * Math.PI * 2 + f * 0.03), 8) * 4;
-        y = MID_Y + wave1 + wave2 + wave3 + spike;
-      } else if (state === "commit") {
-        const progress = 1 - commitFlashRef.current / 90;
-        // Sharp EKG spike that decays
-        const spikePos = 0.3 + progress * 0.4;
-        const dist = Math.abs(t - spikePos);
+    for (let py = 0; py < ph; py++) {
+      const zi0 = minI + py * stepI;
+      for (let px = 0; px < pw; px++) {
+        const zr0 = minR + px * stepR;
 
-        if (dist < 0.05) {
-          // The sharp spike
-          const spikeAmt = (1 - dist / 0.05) * (1 - progress);
-          y = MID_Y - spikeAmt * 8;
-        } else if (dist < 0.1) {
-          // Negative dip after spike
-          const dipAmt = (1 - (dist - 0.05) / 0.05) * (1 - progress);
-          y = MID_Y + dipAmt * 3;
+        let zr = zr0;
+        let zi = zi0;
+        let iter = 0;
+
+        // Julia set iteration: z = z² + c
+        while (iter < maxIter) {
+          const zr2 = zr * zr;
+          const zi2 = zi * zi;
+          if (zr2 + zi2 > escSq) break;
+          zi = 2 * zr * zi + cI;
+          zr = zr2 - zi2 + cR;
+          iter++;
+        }
+
+        const idx = (py * pw + px) * 4;
+
+        if (iter === maxIter) {
+          // Inside the set — dark with faint glow
+          const glow = brightness * 0.08;
+          data[idx] = Math.round(glow * 60);
+          data[idx + 1] = Math.round(glow * 60);
+          data[idx + 2] = Math.round(glow * 70);
+          data[idx + 3] = 255;
         } else {
-          // Background oscillation decaying
-          const decay = Math.max(0, 1 - progress * 1.5);
-          y =
-            MID_Y +
-            Math.sin(t * Math.PI * 6 + f * 0.08) * 2 * decay +
-            Math.sin(t * Math.PI * 11 + f * 0.12) * 1 * decay;
+          // Smooth iteration count for anti-banding
+          const zr2 = zr * zr;
+          const zi2 = zi * zi;
+          const smooth = iter + 1 - Math.log(Math.log(Math.sqrt(zr2 + zi2))) / Math.LN2;
+          const colorT = smooth / maxIter;
+
+          const [r, g, b] = iqColor(colorT, pal);
+          data[idx] = Math.round(r * brightness * 255);
+          data[idx + 1] = Math.round(g * brightness * 255);
+          data[idx + 2] = Math.round(b * brightness * 255);
+          data[idx + 3] = 255;
         }
       }
-
-      // Clamp
-      y = Math.max(2, Math.min(HEIGHT - 2, y));
-
-      if (x === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
     }
 
-    ctx.stroke();
+    ctx.putImageData(imgDataRef.current, 0, 0);
 
-    // Leading dot at the end of the waveform
-    const lastY = (() => {
-      const t = 1;
-      if (state === "idle") return MID_Y + Math.sin(t * Math.PI * 3 + f * 0.04) * 2.5;
-      if (state === "active") {
-        return (
-          MID_Y +
-          Math.sin(t * Math.PI * 4 + f * 0.08) * 3 +
-          Math.sin(t * Math.PI * 7 + f * 0.12) * 1.5 +
-          Math.sin(t * Math.PI * 13 + f * 0.05) * 1
-        );
-      }
-      return MID_Y;
-    })();
-
-    ctx.beginPath();
-    ctx.arc(WIDTH - 1, Math.max(2, Math.min(HEIGHT - 2, lastY)), 1.5, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
+    // Subtle vignette overlay for polish
+    const grad = ctx.createRadialGradient(pw / 2, ph / 2, pw * 0.25, pw / 2, ph / 2, pw * 0.6);
+    grad.addColorStop(0, "rgba(0,0,0,0)");
+    grad.addColorStop(1, "rgba(0,0,0,0.35)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, pw, ph);
 
     rafRef.current = requestAnimationFrame(draw);
   }, []);
@@ -282,8 +367,12 @@ export function NeuralPulse() {
       ref={canvasRef}
       width={WIDTH}
       height={HEIGHT}
-      className="flex-shrink-0 opacity-90 hover:opacity-100 transition-opacity cursor-default"
-      style={{ width: WIDTH, height: HEIGHT }}
+      className="flex-shrink-0 rounded-sm opacity-90 hover:opacity-100 transition-opacity cursor-default"
+      style={{
+        width: WIDTH,
+        height: HEIGHT,
+        imageRendering: "auto",
+      }}
       title={
         currentState === "off"
           ? "Self-improve: disabled"
