@@ -52,6 +52,15 @@ const SECTIONS: ShortcutSection[] = [
     ],
   },
   {
+    title: "Minecraft",
+    rows: [
+      { keys: ["←", "→"], description: "Orbit left / right" },
+      { keys: ["↑", "↓"], description: "Orbit up / down" },
+      { keys: ["+"], description: "Zoom in" },
+      { keys: ["-"], description: "Zoom out" },
+    ],
+  },
+  {
     title: "Fractals",
     rows: [
       { keys: ["↑", "↓", "←", "→"], description: "Pan view" },

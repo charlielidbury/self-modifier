@@ -193,8 +193,10 @@ export default function MinecraftScene() {
 
     // ── Drag-to-rotate state ──
     let rotY = 0;
+    let rotX = 0;
     let isDragging = false;
     let lastPointerX = 0;
+    let lastPointerY = 0;
 
     // ── Scroll-to-zoom state ──
     const MIN_CAM_Z = 7;
@@ -210,19 +212,40 @@ export default function MinecraftScene() {
     const onPointerDown = (e: PointerEvent) => {
       isDragging = true;
       lastPointerX = e.clientX;
+      lastPointerY = e.clientY;
       renderer.domElement.style.cursor = 'grabbing';
       renderer.domElement.setPointerCapture(e.pointerId);
     };
     const onPointerMove = (e: PointerEvent) => {
       if (!isDragging) return;
       const dx = e.clientX - lastPointerX;
+      const dy = e.clientY - lastPointerY;
       lastPointerX = e.clientX;
+      lastPointerY = e.clientY;
       rotY += dx * 0.008;
+      rotX = Math.max(-0.45, Math.min(0.45, rotX - dy * 0.006));
     };
     const onPointerUp = () => {
       isDragging = false;
       renderer.domElement.style.cursor = 'grab';
     };
+
+    // ── Keyboard orbit / zoom ──
+    const keys = new Set<string>();
+    const ORBIT_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '=', '-', '_']);
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isEditable =
+        tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable;
+      if (isEditable) return;
+      if (ORBIT_KEYS.has(e.key)) e.preventDefault();
+      keys.add(e.key);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      keys.delete(e.key);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
 
     // ── Scene ──
     const scene = new THREE.Scene();
@@ -339,12 +362,20 @@ export default function MinecraftScene() {
       camZ += (targetCamZ - camZ) * 0.1;
       camera.position.setZ(camZ);
 
+      // Keyboard orbit / zoom
+      if (keys.has('ArrowLeft'))  rotY -= 0.035;
+      if (keys.has('ArrowRight')) rotY += 0.035;
+      if (keys.has('ArrowUp'))    rotX = Math.max(-0.45, rotX - 0.025);
+      if (keys.has('ArrowDown'))  rotX = Math.min(0.45, rotX + 0.025);
+      if (keys.has('+') || keys.has('=')) targetCamZ = Math.max(MIN_CAM_Z, targetCamZ - 0.4);
+      if (keys.has('-') || keys.has('_')) targetCamZ = Math.min(MAX_CAM_Z, targetCamZ + 0.4);
+
       // Spin the whole world (auto-rotate when not dragging; add user drag delta always)
       if (!isDragging) {
         rotY += 0.012 * 0.55;
       }
       mainGroup.rotation.y = rotY;
-      mainGroup.rotation.x = Math.sin(t * 0.18) * 0.07;
+      mainGroup.rotation.x = rotX + Math.sin(t * 0.18) * 0.04;
 
       // Pigs orbit + bob + flap
       pigs.forEach(pig => {
@@ -395,6 +426,8 @@ export default function MinecraftScene() {
     return () => {
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointermove', onPointerMove);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);

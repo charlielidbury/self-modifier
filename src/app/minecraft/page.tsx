@@ -59,7 +59,7 @@ export default function MinecraftPage() {
             letterSpacing: '0.15em',
           }}
         >
-          ← DRAG TO ROTATE · SCROLL TO ZOOM
+          ← ↕ DRAG TO LOOK AROUND · SCROLL TO ZOOM · ARROW KEYS TO ORBIT · +/− TO ZOOM
         </p>
       </div>
 
