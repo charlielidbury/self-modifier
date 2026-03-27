@@ -46,6 +46,7 @@ const SECTIONS: ShortcutSection[] = [
     title: "Chess",
     rows: [
       { keys: ["Ctrl", "Z"], description: "Undo last move" },
+      { keys: ["Ctrl", "Shift", "Z"], description: "Redo last undone move" },
       { keys: ["N"], description: "New game" },
       { keys: ["F"], description: "Flip board" },
       { keys: ["H"], description: "Show best move hint" },

@@ -400,6 +400,7 @@ export default function ChessPage() {
     return "w";
   });
   const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<Snapshot[]>([]);
   const [flipped, setFlipped] = useState(false);
   const [pendingPromotion, setPendingPromotion] = useState<{
     sr: number; sc: number; r: number; c: number; color: Color;
@@ -725,11 +726,12 @@ export default function ChessPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turn, board, difficulty, vsAI, playerColor]);
 
-  // ── Undo ──────────────────────────────────────────────────────────────────
+  // ── Undo / Redo ───────────────────────────────────────────────────────────
   const undo = useCallback(() => {
     setUndoStack((stack) => {
       if (stack.length === 0) return stack;
       const prev = stack[stack.length - 1];
+      setRedoStack((rs) => [...rs, { board, status, lastMove, moveHistory, turn }]);
       setBoard(prev.board);
       setTurn(prev.turn);
       setStatus(prev.status);
@@ -740,7 +742,24 @@ export default function ChessPage() {
       setHint(null);
       return stack.slice(0, -1);
     });
-  }, []);
+  }, [board, status, lastMove, moveHistory, turn]);
+
+  const redo = useCallback(() => {
+    setRedoStack((rs) => {
+      if (rs.length === 0) return rs;
+      const next = rs[rs.length - 1];
+      setUndoStack((stack) => [...stack, { board, status, lastMove, moveHistory, turn }]);
+      setBoard(next.board);
+      setTurn(next.turn);
+      setStatus(next.status);
+      setLastMove(next.lastMove);
+      setMoveHistory(next.moveHistory);
+      setSelected(null);
+      setLegalMoves([]);
+      setHint(null);
+      return rs.slice(0, -1);
+    });
+  }, [board, status, lastMove, moveHistory, turn]);
 
   // Show a hint: compute best move for the player and highlight it briefly
   const showHint = useCallback(() => {
@@ -772,6 +791,17 @@ export default function ChessPage() {
         if (!isThinking && undoStack.length > 0) {
           e.preventDefault();
           undo();
+        }
+        return;
+      }
+
+      if (
+        ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) ||
+        ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y"))
+      ) {
+        if (!isThinking && redoStack.length > 0) {
+          e.preventDefault();
+          redo();
         }
         return;
       }
@@ -811,7 +841,7 @@ export default function ChessPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undo, isThinking, undoStack.length, showHint]);
+  }, [undo, redo, isThinking, undoStack.length, redoStack.length, showHint]);
 
   // ── Auto-flip board when player color changes ─────────────────────────────
   useEffect(() => {
@@ -857,6 +887,7 @@ export default function ChessPage() {
             ...stack,
             { board, status, lastMove, moveHistory, turn },
           ]);
+          setRedoStack([]);
           const next = applyMove(board, sr, sc, r, c);
           const san = toSAN(board, sr, sc, r, c, next, turn);
           const newStatus = getStatus(next, turn);
@@ -961,6 +992,7 @@ export default function ChessPage() {
           ...stack,
           { board, status, lastMove, moveHistory, turn },
         ]);
+        setRedoStack([]);
         const next = applyMove(board, r, c, tr, tc);
         const san = toSAN(board, r, c, tr, tc, next, turn);
         const newStatus = getStatus(next, turn);
@@ -1001,6 +1033,7 @@ export default function ChessPage() {
     setLastMove(null);
     setMoveHistory([]);
     setUndoStack([]);
+    setRedoStack([]);
     setPendingPromotion(null);
     setHint(null);
     setDragging(null);
@@ -1029,6 +1062,7 @@ export default function ChessPage() {
       ...stack,
       { board, status, lastMove, moveHistory, turn: color },
     ]);
+    setRedoStack([]);
     const next = applyMove(board, sr, sc, r, c, promoteTo);
     const san = toSAN(board, sr, sc, r, c, next, color, promoteTo);
     const newStatus = getStatus(next, color);
@@ -1257,6 +1291,14 @@ export default function ChessPage() {
             className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             ↩ Undo
+          </button>
+          <button
+            onClick={redo}
+            disabled={redoStack.length === 0 || isThinking}
+            title="Redo last undone move (Ctrl+Shift+Z)"
+            className="px-3 py-1 text-sm rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            ↪ Redo
           </button>
           <button
             onClick={() => setFlipped((f) => !f)}
