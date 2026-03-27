@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Keyboard } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Keyboard, Search, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 interface ShortcutRow {
   keys: string[];
@@ -85,8 +86,28 @@ function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Renders `text` with occurrences of `query` highlighted. */
+function HighlightText({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const idx = lower.indexOf(lowerQuery);
+  if (idx === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-yellow-200 dark:bg-yellow-700/60 text-inherit rounded-[2px] px-0">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
 export function KeyboardShortcutsModal() {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -108,6 +129,38 @@ export function KeyboardShortcutsModal() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Auto-focus search when modal opens; clear query when it closes.
+  useEffect(() => {
+    if (open) {
+      // Small delay so the dialog animation finishes before focusing.
+      const id = setTimeout(() => searchRef.current?.focus(), 80);
+      return () => clearTimeout(id);
+    } else {
+      setQuery("");
+    }
+  }, [open]);
+
+  // Filter sections based on query.
+  const trimmedQuery = query.trim();
+  const filteredSections = trimmedQuery
+    ? SECTIONS.flatMap((section) => {
+        const matchingRows = section.rows.filter(
+          (row) =>
+            row.description.toLowerCase().includes(trimmedQuery.toLowerCase()) ||
+            row.keys.some((k) =>
+              k.toLowerCase().includes(trimmedQuery.toLowerCase())
+            )
+        );
+        if (matchingRows.length === 0) return [];
+        return [{ ...section, rows: matchingRows }];
+      })
+    : SECTIONS;
+
+  const totalResults = filteredSections.reduce(
+    (sum, s) => sum + s.rows.length,
+    0
+  );
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-w-md">
@@ -118,39 +171,90 @@ export function KeyboardShortcutsModal() {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5 pt-1">
-          {SECTIONS.map((section) => (
-            <div key={section.title}>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {section.title}
-              </h3>
-              <div className="space-y-1.5">
-                {section.rows.map((row, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-accent/50 transition-colors"
-                  >
-                    <span className="text-sm text-foreground">
-                      {row.description}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      {row.keys.map((k, j) => (
-                        <Kbd key={j}>{k}</Kbd>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+        {/* Search input */}
+        <div className="relative">
+          <Search
+            size={13}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+          />
+          <input
+            ref={searchRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search shortcuts…"
+            className="w-full rounded-md border border-border bg-muted/40 py-1.5 pl-7 pr-7 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring transition-colors"
+          />
+          {query && (
+            <button
+              onClick={() => {
+                setQuery("");
+                searchRef.current?.focus();
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Clear search"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
 
-        <p className="text-xs text-muted-foreground pt-2 border-t border-border">
-          Press{" "}
-          <Kbd>?</Kbd>{" "}
-          or{" "}
-          <Kbd>Esc</Kbd>{" "}
-          to close
+        <div
+          className={cn(
+            "space-y-5 overflow-y-auto",
+            // Fixed height so the dialog doesn't resize when filtering.
+            "max-h-[min(60vh,380px)]",
+            "pr-1"
+          )}
+        >
+          {filteredSections.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground italic">
+              No shortcuts match &ldquo;{trimmedQuery}&rdquo;
+            </p>
+          ) : (
+            filteredSections.map((section) => (
+              <div key={section.title}>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {section.title}
+                </h3>
+                <div className="space-y-1.5">
+                  {section.rows.map((row, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-accent/50 transition-colors"
+                    >
+                      <span className="text-sm text-foreground">
+                        <HighlightText
+                          text={row.description}
+                          query={trimmedQuery}
+                        />
+                      </span>
+                      <div className="flex items-center gap-1 flex-shrink-0 ml-3">
+                        {row.keys.map((k, j) => (
+                          <Kbd key={j}>{k}</Kbd>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <p className="text-xs text-muted-foreground pt-2 border-t border-border flex items-center justify-between">
+          <span>
+            Press{" "}
+            <Kbd>?</Kbd>{" "}
+            or{" "}
+            <Kbd>Esc</Kbd>{" "}
+            to close
+          </span>
+          {trimmedQuery && totalResults > 0 && (
+            <span className="tabular-nums">
+              {totalResults} result{totalResults !== 1 ? "s" : ""}
+            </span>
+          )}
         </p>
       </DialogContent>
     </Dialog>
