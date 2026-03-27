@@ -95,6 +95,19 @@ body {
   animation: page-fade-in 0.18s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
 }
 
+/* Smooth colour transition when toggling light / dark theme.
+   The class is added by ThemeToggle just before switching the "dark" class
+   and removed 300 ms later, giving every element a brief window to
+   cross-fade its colours.  Canvas elements are excluded so WebGL / Three.js
+   renders are not affected. */
+.theme-transitioning *:not(canvas) {
+  transition:
+    background-color 250ms ease,
+    color 250ms ease,
+    border-color 250ms ease,
+    box-shadow 250ms ease !important;
+}
+
 @keyframes confettiFall {
   from {
     transform: translateY(-16px) rotate(0deg);

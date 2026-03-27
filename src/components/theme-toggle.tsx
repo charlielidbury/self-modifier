@@ -34,6 +34,14 @@ export function ThemeToggle() {
 
   function toggle() {
     const next: Theme = theme === "dark" ? "light" : "dark";
+
+    // Briefly enable colour transitions on all elements so the theme switch
+    // animates smoothly instead of snapping. The class is removed once the
+    // transition completes (250 ms) to avoid interfering with other animations.
+    const el = document.documentElement;
+    el.classList.add("theme-transitioning");
+    setTimeout(() => el.classList.remove("theme-transitioning"), 300);
+
     setTheme(next);
     try {
       localStorage.setItem("theme", next);
@@ -41,9 +49,9 @@ export function ThemeToggle() {
       // ignore
     }
     if (next === "dark") {
-      document.documentElement.classList.add("dark");
+      el.classList.add("dark");
     } else {
-      document.documentElement.classList.remove("dark");
+      el.classList.remove("dark");
     }
   }
 
