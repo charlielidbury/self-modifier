@@ -171,11 +171,11 @@ function buildProgram(gl: WebGLRenderingContext) {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const FRACTAL_MODES = [
-  { key: "mandelbrot", label: "Mandelbrot",   glMode: 0 },
-  { key: "julia",      label: "Julia",        glMode: 1 },
-  { key: "burning",    label: "Burning Ship", glMode: 2 },
-  { key: "newton",     label: "Newton",       glMode: 3 },
-  { key: "tricorn",    label: "Tricorn",      glMode: 4 },
+  { key: "mandelbrot", label: "Mandelbrot",   glMode: 0, description: "The classic Mandelbrot set. Zoom into the boundary to discover infinite self-similar spirals and minibrots." },
+  { key: "julia",      label: "Julia",        glMode: 1, description: "Julia set — shape evolves as the animation parameter c changes. In Mandelbrot mode, Shift+click any point to pin its Julia set." },
+  { key: "burning",    label: "Burning Ship", glMode: 2, description: "The Burning Ship fractal. Absolute-value iterations create asymmetric ship-like structures with fiery detail." },
+  { key: "newton",     label: "Newton",       glMode: 3, description: "Newton fractal for z³−1=0. Each colour marks which of the three roots Newton-Raphson converges to from that point." },
+  { key: "tricorn",    label: "Tricorn",      glMode: 4, description: "The Tricorn (Mandelbar) set. Complex conjugate iterations produce three-armed symmetry and distinctive antenna structures." },
 ] as const;
 
 type FractalKey = (typeof FRACTAL_MODES)[number]["key"];
@@ -1056,10 +1056,11 @@ export default function FractalsPage() {
     modeRef.current = m;
     setMode(m);
     // Reset view to nice defaults per mode
-    if (m === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: -0.5, y: 0 }); }
-    if (m === "julia")      { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.45; setZoomLevel(0.45); setCenterDisplay({ x: 0.0, y: 0 }); }
-    if (m === "burning")    { centerRef.current = { x: -0.4, y: 0.6 }; zoomRef.current = 0.4; setZoomLevel(0.4); setCenterDisplay({ x: -0.4, y: 0.6 }); }
-    if (m === "newton")     { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.5; setZoomLevel(0.5); setCenterDisplay({ x: 0.0, y: 0 }); }
+    if (m === "mandelbrot") { centerRef.current = { x: -0.5, y: 0 };    zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: -0.5, y: 0 }); }
+    if (m === "julia")      { centerRef.current = { x:  0.0, y: 0 };    zoomRef.current = 0.45; setZoomLevel(0.45); setCenterDisplay({ x: 0.0,  y: 0 }); }
+    if (m === "burning")    { centerRef.current = { x: -0.4, y: 0.6 };  zoomRef.current = 0.4;  setZoomLevel(0.4);  setCenterDisplay({ x: -0.4, y: 0.6 }); }
+    if (m === "newton")     { centerRef.current = { x:  0.0, y: 0 };    zoomRef.current = 0.5;  setZoomLevel(0.5);  setCenterDisplay({ x: 0.0,  y: 0 }); }
+    if (m === "tricorn")    { centerRef.current = { x:  0.0, y: 0 };    zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: 0.0,  y: 0 }); }
     needsDrawRef.current = true;
   };
 
@@ -1314,6 +1315,7 @@ export default function FractalsPage() {
               <button
                 key={m.key}
                 onClick={() => setModeUI(m.key)}
+                title={m.description}
                 className={[
                   "px-3 py-1.5 text-xs font-medium transition-colors",
                   mode === m.key
@@ -1465,14 +1467,18 @@ export default function FractalsPage() {
                   </div>
                 )}
                 {/* Built-in preset groups */}
-                {(["mandelbrot", "julia", "burning"] as FractalKey[]).map((groupKey) => {
+                {(["mandelbrot", "julia", "burning", "newton", "tricorn"] as FractalKey[]).map((groupKey) => {
                   const groupPresets = PRESETS.filter((p) => p.mode === groupKey);
                   const groupLabel =
                     groupKey === "mandelbrot"
                       ? "Mandelbrot"
                       : groupKey === "julia"
                       ? "Julia"
-                      : "Burning Ship";
+                      : groupKey === "burning"
+                      ? "Burning Ship"
+                      : groupKey === "newton"
+                      ? "Newton"
+                      : "Tricorn";
                   return (
                     <div key={groupKey}>
                       <div className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-white/30">
