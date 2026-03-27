@@ -104,7 +104,7 @@ export default function OchrePage() {
           </button>
         </div>
         <div className="flex-1 min-h-0">
-          <ChatView cwd={OCHRE_REPO_PATH} showSidebar={false} />
+          <ChatView cwd={OCHRE_REPO_PATH} />
         </div>
       </div>
     );

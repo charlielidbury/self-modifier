@@ -1,5 +1,6 @@
 import { runAgent } from "@/lib/agent";
 import { broadcast } from "@/lib/broadcast";
+import { setSessionCwd } from "@/lib/session-cwd";
 
 export const maxDuration = 300;
 
@@ -21,6 +22,10 @@ export async function POST(req: Request) {
         for await (const event of runAgent(message, sessionId, images, cwd)) {
           if (event.type === "session") {
             resolvedSessionId = event.sessionId;
+            // Record the cwd for this session so we can filter by it later.
+            if (cwd) {
+              setSessionCwd(resolvedSessionId, cwd).catch(() => {});
+            }
             // Now we know the session — broadcast that a new user turn started.
             broadcast(
               resolvedSessionId,

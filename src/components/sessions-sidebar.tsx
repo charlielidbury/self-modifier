@@ -92,6 +92,8 @@ type SessionsSidebarProps = {
   activeSessionId: string | null;
   onNewSession: () => void;
   onLoadSession: (messages: ChatMessage[], sessionId: string, label: string) => void;
+  /** Optional cwd filter — only show sessions created with this working directory. */
+  cwd?: string;
 };
 
 function StatusDot({ status }: { status: AgentStatus }) {
@@ -148,6 +150,7 @@ export function SessionsSidebar({
   activeSessionId,
   onNewSession,
   onLoadSession,
+  cwd,
 }: SessionsSidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
@@ -243,7 +246,10 @@ export function SessionsSidebar({
     let cancelled = false;
     async function fetchSessionsAndStatuses() {
       try {
-        const res = await fetch("/api/sessions");
+        const sessionsUrl = cwd
+          ? `/api/sessions?cwd=${encodeURIComponent(cwd)}`
+          : "/api/sessions";
+        const res = await fetch(sessionsUrl);
         const data: SessionInfo[] = await res.json();
         if (cancelled) return;
         setSessions(data);
@@ -269,7 +275,7 @@ export function SessionsSidebar({
     }
     fetchSessionsAndStatuses();
     return () => { cancelled = true; };
-  }, []);
+  }, [cwd]);
 
   // Listen for real-time session status updates via SSE
   useEventBus("sessions:status", useCallback((raw: unknown) => {

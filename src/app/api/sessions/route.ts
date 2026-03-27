@@ -3,6 +3,7 @@ import type { SessionInfo } from "@/lib/types";
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
+import { getAllSessionCwds } from "@/lib/session-cwd";
 
 async function loadRenames(): Promise<Record<string, string>> {
   const cwd = process.cwd();
@@ -22,18 +23,32 @@ async function loadRenames(): Promise<Record<string, string>> {
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const [sessions, renames] = await Promise.all([
+    const url = new URL(req.url);
+    const cwdFilter = url.searchParams.get("cwd");
+
+    const [sessions, renames, sessionCwds] = await Promise.all([
       listSessions({ dir: process.cwd(), limit: 50 }),
       loadRenames(),
+      getAllSessionCwds(),
     ]);
-    const result: SessionInfo[] = sessions.map((s) => ({
+
+    let result: SessionInfo[] = sessions.map((s) => ({
       sessionId: s.sessionId,
       summary: renames[s.sessionId] ?? s.summary,
       lastModified: s.lastModified,
       createdAt: s.createdAt,
     }));
+
+    if (cwdFilter) {
+      // Only show sessions that were created with this specific cwd.
+      result = result.filter((s) => sessionCwds[s.sessionId] === cwdFilter);
+    } else {
+      // Default view: show sessions that have NO custom cwd (i.e. the main project).
+      result = result.filter((s) => !sessionCwds[s.sessionId]);
+    }
+
     return Response.json(result);
   } catch {
     return Response.json([]);
