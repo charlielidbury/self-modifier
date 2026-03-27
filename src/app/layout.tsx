@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
 import { SelfImproveToggle } from "@/components/self-improve-toggle";
+import { CommandPalette } from "@/components/command-palette";
 import { PageTransition } from "@/components/page-transition";
 
 const geistSans = Geist({
@@ -43,6 +44,7 @@ export default function RootLayout({
             {children}
           </PageTransition>
         </main>
+        <CommandPalette />
         <SelfImproveToggle />
       </body>
     </html>
