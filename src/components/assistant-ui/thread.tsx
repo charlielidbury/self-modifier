@@ -36,11 +36,12 @@ import {
   MoonIcon,
   PencilIcon,
   RefreshCwIcon,
+  ShuffleIcon,
   SparklesIcon,
   SquareIcon,
   SunIcon,
 } from "lucide-react";
-import { useMemo, useState, type FC, type ElementType } from "react";
+import { useCallback, useMemo, useRef, useState, type FC, type ElementType } from "react";
 
 export const Thread: FC = () => {
   return (
@@ -270,41 +271,84 @@ function pickRandom<T>(arr: T[], n: number): T[] {
 }
 
 const ThreadSuggestions: FC = () => {
-  // Pick 4 random suggestions once when the welcome screen first mounts.
-  const suggestions = useMemo(() => pickRandom(SUGGESTION_POOL, 4), []);
+  // Pick 4 random suggestions on mount; re-pick on shuffle, ensuring no overlap with current set.
+  const [suggestions, setSuggestions] = useState<Suggestion[]>(() =>
+    pickRandom(SUGGESTION_POOL, 4)
+  );
+  // Bump this key on every shuffle to replay enter animations on suggestion cards.
+  const [shuffleKey, setShuffleKey] = useState(0);
+  const [spinning, setSpinning] = useState(false);
+  const spinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleShuffle = useCallback(() => {
+    // Pick a fresh set that differs from the current one where possible.
+    const currentPrompts = new Set(suggestions.map((s) => s.prompt));
+    const pool = SUGGESTION_POOL.filter((s) => !currentPrompts.has(s.prompt));
+    // Fall back to full pool if not enough alternatives remain.
+    const newSuggestions = pickRandom(
+      pool.length >= 4 ? pool : SUGGESTION_POOL,
+      4
+    );
+    setSuggestions(newSuggestions);
+    setShuffleKey((k) => k + 1);
+
+    // Spin the icon for 400 ms.
+    setSpinning(true);
+    if (spinTimerRef.current) clearTimeout(spinTimerRef.current);
+    spinTimerRef.current = setTimeout(() => setSpinning(false), 400);
+  }, [suggestions]);
 
   return (
-    <div className="aui-thread-welcome-suggestions grid w-full @md:grid-cols-2 gap-2 pb-4">
-      {suggestions.map((s, i) => (
-        <div
-          key={i}
-          className={cn(
-            "fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200",
-            i >= 2 && "hidden @md:block"
-          )}
-          style={{ animationDelay: `${(i + 1) * 75}ms` }}
+    <div className="aui-thread-welcome-suggestions pb-4">
+      <div className="grid w-full @md:grid-cols-2 gap-2" key={shuffleKey}>
+        {suggestions.map((s, i) => (
+          <div
+            key={`${shuffleKey}-${i}`}
+            className={cn(
+              "fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200",
+              i >= 2 && "hidden @md:block"
+            )}
+            style={{ animationDelay: `${(i + 1) * 75}ms` }}
+          >
+            <ThreadPrimitive.Suggestion prompt={s.prompt} send asChild>
+              <Button
+                variant="ghost"
+                className={cn(
+                  "h-auto w-full flex-row items-center justify-start gap-3 rounded-3xl border bg-background px-4 py-3 text-left text-sm transition-colors hover:bg-muted",
+                  s.hoverBorder
+                )}
+              >
+                <div className={cn("shrink-0 flex size-8 items-center justify-center rounded-xl", s.accentBg, s.accentText)}>
+                  <s.icon className="size-4" />
+                </div>
+                <div className="flex min-w-0 flex-col">
+                  <span className="font-medium">{s.title}</span>
+                  <span className="text-muted-foreground text-xs empty:hidden">
+                    {s.description}
+                  </span>
+                </div>
+              </Button>
+            </ThreadPrimitive.Suggestion>
+          </div>
+        ))}
+      </div>
+
+      {/* Shuffle button — refreshes the suggestion set */}
+      <div className="flex justify-center mt-2">
+        <button
+          onClick={handleShuffle}
+          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/60 transition-colors select-none"
+          aria-label="Shuffle suggestions"
         >
-          <ThreadPrimitive.Suggestion prompt={s.prompt} send asChild>
-            <Button
-              variant="ghost"
-              className={cn(
-                "h-auto w-full flex-row items-center justify-start gap-3 rounded-3xl border bg-background px-4 py-3 text-left text-sm transition-colors hover:bg-muted",
-                s.hoverBorder
-              )}
-            >
-              <div className={cn("shrink-0 flex size-8 items-center justify-center rounded-xl", s.accentBg, s.accentText)}>
-                <s.icon className="size-4" />
-              </div>
-              <div className="flex min-w-0 flex-col">
-                <span className="font-medium">{s.title}</span>
-                <span className="text-muted-foreground text-xs empty:hidden">
-                  {s.description}
-                </span>
-              </div>
-            </Button>
-          </ThreadPrimitive.Suggestion>
-        </div>
-      ))}
+          <ShuffleIcon
+            className={cn(
+              "size-3 transition-transform duration-300",
+              spinning && "rotate-180"
+            )}
+          />
+          Shuffle
+        </button>
+      </div>
     </div>
   );
 };
