@@ -20,6 +20,7 @@ import {
   FlaskConical,
   Brain,
   BarChart3,
+  Droplets,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -53,6 +54,7 @@ const PAGE_HUES: Record<string, number> = {
   "/reaction":  190, // cyan-teal
   "/neural":     45, // yellow
   "/sorting":   210, // steel blue
+  "/fluid":       0, // red
 };
 
 // Mapping from route to page label + icon (used for the breadcrumb-style indicator).
@@ -74,6 +76,7 @@ const PAGE_INFO: Record<string, { label: string; Icon: LucideIcon }> = {
   "/reaction":  { label: "Reaction",  Icon: FlaskConical },
   "/neural":    { label: "Neural Net", Icon: Brain },
   "/sorting":   { label: "Sorting",    Icon: BarChart3 },
+  "/fluid":     { label: "Fluid",      Icon: Droplets },
 };
 
 // Per-page accent colours for the active page indicator.
@@ -95,6 +98,7 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/reaction":  { pill: "bg-cyan-500/15 dark:bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
   "/neural":    { pill: "bg-yellow-500/15 dark:bg-yellow-500/20", text: "text-yellow-700 dark:text-yellow-300" },
   "/sorting":   { pill: "bg-sky-500/15 dark:bg-sky-500/20", text: "text-sky-700 dark:text-sky-300" },
+  "/fluid":     { pill: "bg-red-500/15 dark:bg-red-500/20", text: "text-red-700 dark:text-red-300" },
 };
 
 // Actual color values used for the animated brand accent dot.
@@ -116,6 +120,7 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/reaction":  "#06b6d4",
   "/neural":    "#eab308",
   "/sorting":   "#0ea5e9",
+  "/fluid":     "#ef4444",
 };
 
 // Browser tab titles per page.
@@ -136,6 +141,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/terrain":   "Terrain — Self-Modifier",
   "/reaction":  "Reaction — Self-Modifier",
   "/sorting":   "Sorting — Self-Modifier",
+  "/fluid":     "Fluid — Self-Modifier",
 };
 
 // Alt+number quick-nav targets (kept so the global keyboard shortcuts still work).

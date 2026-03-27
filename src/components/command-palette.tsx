@@ -37,6 +37,7 @@ import {
   FlaskConical,
   Brain,
   BarChart3,
+  Droplets,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -239,6 +240,14 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/sorting"),
       keywords: ["sort", "sorting", "algorithm", "bubble", "merge", "quick", "heap", "visualizer", "bars", "comparison"],
+    },
+    {
+      id: "nav-fluid",
+      label: "Go to Fluid Simulation",
+      icon: <Droplets size={16} />,
+      group: "Navigation",
+      action: () => router.push("/fluid"),
+      keywords: ["fluid", "water", "navier", "stokes", "simulation", "dye", "smoke", "liquid", "dynamics"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {

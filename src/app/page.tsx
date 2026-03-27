@@ -18,6 +18,7 @@ import {
   FlaskConical,
   Brain,
   BarChart3,
+  Droplets,
   ArrowRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -211,6 +212,17 @@ const cards: CardInfo[] = [
     borderColor: "hover:border-sky-500/40",
     glowColor: "rgba(14,165,233,0.15)",
     category: "Algorithms",
+  },
+  {
+    href: "/fluid",
+    label: "Fluid Simulation",
+    description: "Real-time Navier-Stokes fluid dynamics — inject colorful dye and watch it swirl and diffuse.",
+    Icon: Droplets,
+    color: "text-red-500",
+    bgColor: "bg-red-500/10 dark:bg-red-500/15",
+    borderColor: "hover:border-red-500/40",
+    glowColor: "rgba(239,68,68,0.15)",
+    category: "Physics",
   },
 ];
 
