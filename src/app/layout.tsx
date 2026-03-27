@@ -5,6 +5,7 @@ import { Navbar } from "@/components/navbar";
 import { SelfImproveToggle } from "@/components/self-improve-toggle";
 import { CommandPalette } from "@/components/command-palette";
 import { PageTransition } from "@/components/page-transition";
+import { AmbientCanvas } from "@/components/ambient-canvas";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,8 +39,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col h-screen`}
       >
+        <AmbientCanvas />
         <Navbar />
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-hidden relative z-[1]">
           <PageTransition>
             {children}
           </PageTransition>

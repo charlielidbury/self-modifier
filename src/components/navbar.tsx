@@ -105,7 +105,7 @@ export function Navbar() {
 
   return (
     <TooltipProvider delayDuration={600}>
-      <nav className="h-12 flex-none border-b border-border bg-background flex items-center px-4 gap-1">
+      <nav className="h-12 flex-none border-b border-border bg-background flex items-center px-4 gap-1 relative z-10">
         <span className="font-semibold text-sm mr-2 sm:mr-4 text-foreground/70 select-none flex items-center gap-1.5">
           <span
             className="size-2 rounded-full flex-shrink-0"

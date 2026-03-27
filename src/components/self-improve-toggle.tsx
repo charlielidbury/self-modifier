@@ -15,6 +15,7 @@ import {
   X,
   PartyPopper,
 } from "lucide-react";
+import { dispatchAmbientEvent } from "./ambient-canvas";
 
 type AgentStatus = {
   enabled: boolean;
@@ -414,6 +415,15 @@ export function SelfImproveToggle() {
     });
   }, []);
 
+  // ── Broadcast running state to ambient canvas ────────────────────────────
+  const prevRunningRef = useRef(false);
+  useEffect(() => {
+    if (status.running !== prevRunningRef.current) {
+      prevRunningRef.current = status.running;
+      dispatchAmbientEvent({ type: "self-improve-running", running: status.running });
+    }
+  }, [status.running]);
+
   // ── Fetch agent status ────────────────────────────────────────────────────
   const fetchStatus = useCallback(async () => {
     try {
@@ -473,6 +483,7 @@ export function SelfImproveToggle() {
       setCelebrating(true);
       setPillGlow(true);
       setToastMessage(commits[0].message);
+      dispatchAmbientEvent({ type: "self-improve-commit" });
       // Clear confetti after animation
       setTimeout(() => setCelebrating(false), 1200);
       // Clear glow after pulse
