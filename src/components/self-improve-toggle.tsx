@@ -37,6 +37,13 @@ import {
   ArrowUp,
   ArrowDown,
   RotateCw,
+  History,
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  Timer,
+  Wrench,
 } from "lucide-react";
 import { dispatchAmbientEvent } from "./ambient-canvas";
 import { playCommitChimeIfUnmuted, isSoundMuted, setSoundMuted } from "@/lib/commit-sound";
@@ -2156,6 +2163,467 @@ function MemoryPanel() {
   );
 }
 
+// ── Session Replay Panel ─────────────────────────────────────────────────────
+
+type ReplaySession = {
+  id: string;
+  startedAt: string;
+  completedAt: string;
+  status: "completed" | "failed" | "reverted";
+  summary: string;
+  genome: {
+    id: string;
+    generation: number;
+    focus: string;
+    ambition: number;
+    creativity: number;
+    thoroughness: number;
+  } | null;
+  durationMs: number;
+  eventCount: number;
+  toolCallCount: number;
+  toolsUsed: string[];
+};
+
+type ReplayEvent = {
+  id: number;
+  ts: number;
+  kind: "thinking" | "tool_call" | "tool_result" | "text" | "error";
+  content: string;
+  tool?: string;
+};
+
+function formatDuration(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${s % 60}s`;
+}
+
+function SessionReplayPanel() {
+  const [sessions, setSessions] = useState<ReplaySession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [replayEvents, setReplayEvents] = useState<ReplayEvent[]>([]);
+  const [replayLoading, setReplayLoading] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [playbackIndex, setPlaybackIndex] = useState(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState(10); // events per second
+  const playingRef = useRef(false);
+  const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
+
+  // Fetch session list
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch("/api/self-improve/sessions");
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { sessions: ReplaySession[] };
+        setSessions(data.sessions);
+      } catch { /* ignore */ }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load a specific session's events
+  const loadSessionDetail = useCallback(async (id: string) => {
+    setSelectedId(id);
+    setReplayLoading(true);
+    setPlaying(false);
+    playingRef.current = false;
+    setPlaybackIndex(0);
+    setReplayEvents([]);
+
+    try {
+      const res = await fetch(`/api/self-improve/sessions/${id}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { events: ReplayEvent[] };
+      setReplayEvents(data.events ?? []);
+    } catch { /* ignore */ }
+    finally { setReplayLoading(false); }
+  }, []);
+
+  // Playback engine
+  useEffect(() => {
+    playingRef.current = playing;
+    if (!playing) {
+      if (playbackTimerRef.current) {
+        clearTimeout(playbackTimerRef.current);
+        playbackTimerRef.current = null;
+      }
+      return;
+    }
+
+    function tick() {
+      if (!playingRef.current) return;
+      setPlaybackIndex((prev) => {
+        const next = prev + 1;
+        if (next >= replayEvents.length) {
+          playingRef.current = false;
+          setPlaying(false);
+          return replayEvents.length;
+        }
+        return next;
+      });
+      playbackTimerRef.current = setTimeout(tick, 1000 / playbackSpeed);
+    }
+
+    playbackTimerRef.current = setTimeout(tick, 1000 / playbackSpeed);
+    return () => {
+      if (playbackTimerRef.current) {
+        clearTimeout(playbackTimerRef.current);
+      }
+    };
+  }, [playing, playbackSpeed, replayEvents.length]);
+
+  // Auto-scroll during playback
+  useEffect(() => {
+    if (feedRef.current && playing) {
+      feedRef.current.scrollTop = feedRef.current.scrollHeight;
+    }
+  }, [playbackIndex, playing]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+    };
+  }, []);
+
+  const visibleEvents = replayEvents.slice(0, playbackIndex);
+  const selectedSession = sessions.find((s) => s.id === selectedId);
+  const progress = replayEvents.length > 0 ? (playbackIndex / replayEvents.length) * 100 : 0;
+
+  // Coalesce consecutive events of the same kind for display
+  const displayLines = useMemo(() => {
+    const lines: DisplayLine[] = [];
+    for (const evt of visibleEvents) {
+      const last = lines[lines.length - 1];
+      if (
+        last &&
+        last.kind === evt.kind &&
+        evt.kind !== "tool_call" &&
+        evt.kind !== "error"
+      ) {
+        last.content += evt.content;
+      } else {
+        lines.push({
+          id: evt.id,
+          kind: evt.kind,
+          content: evt.content,
+          tool: evt.tool,
+          ts: evt.ts,
+        });
+      }
+    }
+    return lines.slice(-80); // Keep last 80 display lines
+  }, [visibleEvents]);
+
+  if (loading) {
+    return (
+      <div className="py-8 flex items-center justify-center gap-2">
+        <Loader2 size={12} className="text-white/30 animate-spin" />
+        <span className="text-[11px] text-white/30">Loading sessions…</span>
+      </div>
+    );
+  }
+
+  if (sessions.length === 0) {
+    return (
+      <div className="px-4 py-8 text-center">
+        <History size={20} className="text-white/10 mx-auto mb-2" />
+        <p className="text-[11px] text-white/30">No recorded sessions yet.</p>
+        <p className="text-[10px] text-white/20 mt-1">
+          Sessions are automatically recorded when the agent runs.
+        </p>
+      </div>
+    );
+  }
+
+  // Session list view
+  if (!selectedId) {
+    return (
+      <div>
+        <div className="px-3 pt-2.5 pb-1.5 flex items-center gap-1.5">
+          <History size={10} className="text-white/25" />
+          <span className="text-[9px] uppercase tracking-wider text-white/30 font-semibold">
+            Flight Recorder
+          </span>
+          <span className="text-[9px] text-white/15 ml-auto">
+            {sessions.length} session{sessions.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        <div className="max-h-72 overflow-y-auto divide-y divide-white/[0.04]">
+          {sessions.map((s) => {
+            const statusColor =
+              s.status === "completed"
+                ? "border-l-emerald-500/40"
+                : s.status === "reverted"
+                  ? "border-l-amber-500/40"
+                  : "border-l-red-500/40";
+            const statusIcon =
+              s.status === "completed" ? "✅" : s.status === "reverted" ? "⏪" : "❌";
+
+            return (
+              <button
+                key={s.id}
+                onClick={() => loadSessionDetail(s.id)}
+                className={`w-full text-left px-3 py-2.5 border-l-2 ${statusColor} hover:bg-white/[0.04] transition-colors`}
+              >
+                <div className="flex items-start gap-2">
+                  <span className="text-[10px] flex-shrink-0 mt-0.5">{statusIcon}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] text-white/70 leading-snug line-clamp-2">
+                      {s.summary}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="text-[9px] text-white/20 flex items-center gap-0.5">
+                        <Timer size={8} />
+                        {formatDuration(s.durationMs)}
+                      </span>
+                      <span className="text-[9px] text-white/20 flex items-center gap-0.5">
+                        <Wrench size={8} />
+                        {s.toolCallCount} calls
+                      </span>
+                      <span className="text-[9px] text-white/20">
+                        {s.eventCount} events
+                      </span>
+                      {s.genome && (
+                        <span className="text-[9px] text-violet-400/40">
+                          Gen {s.genome.generation} · {s.genome.focus}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[9px] text-white/15 mt-0.5 block">
+                      {timeAgo(s.startedAt)}
+                    </span>
+                  </div>
+                  <ChevronRight size={12} className="text-white/15 flex-shrink-0 mt-1" />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // Replay view
+  return (
+    <div>
+      {/* Header with back button */}
+      <div className="px-3 py-2 flex items-center gap-2 border-b border-white/[0.06]">
+        <button
+          onClick={() => { setSelectedId(null); setPlaying(false); playingRef.current = false; }}
+          className="text-white/30 hover:text-white/60 transition-colors p-0.5"
+        >
+          <SkipBack size={12} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] text-white/50 truncate">
+            {selectedSession?.summary ?? "Session"}
+          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            {selectedSession && (
+              <>
+                <span className="text-[9px] text-white/20">
+                  {formatDuration(selectedSession.durationMs)}
+                </span>
+                <span className="text-[9px] text-white/20">
+                  {selectedSession.eventCount} events
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {replayLoading ? (
+        <div className="py-8 flex items-center justify-center gap-2">
+          <Loader2 size={12} className="text-white/30 animate-spin" />
+          <span className="text-[11px] text-white/30">Loading recording…</span>
+        </div>
+      ) : (
+        <>
+          {/* Transport controls */}
+          <div className="px-3 py-2 border-b border-white/[0.06] flex items-center gap-2">
+            <button
+              onClick={() => { setPlaybackIndex(0); setPlaying(false); playingRef.current = false; }}
+              title="Restart"
+              className="p-1 rounded text-white/25 hover:text-white/50 hover:bg-white/[0.06] transition-colors"
+            >
+              <SkipBack size={11} />
+            </button>
+            <button
+              onClick={() => { setPlaying(!playing); }}
+              title={playing ? "Pause" : "Play"}
+              className={[
+                "p-1.5 rounded-lg transition-all duration-150",
+                playing
+                  ? "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
+                  : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30",
+              ].join(" ")}
+            >
+              {playing ? <Pause size={12} /> : <Play size={12} />}
+            </button>
+            <button
+              onClick={() => { setPlaybackIndex(replayEvents.length); setPlaying(false); playingRef.current = false; }}
+              title="Jump to end"
+              className="p-1 rounded text-white/25 hover:text-white/50 hover:bg-white/[0.06] transition-colors"
+            >
+              <SkipForward size={11} />
+            </button>
+
+            {/* Speed control */}
+            <div className="ml-auto flex items-center gap-1.5">
+              <span className="text-[9px] text-white/20">Speed:</span>
+              {[5, 10, 25, 50].map((speed) => (
+                <button
+                  key={speed}
+                  onClick={() => setPlaybackSpeed(speed)}
+                  className={[
+                    "text-[9px] px-1.5 py-0.5 rounded transition-colors",
+                    playbackSpeed === speed
+                      ? "bg-emerald-500/20 text-emerald-400"
+                      : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]",
+                  ].join(" ")}
+                >
+                  {speed === 5 ? "1×" : speed === 10 ? "2×" : speed === 25 ? "5×" : "10×"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Progress bar */}
+          <div className="px-3 py-1.5 border-b border-white/[0.06]">
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={replayEvents.length}
+                value={playbackIndex}
+                onChange={(e) => {
+                  setPlaybackIndex(Number(e.target.value));
+                  setPlaying(false);
+                  playingRef.current = false;
+                }}
+                className="flex-1 h-1 appearance-none bg-white/10 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
+              />
+              <span className="text-[9px] text-white/25 font-mono tabular-nums flex-shrink-0">
+                {playbackIndex}/{replayEvents.length}
+              </span>
+            </div>
+            <div className="h-0.5 bg-white/[0.06] rounded-full mt-1 overflow-hidden">
+              <div
+                className="h-full bg-emerald-400/40 rounded-full transition-all duration-100"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Event feed */}
+          <div
+            ref={feedRef}
+            className="max-h-52 overflow-y-auto scroll-smooth"
+          >
+            {displayLines.length === 0 ? (
+              <div className="px-4 py-6 text-center text-[10px] text-white/20">
+                {replayEvents.length > 0
+                  ? "Press play to start replaying this session."
+                  : "No events recorded for this session."}
+              </div>
+            ) : (
+              <div className="divide-y divide-white/[0.03]">
+                {displayLines.map((line) => {
+                  let icon: React.ReactNode = null;
+                  let color = "text-white/40";
+                  let bg = "";
+
+                  if (line.kind === "thinking") {
+                    icon = <Brain size={9} className="text-violet-400/50 flex-shrink-0 mt-0.5" />;
+                    color = "text-violet-300/40 italic";
+                  } else if (line.kind === "tool_call") {
+                    icon = <Wrench size={9} className="text-blue-400/60 flex-shrink-0 mt-0.5" />;
+                    color = "text-blue-300/60";
+                    bg = "bg-blue-500/[0.03]";
+                  } else if (line.kind === "tool_result") {
+                    icon = <ChevronRight size={9} className="text-white/15 flex-shrink-0 mt-0.5" />;
+                    color = "text-white/25";
+                  } else if (line.kind === "error") {
+                    icon = <X size={9} className="text-red-400/60 flex-shrink-0 mt-0.5" />;
+                    color = "text-red-300/60";
+                    bg = "bg-red-500/[0.03]";
+                  } else {
+                    icon = <Sparkles size={9} className="text-emerald-400/40 flex-shrink-0 mt-0.5" />;
+                    color = "text-white/50";
+                  }
+
+                  return (
+                    <div
+                      key={line.id}
+                      className={`px-3 py-1.5 flex items-start gap-1.5 ${bg}`}
+                    >
+                      {icon}
+                      <div className="min-w-0 flex-1">
+                        {line.tool && (
+                          <span className="text-[9px] font-mono text-blue-400/50 mr-1">
+                            {line.tool}
+                          </span>
+                        )}
+                        <span className={`text-[10px] leading-snug ${color} break-all`}>
+                          {line.content.slice(0, 300)}
+                          {line.content.length > 300 && (
+                            <span className="text-white/15">…</span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Genome info footer */}
+          {selectedSession?.genome && (
+            <div className="px-3 py-2 border-t border-white/[0.06] bg-white/[0.02]">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Zap size={9} className="text-violet-400/50" />
+                <span className="text-[9px] uppercase tracking-wider text-white/25 font-semibold">
+                  Genome
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-[9px] text-white/30">
+                <span>Gen {selectedSession.genome.generation}</span>
+                <span className="text-violet-400/40">{selectedSession.genome.focus}</span>
+                <span>A:{selectedSession.genome.ambition}</span>
+                <span>C:{selectedSession.genome.creativity}</span>
+                <span>T:{selectedSession.genome.thoroughness}</span>
+              </div>
+              {selectedSession.toolsUsed.length > 0 && (
+                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                  {selectedSession.toolsUsed.map((tool) => (
+                    <span
+                      key={tool}
+                      className="text-[8px] px-1.5 py-0.5 rounded-full bg-white/[0.04] text-white/25 border border-white/[0.06]"
+                    >
+                      {tool}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function SelfImproveToggle() {
@@ -2172,8 +2640,8 @@ export function SelfImproveToggle() {
 
   // Which commit hash is currently showing its diff (null = none)
   const [viewingDiff, setViewingDiff] = useState<string | null>(null);
-  // Panel tab: "activity" (live feed) vs "commits" vs "stats" vs "prompt" vs "memory" vs "genome" vs "queue"
-  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt" | "memory" | "genome" | "queue">("activity");
+  // Panel tab: "activity" (live feed) vs "commits" vs "stats" vs "prompt" vs "memory" vs "genome" vs "queue" vs "replay"
+  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt" | "memory" | "genome" | "queue" | "replay">("activity");
 
   // ── User feedback state (thumbs up/down on commits) ────────────────────
   const [feedback, setFeedback] = useState<Record<string, { rating: "up" | "down" | null }>>({});
@@ -2630,6 +3098,18 @@ export function SelfImproveToggle() {
               <ListOrdered size={10} />
               Queue
             </button>
+            <button
+              onClick={() => setPanelTab("replay")}
+              className={[
+                "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors",
+                panelTab === "replay"
+                  ? "text-pink-400 border-b-2 border-pink-400/60 -mb-px"
+                  : "text-white/30 hover:text-white/50",
+              ].join(" ")}
+            >
+              <History size={10} />
+              Replay
+            </button>
           </div>
 
           {/* ── Build health indicator ── */}
@@ -2764,7 +3244,9 @@ export function SelfImproveToggle() {
           </div>
 
           {/* Tab content */}
-          {panelTab === "queue" ? (
+          {panelTab === "replay" ? (
+            <SessionReplayPanel />
+          ) : panelTab === "queue" ? (
             <QueuePanel />
           ) : panelTab === "genome" ? (
             <GenomePanel />

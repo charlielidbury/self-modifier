@@ -7,3 +7,4 @@ next-env.d.ts
 .self-improve-memory.json
 .strategy-genes.json
 .commit-feedback.json
+.self-improve-sessions/

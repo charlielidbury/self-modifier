@@ -19,6 +19,7 @@ import {
 } from "./strategy-genes";
 import { recordCommitGenome } from "./commit-feedback";
 import { popNextItem, completeItem, skipItem, type QueueItem } from "./improvement-queue";
+import { saveSession } from "./session-recorder";
 
 export type ImprovementEntry = {
   id: string;
@@ -487,11 +488,13 @@ export function startImprovementLoop() {
           selfImproveState.entries.length = 30;
 
         let activeGenomeId: string | null = null;
+        let activeGenome: Genome | null = null;
         let activeQueueItem: QueueItem | null = null;
         try {
           const result = await runOnce();
           entry.summary = result.summary;
           activeGenomeId = result.genome.id;
+          activeGenome = result.genome;
           activeQueueItem = result.queueItem;
           entry.status = "completed";
 
@@ -590,6 +593,24 @@ export function startImprovementLoop() {
           } catch (memErr) {
             // Non-critical — don't break the loop
             pushActivity("text", `⚠️ Could not record memory: ${memErr instanceof Error ? memErr.message : String(memErr)}`);
+          }
+
+          // ── Save session flight recording ──
+          try {
+            const genomeInfo = activeGenome
+              ? {
+                  id: activeGenome.id,
+                  generation: activeGenome.generation,
+                  focus: activeGenome.focus,
+                  ambition: activeGenome.ambition,
+                  creativity: activeGenome.creativity,
+                  thoroughness: activeGenome.thoroughness,
+                }
+              : null;
+            saveSession(entry, [...selfImproveState.activity], genomeInfo);
+            pushActivity("text", `📼 Session recording saved (${selfImproveState.activity.length} events)`);
+          } catch (recErr) {
+            pushActivity("text", `⚠️ Could not save session recording: ${recErr instanceof Error ? recErr.message : String(recErr)}`);
           }
         }
 
