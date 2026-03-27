@@ -31,6 +31,7 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
 import { dispatchAmbientEvent } from "@/components/ambient-canvas";
+import { NeuralPulse } from "@/components/neural-pulse";
 import type { LucideIcon } from "lucide-react";
 
 // Hue values for each page's accent colour (used to tint the ambient canvas).
@@ -219,6 +220,9 @@ export function Navbar() {
           />
           <span className="hidden sm:inline">Self-Modifier</span>
         </span>
+
+        {/* Live neural pulse — shows self-improve agent heartbeat */}
+        <NeuralPulse />
 
         {/* Breadcrumb-style navigation: Home / Current Page */}
         <div ref={containerRef} className="relative flex items-center gap-1">

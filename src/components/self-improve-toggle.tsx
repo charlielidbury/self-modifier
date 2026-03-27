@@ -956,6 +956,7 @@ export function SelfImproveToggle() {
       setPillGlow(true);
       setToastMessage(commits[0].message);
       dispatchAmbientEvent({ type: "self-improve-commit" });
+      window.dispatchEvent(new CustomEvent("self-improve:commit"));
       playCommitChimeIfUnmuted();
       // Clear confetti after animation
       setTimeout(() => setCelebrating(false), 1200);
