@@ -106,7 +106,7 @@ export function Navbar() {
   return (
     <TooltipProvider delayDuration={600}>
       <nav className="h-12 flex-none border-b border-border bg-background flex items-center px-4 gap-1">
-        <span className="font-semibold text-sm mr-4 text-foreground/70 select-none flex items-center gap-1.5">
+        <span className="font-semibold text-sm mr-2 sm:mr-4 text-foreground/70 select-none flex items-center gap-1.5">
           <span
             className="size-2 rounded-full flex-shrink-0"
             style={{
@@ -116,7 +116,7 @@ export function Navbar() {
             }}
             aria-hidden="true"
           />
-          Self-Modifier
+          <span className="hidden sm:inline">Self-Modifier</span>
         </span>
 
         {/* Tab container — position:relative so the sliding pill is anchored here */}
@@ -159,7 +159,7 @@ export function Navbar() {
                     ].join(" ")}
                   >
                     <Icon size={15} />
-                    {label}
+                    <span className="hidden sm:inline">{label}</span>
                   </Link>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -185,7 +185,7 @@ export function Navbar() {
                     new KeyboardEvent("keydown", { key: "k", metaKey: true })
                   );
                 }}
-                className="flex items-center gap-1.5 h-7 px-2 rounded-md border border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors text-xs"
+                className="hidden sm:flex items-center gap-1.5 h-7 px-2 rounded-md border border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors text-xs"
                 aria-label="Open command palette"
               >
                 <span className="text-muted-foreground/60">Search…</span>

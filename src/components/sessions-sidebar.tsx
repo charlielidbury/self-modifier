@@ -668,7 +668,7 @@ export function SessionsSidebar({
   return (
     <div
       className={`relative flex flex-col border-r border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 flex-shrink-0 transition-all duration-300 ${
-        isOpen ? "w-64" : "w-10"
+        isOpen ? "w-64" : "w-0 sm:w-10"
       }`}
     >
       {/* Toggle button */}
@@ -677,7 +677,7 @@ export function SessionsSidebar({
           <button
             onClick={() => setIsOpen((o) => !o)}
             aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
-            className="absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-100 shadow-sm transition-colors"
+            className={`absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-100 shadow-sm transition-colors ${!isOpen ? "hidden sm:flex" : ""}`}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -703,11 +703,12 @@ export function SessionsSidebar({
 
       {/* Compact session stats shown in collapsed state */}
       {!isOpen && sessions.length > 0 && (
+        /* Hidden on small screens when collapsed (sidebar is w-0 on mobile) */
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               onClick={() => setIsOpen(true)}
-              className="absolute top-14 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 py-1.5 w-8 rounded-md text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              className="absolute top-14 left-1/2 -translate-x-1/2 hidden sm:flex flex-col items-center gap-1 py-1.5 w-8 rounded-md text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
               aria-label={`${sessions.length} session${sessions.length !== 1 ? "s" : ""}${runningCount > 0 ? `, ${runningCount} running` : ""} — click to expand`}
             >
               <span className="text-[11px] font-medium tabular-nums select-none leading-none">

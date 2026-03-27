@@ -6,6 +6,8 @@ export type GitCommit = {
   message: string;
   date: string; // ISO 8601
   author: string;
+  additions?: number;
+  deletions?: number;
 };
 
 export async function GET() {
@@ -32,6 +34,59 @@ export async function GET() {
           author: parts[4] ?? "",
         };
       });
+
+    // Fetch per-commit line-change stats via a single `git log --numstat` call.
+    // Output format (one commit block per entry):
+    //   COMMIT:<full-hash>
+    //   <adds>\t<dels>\t<filepath>
+    //   ...
+    //   (blank line between commits)
+    try {
+      const numstatRaw = execSync(
+        `git log -30 --format="COMMIT:%H" --numstat`,
+        { encoding: "utf-8", cwd: process.cwd() }
+      ).trim();
+
+      const lineStatsMap = new Map<string, { additions: number; deletions: number }>();
+      let currentHash: string | null = null;
+      let currentAdd = 0;
+      let currentDel = 0;
+
+      for (const line of numstatRaw.split("\n")) {
+        if (line.startsWith("COMMIT:")) {
+          // Save stats for previous commit before starting a new one
+          if (currentHash) {
+            lineStatsMap.set(currentHash, { additions: currentAdd, deletions: currentDel });
+          }
+          currentHash = line.slice(7).trim();
+          currentAdd = 0;
+          currentDel = 0;
+        } else {
+          const trimmed = line.trim();
+          if (trimmed && /^\d/.test(trimmed)) {
+            // Tab-separated: additions \t deletions \t filepath
+            const parts = trimmed.split("\t");
+            currentAdd += parseInt(parts[0] ?? "0", 10) || 0;
+            currentDel += parseInt(parts[1] ?? "0", 10) || 0;
+          }
+        }
+      }
+      // Don't forget the last commit
+      if (currentHash) {
+        lineStatsMap.set(currentHash, { additions: currentAdd, deletions: currentDel });
+      }
+
+      // Merge line stats into the commits array
+      for (const commit of commits) {
+        const stats = lineStatsMap.get(commit.hash);
+        if (stats) {
+          commit.additions = stats.additions;
+          commit.deletions = stats.deletions;
+        }
+      }
+    } catch {
+      // Line stats are best-effort — proceed without them if git fails
+    }
 
     return Response.json({ commits });
   } catch {

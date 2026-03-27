@@ -292,7 +292,7 @@ function TimelineCard({
             <p className="text-sm font-medium text-foreground leading-snug">
               {commit.message}
             </p>
-            <div className="flex items-center gap-2 mt-1.5 text-[11px] text-muted-foreground">
+            <div className="flex items-center flex-wrap gap-2 mt-1.5 text-[11px] text-muted-foreground">
               <span className={`font-medium ${cat.color}`}>{cat.label}</span>
               <span className="text-muted-foreground/30">·</span>
               <span>{formatDate(commit.date)}</span>
@@ -302,6 +302,25 @@ function TimelineCard({
                 <>
                   <span className="text-muted-foreground/30">·</span>
                   <span>{commit.author}</span>
+                </>
+              )}
+              {(commit.additions !== undefined || commit.deletions !== undefined) && (
+                <>
+                  <span className="text-muted-foreground/30">·</span>
+                  <span className="flex items-center gap-1 font-mono text-[10px]">
+                    {commit.additions !== undefined && commit.additions > 0 && (
+                      <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                        <Plus size={8} />
+                        {commit.additions}
+                      </span>
+                    )}
+                    {commit.deletions !== undefined && commit.deletions > 0 && (
+                      <span className="text-red-500 dark:text-red-400 flex items-center gap-0.5">
+                        <Minus size={8} />
+                        {commit.deletions}
+                      </span>
+                    )}
+                  </span>
                 </>
               )}
             </div>
@@ -506,6 +525,32 @@ export default function EvolutionPage() {
     return counts;
   }, [commits]);
 
+  // Aggregate line-change stats across all loaded commits (best-effort; only
+  // commits whose numstat data was returned by the API will contribute).
+  const lineStats = useMemo(() => {
+    let totalAdditions = 0;
+    let totalDeletions = 0;
+    let hasData = false;
+    for (const c of commits) {
+      if (c.additions !== undefined) {
+        totalAdditions += c.additions;
+        hasData = true;
+      }
+      if (c.deletions !== undefined) {
+        totalDeletions += c.deletions;
+      }
+    }
+    if (!hasData) return null;
+    const net = totalAdditions + totalDeletions;
+    const fmt = (n: number) =>
+      n >= 1_000_000
+        ? `${(n / 1_000_000).toFixed(1)}M`
+        : n >= 1_000
+        ? `${(n / 1_000).toFixed(1)}k`
+        : String(n);
+    return { totalAdditions, totalDeletions, net, display: fmt(net) };
+  }, [commits]);
+
   // Commits to actually render in the timeline (respects the active category filter)
   const filteredCommits = useMemo(
     () =>
@@ -580,6 +625,14 @@ export default function EvolutionPage() {
                 value={timeAgo(commits[0].date)}
                 color="text-emerald-500"
               />
+              {lineStats && (
+                <StatCard
+                  icon={<Code2 size={18} />}
+                  label="Lines changed"
+                  value={lineStats.display}
+                  color="text-violet-500"
+                />
+              )}
             </div>
 
             {/* Activity sparkline */}
