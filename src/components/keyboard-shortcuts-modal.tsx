@@ -31,6 +31,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["Alt", "5"], description: "Go to Evolution" },
       { keys: ["Alt", "6"], description: "Go to Life" },
       { keys: ["Alt", "7"], description: "Go to Synth" },
+      { keys: ["Alt", "8"], description: "Go to Gravity" },
     ],
   },
   {
@@ -116,6 +117,14 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["W", "E", "T", "Y", "U", "O", "P"], description: "Play sharps / flats" },
       { keys: ["Z"], description: "Octave down" },
       { keys: ["X"], description: "Octave up" },
+    ],
+  },
+  {
+    title: "Gravity",
+    rows: [
+      { keys: ["Space"], description: "Pause / resume simulation" },
+      { keys: ["C"], description: "Clear all bodies" },
+      { keys: ["Click+Drag"], description: "Spawn body with velocity" },
     ],
   },
   {

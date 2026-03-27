@@ -27,6 +27,7 @@ import {
   Dna,
   SkipForward,
   Music,
+  Orbit,
 } from "lucide-react";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
@@ -146,6 +147,15 @@ function useCommands(): Command[] {
       group: "Navigation",
       action: () => router.push("/synth"),
       keywords: ["synthesizer", "music", "audio", "piano", "sound", "instrument", "keys"],
+    },
+    {
+      id: "nav-gravity",
+      label: "Go to Gravity",
+      hint: "Alt+8",
+      icon: <Orbit size={16} />,
+      group: "Navigation",
+      action: () => router.push("/gravity"),
+      keywords: ["physics", "orbit", "nbody", "simulation", "planets", "stars", "space"],
     },
     // ── Actions ───────────────────────────────────────────────────────────────
     {
