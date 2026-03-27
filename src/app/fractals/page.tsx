@@ -290,6 +290,10 @@ export default function FractalsPage() {
     duration: number;
   } | null>(null);
 
+  // Tracks the index of the most-recently applied built-in preset so that [ / ]
+  // can cycle forwards / backwards through the PRESETS array.
+  const currentPresetIdxRef = useRef(0);
+
   // React state (for UI re-render only)
   const [mode, setMode]         = useState<FractalKey>("mandelbrot");
   const [palette, setPalette]   = useState(1);
@@ -666,6 +670,20 @@ export default function FractalsPage() {
           e.preventDefault();
           toggleFullscreen();
           break;
+        case "[": {
+          e.preventDefault();
+          const prevIdx = (currentPresetIdxRef.current - 1 + PRESETS.length) % PRESETS.length;
+          currentPresetIdxRef.current = prevIdx;
+          applyPreset(PRESETS[prevIdx]);
+          break;
+        }
+        case "]": {
+          e.preventDefault();
+          const nextIdx = (currentPresetIdxRef.current + 1) % PRESETS.length;
+          currentPresetIdxRef.current = nextIdx;
+          applyPreset(PRESETS[nextIdx]);
+          break;
+        }
       }
       // Any fractal-control key resets the hint fade timer
       resetHintTimer();
@@ -938,6 +956,10 @@ export default function FractalsPage() {
   };
 
   const applyPreset = (preset: Preset) => {
+    // Keep current preset index in sync so [ / ] continues from here
+    const builtinIdx = PRESETS.indexOf(preset);
+    if (builtinIdx !== -1) currentPresetIdxRef.current = builtinIdx;
+
     // Stop Julia/color animation and clear any direct c override
     juliaCDirectRef.current = null;
     setJuliaCDirect(null);

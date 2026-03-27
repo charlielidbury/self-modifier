@@ -62,6 +62,10 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["R"], description: "Reset view" },
       { keys: ["S"], description: "Copy shareable link" },
       { keys: ["D"], description: "Save as PNG" },
+      { keys: ["F"], description: "Toggle fullscreen" },
+      { keys: ["Shift", "Click"], description: "Explore Julia set (Mandelbrot mode)" },
+      { keys: ["["], description: "Previous preset location" },
+      { keys: ["]"], description: "Next preset location" },
     ],
   },
   {
