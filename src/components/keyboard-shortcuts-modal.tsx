@@ -77,6 +77,8 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["Shift", "Click"], description: "Explore Julia set (Mandelbrot mode)" },
       { keys: ["["], description: "Previous preset location" },
       { keys: ["]"], description: "Next preset location" },
+      { keys: ["I"], description: "Increase max iterations (+50)" },
+      { keys: ["Shift", "I"], description: "Decrease max iterations (−50)" },
     ],
   },
   {

@@ -19,6 +19,8 @@ import {
   Maximize2,
   Minimize2,
   Palette,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 
 // ─── WebGL Shaders ────────────────────────────────────────────────────────────
@@ -55,7 +57,9 @@ vec3 colour(float t) {
     return pal(t, vec3(0.5,0.5,0.5), vec3(0.5,0.5,0.5), vec3(1.0,1.0,1.0), vec3(0.00,0.33,0.67)); // ocean
   if (p < 2.5)
     return pal(t, vec3(0.5,0.5,0.5), vec3(0.5,0.5,0.5), vec3(2.0,1.0,0.0), vec3(0.50,0.20,0.25)); // neon
-  return     pal(t, vec3(0.2,0.5,0.8), vec3(0.3,0.4,0.2), vec3(2.0,1.0,1.0), vec3(0.00,0.25,0.50)); // twilight
+  if (p < 3.5)
+    return pal(t, vec3(0.2,0.5,0.8), vec3(0.3,0.4,0.2), vec3(2.0,1.0,1.0), vec3(0.00,0.25,0.50)); // twilight
+  return       pal(t, vec3(0.3,0.6,0.5), vec3(0.3,0.4,0.4), vec3(1.0,1.0,1.0), vec3(0.60,0.00,0.30)); // aurora
 }
 
 void main() {
@@ -125,7 +129,7 @@ const FRACTAL_MODES = [
 
 type FractalKey = (typeof FRACTAL_MODES)[number]["key"];
 
-const PALETTES = ["Fire", "Ocean", "Neon", "Twilight"];
+const PALETTES = ["Fire", "Ocean", "Neon", "Twilight", "Aurora"];
 
 // CSS gradient approximations of each IQ cosine palette — used as inline swatches
 // in the palette selector buttons so users can preview a palette before clicking.
@@ -134,6 +138,7 @@ const PALETTE_GRADIENTS = [
   "linear-gradient(to right, #0022bb, #0099cc, #00eeff, #00ccaa, #0022bb)", // Ocean
   "linear-gradient(to right, #ff0088, #44ff00, #ffee00, #ff0088)",           // Neon
   "linear-gradient(to right, #1133bb, #6611bb, #cc1177, #1133bb)",           // Twilight
+  "linear-gradient(to right, #00ee55, #88bb00, #bb22aa, #1188dd, #00ee55)", // Aurora
 ];
 
 // ─── Preset locations ─────────────────────────────────────────────────────────
@@ -294,6 +299,11 @@ export default function FractalsPage() {
   // can cycle forwards / backwards through the PRESETS array.
   const currentPresetIdxRef = useRef(0);
 
+  // Navigation history — back/forward through deliberate jumps (double-click, preset, shift+click)
+  type NavEntry = { center: { x: number; y: number }; zoom: number; mode: FractalKey };
+  const backStackRef    = useRef<NavEntry[]>([]);
+  const forwardStackRef = useRef<NavEntry[]>([]);
+
   // React state (for UI re-render only)
   const [mode, setMode]         = useState<FractalKey>("mandelbrot");
   const [palette, setPalette]   = useState(1);
@@ -326,7 +336,14 @@ export default function FractalsPage() {
   const [centerDisplay, setCenterDisplay] = useState({ x: centerRef.current.x, y: centerRef.current.y });
   const [hintVisible, setHintVisible] = useState(true);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Preset name toast — shown briefly when cycling presets with [ / ]
+  const [presetToast, setPresetToast] = useState<string | null>(null);
+  const presetToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Navigation history state (for button enabled/disabled)
+  const [canGoBack,    setCanGoBack]    = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
 
   // Coordinate editing state — lets the user click the center display and type exact coordinates
   const [isEditingCoords, setIsEditingCoords] = useState(false);
@@ -345,6 +362,13 @@ export default function FractalsPage() {
     hintTimerRef.current = setTimeout(() => setHintVisible(false), 6000);
   }, []);
 
+  /** Show a brief preset name toast when cycling with [ / ] keys. */
+  const showPresetToast = useCallback((name: string) => {
+    setPresetToast(name);
+    if (presetToastTimerRef.current) clearTimeout(presetToastTimerRef.current);
+    presetToastTimerRef.current = setTimeout(() => setPresetToast(null), 2500);
+  }, []);
+
   // ── Fullscreen toggle ────────────────────────────────────────────────────────
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -356,7 +380,10 @@ export default function FractalsPage() {
 
   useEffect(() => {
     resetHintTimer();
-    return () => { if (hintTimerRef.current) clearTimeout(hintTimerRef.current); };
+    return () => {
+      if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+      if (presetToastTimerRef.current) clearTimeout(presetToastTimerRef.current);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -675,6 +702,7 @@ export default function FractalsPage() {
           const prevIdx = (currentPresetIdxRef.current - 1 + PRESETS.length) % PRESETS.length;
           currentPresetIdxRef.current = prevIdx;
           applyPreset(PRESETS[prevIdx]);
+          showPresetToast(PRESETS[prevIdx].name);
           break;
         }
         case "]": {
@@ -682,6 +710,25 @@ export default function FractalsPage() {
           const nextIdx = (currentPresetIdxRef.current + 1) % PRESETS.length;
           currentPresetIdxRef.current = nextIdx;
           applyPreset(PRESETS[nextIdx]);
+          showPresetToast(PRESETS[nextIdx].name);
+          break;
+        }
+        case "i": {
+          // Increase max iterations by 50 (clamped to 1000)
+          e.preventDefault();
+          const newIterUp = Math.min(1000, maxIterRef.current + 50);
+          maxIterRef.current = newIterUp;
+          setMaxIter(newIterUp);
+          needsDrawRef.current = true;
+          break;
+        }
+        case "I": {
+          // Decrease max iterations by 50 (clamped to 50) — Shift+I
+          e.preventDefault();
+          const newIterDown = Math.max(50, maxIterRef.current - 50);
+          maxIterRef.current = newIterDown;
+          setMaxIter(newIterDown);
+          needsDrawRef.current = true;
           break;
         }
       }
@@ -691,7 +738,7 @@ export default function FractalsPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [resetHintTimer, toggleFullscreen]); // all refs and state setters are stable; resetHintTimer and toggleFullscreen are also stable
+  }, [resetHintTimer, toggleFullscreen, showPresetToast]); // all refs and state setters are stable; these callbacks are also stable
 
   // ── Pointer events (pan + pinch-to-zoom) ────────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
@@ -709,6 +756,8 @@ export default function FractalsPage() {
           x: (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x,
           y: -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y,
         };
+        // Record current position in navigation history before switching to Julia
+        pushNavHistory();
         juliaCDirectRef.current = c;
         setJuliaCDirect(c);
         colorShiftRef.current = 0;
@@ -844,6 +893,9 @@ export default function FractalsPage() {
     const fractalX =  (mouseX - W / 2) / (minDim * zoomRef.current) + centerRef.current.x;
     const fractalY = -(mouseY - H / 2) / (minDim * zoomRef.current) + centerRef.current.y;
 
+    // Record current position in navigation history before jumping
+    pushNavHistory();
+
     // Smoothly fly 4× into that point using the shared fly animation system
     flyAnimRef.current = {
       fromCenter: { ...centerRef.current },
@@ -855,7 +907,7 @@ export default function FractalsPage() {
     };
     needsDrawRef.current = true;
     resetHintTimer();
-  }, [resetHintTimer]);
+  }, [resetHintTimer, pushNavHistory]);
 
   // ── Wheel (zoom to cursor) ───────────────────────────────────────────────────
   const onWheel = useCallback((e: React.WheelEvent) => {
@@ -946,6 +998,11 @@ export default function FractalsPage() {
     juliaAngleRef.current = 0;  setJuliaAngle(0);
     colorShiftRef.current = 0;  setColorShift(0);
     dirRef.current = 1;
+    // Clear navigation history on full reset
+    backStackRef.current = [];
+    forwardStackRef.current = [];
+    setCanGoBack(false);
+    setCanGoForward(false);
     setModeUI(modeRef.current); // re-centres view
   };
 
@@ -956,6 +1013,9 @@ export default function FractalsPage() {
   };
 
   const applyPreset = (preset: Preset) => {
+    // Record current position in navigation history before jumping
+    pushNavHistory();
+
     // Keep current preset index in sync so [ / ] continues from here
     const builtinIdx = PRESETS.indexOf(preset);
     if (builtinIdx !== -1) currentPresetIdxRef.current = builtinIdx;
@@ -1043,6 +1103,67 @@ export default function FractalsPage() {
   /** Delete a saved bookmark by id. */
   const deleteBookmark = useCallback((id: string) => {
     setFavorites((prev) => prev.filter((f) => f.id !== id));
+  }, []);
+
+  /** Push the current view onto the back-stack before a deliberate navigation jump. */
+  const pushNavHistory = useCallback(() => {
+    backStackRef.current = [
+      ...backStackRef.current,
+      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
+    ];
+    forwardStackRef.current = [];
+    setCanGoBack(true);
+    setCanGoForward(false);
+  }, []);
+
+  /** Fly back to the previous history entry. */
+  const goBack = useCallback(() => {
+    if (backStackRef.current.length === 0) return;
+    const target = backStackRef.current[backStackRef.current.length - 1];
+    backStackRef.current = backStackRef.current.slice(0, -1);
+    forwardStackRef.current = [
+      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
+      ...forwardStackRef.current,
+    ];
+    if (target.mode !== modeRef.current) { modeRef.current = target.mode; setMode(target.mode); }
+    flyAnimRef.current = {
+      fromCenter: { ...centerRef.current },
+      fromZoom: zoomRef.current,
+      toCenter: target.center,
+      toZoom: target.zoom,
+      startTime: Date.now(),
+      duration: 600,
+    };
+    setCenterDisplay(target.center);
+    setZoomLevel(target.zoom);
+    needsDrawRef.current = true;
+    setCanGoBack(backStackRef.current.length > 0);
+    setCanGoForward(true);
+  }, []);
+
+  /** Fly forward to the next history entry. */
+  const goForward = useCallback(() => {
+    if (forwardStackRef.current.length === 0) return;
+    const target = forwardStackRef.current[0];
+    forwardStackRef.current = forwardStackRef.current.slice(1);
+    backStackRef.current = [
+      ...backStackRef.current,
+      { center: { ...centerRef.current }, zoom: zoomRef.current, mode: modeRef.current },
+    ];
+    if (target.mode !== modeRef.current) { modeRef.current = target.mode; setMode(target.mode); }
+    flyAnimRef.current = {
+      fromCenter: { ...centerRef.current },
+      fromZoom: zoomRef.current,
+      toCenter: target.center,
+      toZoom: target.zoom,
+      startTime: Date.now(),
+      duration: 600,
+    };
+    setCenterDisplay(target.center);
+    setZoomLevel(target.zoom);
+    needsDrawRef.current = true;
+    setCanGoBack(true);
+    setCanGoForward(forwardStackRef.current.length > 0);
   }, []);
 
   const juliaCx = juliaCDirect
@@ -1422,6 +1543,23 @@ export default function FractalsPage() {
         </div>
       )}
 
+      {/* ── Preset name toast — fades in when cycling presets with [ / ] ── */}
+      <div
+        className="absolute top-3 text-white/90 text-xs font-medium bg-black/65 backdrop-blur-sm px-4 py-1.5 rounded-full pointer-events-none whitespace-nowrap"
+        style={{
+          left: "50%",
+          transition: "opacity 350ms ease, transform 350ms ease",
+          opacity: presetToast ? 1 : 0,
+          transform: presetToast
+            ? "translateX(-50%) scale(1)"
+            : "translateX(-50%) scale(0.92)",
+        }}
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {presetToast ?? ""}
+      </div>
+
       {/* ── Zoom level + Hint ── */}
       <div className="absolute top-3 right-4 flex flex-col items-end gap-1.5 pointer-events-none">
         <div className="text-white/70 text-xs font-mono bg-black/50 backdrop-blur px-3 py-1 rounded-lg tabular-nums">
@@ -1438,7 +1576,7 @@ export default function FractalsPage() {
             ? "drag to pan · scroll to zoom · double-click to zoom in · shift+click for Julia set"
             : "drag to pan · scroll to zoom · pinch to zoom · double-click to zoom in"}
           <br />
-          ← → ↑ ↓ pan · +/− zoom · space play · m mode · p palette · r reset · s share · d save · f fullscreen
+          ← → ↑ ↓ pan · +/− zoom · space play · m mode · p palette · [ ] presets · r reset · s share · d save · f fullscreen
         </div>
       </div>
     </div>
