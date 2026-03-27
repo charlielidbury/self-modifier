@@ -19,6 +19,7 @@ import {
   ErrorPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useMessage,
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
@@ -266,21 +267,43 @@ const Composer: FC = () => {
 };
 
 const ComposerAction: FC<{ charCount?: number }> = ({ charCount = 0 }) => {
+  const isWarning = charCount > 1500 && charCount <= 3000;
+  const isDanger = charCount > 3000;
+  const displayCount =
+    charCount > 999
+      ? `${(charCount / 1000).toFixed(1)}k`
+      : String(charCount);
+
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <ComposerAddAttachment />
       <div className="flex items-center gap-2">
+        {/* Keyboard hint — visible only while the user is typing */}
+        <span
+          className={cn(
+            "hidden sm:block text-[10px] text-muted-foreground/35 select-none pointer-events-none transition-all duration-150",
+            charCount > 0 ? "opacity-100" : "opacity-0",
+          )}
+          aria-hidden="true"
+        >
+          ↵ send · ⇧↵ newline
+        </span>
         <span
           className={cn(
             "text-[11px] tabular-nums transition-all duration-150",
-            charCount > 0
-              ? "opacity-100 text-muted-foreground/60"
-              : "opacity-0 pointer-events-none select-none",
+            charCount === 0
+              ? "opacity-0 pointer-events-none select-none"
+              : isDanger
+              ? "opacity-100 text-red-500/70"
+              : isWarning
+              ? "opacity-100 text-amber-500/70"
+              : "opacity-100 text-muted-foreground/60",
           )}
           aria-live="polite"
           aria-label={`${charCount} characters`}
+          title={charCount > 999 ? `${charCount} characters` : undefined}
         >
-          {charCount}
+          {displayCount}
         </span>
         <AuiIf condition={(s) => !s.thread.isRunning}>
           <ComposerPrimitive.Send asChild>
@@ -325,6 +348,38 @@ const MessageError: FC = () => {
   );
 };
 
+/** Counts words and estimates reading time for a completed assistant message. */
+const MessageWordCount: FC = () => {
+  const content = useMessage((m) => m.content);
+  const isRunning = useMessage((m) => m.status?.type === "running");
+
+  const wordCount = useMemo(() => {
+    if (!content) return 0;
+    return content
+      .filter(
+        (p): p is { type: "text"; text: string } => p.type === "text"
+      )
+      .map((p) => p.text)
+      .join(" ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean).length;
+  }, [content]);
+
+  // Only show for complete messages with at least 30 words
+  if (isRunning || wordCount < 30) return null;
+
+  const readingMinutes = Math.round(wordCount / 200);
+  const readingTime =
+    readingMinutes < 1 ? "<1 min read" : `${readingMinutes} min read`;
+
+  return (
+    <span className="text-[11px] tabular-nums text-muted-foreground/40 select-none leading-none">
+      {wordCount.toLocaleString()} words · {readingTime}
+    </span>
+  );
+};
+
 const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root
@@ -341,9 +396,12 @@ const AssistantMessage: FC = () => {
         <MessageError />
       </div>
 
-      <div className="aui-assistant-message-footer mt-1 ml-2 flex min-h-6 items-center">
-        <BranchPicker />
-        <AssistantActionBar />
+      <div className="aui-assistant-message-footer mt-1 ml-2 flex min-h-6 items-center justify-between">
+        <div className="flex items-center">
+          <BranchPicker />
+          <AssistantActionBar />
+        </div>
+        <MessageWordCount />
       </div>
     </MessagePrimitive.Root>
   );
