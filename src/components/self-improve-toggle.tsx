@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Sparkles,
   ChevronDown,
@@ -13,6 +13,7 @@ import {
   Minus,
   ChevronRight,
   X,
+  PartyPopper,
 } from "lucide-react";
 
 type AgentStatus = {
@@ -57,6 +58,99 @@ function elapsed(iso: string): string {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   return `${m}m ${s % 60}s`;
+}
+
+// ── Celebration sub-components ─────────────────────────────────────────────────
+
+/** A single confetti particle that animates from origin and fades out. */
+function ConfettiParticle({ index, total }: { index: number; total: number }) {
+  const style = useMemo(() => {
+    const angle = (index / total) * 360 + (Math.random() - 0.5) * 30;
+    const distance = 40 + Math.random() * 60;
+    const rad = (angle * Math.PI) / 180;
+    const tx = Math.cos(rad) * distance;
+    const ty = Math.sin(rad) * distance - 20; // bias upward
+    const rotation = Math.random() * 720 - 360;
+    const size = 3 + Math.random() * 4;
+    const colors = [
+      "#34d399", // emerald-400
+      "#6ee7b7", // emerald-300
+      "#fbbf24", // amber-400
+      "#a78bfa", // violet-400
+      "#60a5fa", // blue-400
+      "#f472b6", // pink-400
+      "#fb923c", // orange-400
+    ];
+    const color = colors[index % colors.length];
+    const delay = Math.random() * 80;
+    const duration = 600 + Math.random() * 400;
+    const isRound = Math.random() > 0.5;
+
+    return {
+      position: "absolute" as const,
+      bottom: "50%",
+      right: "50%",
+      width: isRound ? size : size * 0.6,
+      height: isRound ? size : size * 1.4,
+      borderRadius: isRound ? "50%" : "1px",
+      backgroundColor: color,
+      animation: `confettiParticleBurst ${duration}ms ${delay}ms cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards`,
+      "--tx": `${tx}px`,
+      "--ty": `${ty}px`,
+      "--rot": `${rotation}deg`,
+      opacity: 0,
+    } as React.CSSProperties;
+  }, [index, total]);
+
+  return <span style={style} />;
+}
+
+/** Burst of confetti particles emanating from the pill. */
+function ConfettiBurst({ count = 18 }: { count?: number }) {
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-visible z-10">
+      {Array.from({ length: count }, (_, i) => (
+        <ConfettiParticle key={i} index={i} total={count} />
+      ))}
+    </div>
+  );
+}
+
+/** Toast notification that slides up when a new commit lands. */
+function CommitToast({
+  message,
+  onDismiss,
+}: {
+  message: string;
+  onDismiss: () => void;
+}) {
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, 4500);
+    return () => clearTimeout(timer);
+  }, [onDismiss]);
+
+  return (
+    <div className="commit-toast-in mb-1 flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl border border-emerald-500/20 bg-neutral-900/92 backdrop-blur-md shadow-2xl max-w-72">
+      <PartyPopper
+        size={14}
+        className="text-emerald-400 flex-shrink-0 mt-0.5"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-semibold text-emerald-400/80 uppercase tracking-wider mb-0.5">
+          New improvement
+        </p>
+        <p className="text-xs text-white/80 leading-snug line-clamp-2">
+          {message}
+        </p>
+      </div>
+      <button
+        onClick={onDismiss}
+        className="p-0.5 text-white/20 hover:text-white/60 transition-colors flex-shrink-0 mt-0.5"
+      >
+        <X size={10} />
+      </button>
+    </div>
+  );
 }
 
 // ── Diff viewer sub-components ─────────────────────────────────────────────────
@@ -264,6 +358,13 @@ export function SelfImproveToggle() {
   // Which commit hash is currently showing its diff (null = none)
   const [viewingDiff, setViewingDiff] = useState<string | null>(null);
 
+  // ── Celebration state ───────────────────────────────────────────────────
+  const [celebrating, setCelebrating] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [pillGlow, setPillGlow] = useState(false);
+  const prevCommitHashRef = useRef<string | null>(null);
+  const hasInitializedCommitsRef = useRef(false);
+
   // Panel animation state — keeps the element in the DOM during the exit animation.
   const [showPanel, setShowPanel] = useState(false);
   const [panelClosing, setPanelClosing] = useState(false);
@@ -357,6 +458,31 @@ export function SelfImproveToggle() {
     fetchCommits();
   }, [fetchCommits]);
 
+  // ── Detect new commits & trigger celebration ──────────────────────────
+  useEffect(() => {
+    if (commits.length === 0) return;
+    const latestHash = commits[0].hash;
+    if (!hasInitializedCommitsRef.current) {
+      // First load — just store the hash, don't celebrate
+      hasInitializedCommitsRef.current = true;
+      prevCommitHashRef.current = latestHash;
+      return;
+    }
+    if (prevCommitHashRef.current && prevCommitHashRef.current !== latestHash) {
+      // New commit detected! Celebrate!
+      setCelebrating(true);
+      setPillGlow(true);
+      setToastMessage(commits[0].message);
+      // Clear confetti after animation
+      setTimeout(() => setCelebrating(false), 1200);
+      // Clear glow after pulse
+      setTimeout(() => setPillGlow(false), 2000);
+    }
+    prevCommitHashRef.current = latestHash;
+  }, [commits]);
+
+  const dismissToast = useCallback(() => setToastMessage(null), []);
+
   // Live clock tick for elapsed / time-ago display
   useEffect(() => {
     const iv = setInterval(() => setTick((t) => t + 1), 5000);
@@ -382,6 +508,11 @@ export function SelfImproveToggle() {
 
   return (
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-2 select-none">
+
+      {/* ── Toast notification ── */}
+      {toastMessage && (
+        <CommitToast message={toastMessage} onDismiss={dismissToast} />
+      )}
 
       {/* ── Expanded panel ── */}
       {showPanel && (
@@ -476,7 +607,19 @@ export function SelfImproveToggle() {
       )}
 
       {/* ── Main pill ── */}
-      <div className="flex items-center gap-2 pl-3 pr-2 py-2 rounded-2xl border border-white/10 bg-neutral-900/85 backdrop-blur-md shadow-2xl">
+      <div
+        className={[
+          "relative flex items-center gap-2 pl-3 pr-2 py-2 rounded-2xl border bg-neutral-900/85 backdrop-blur-md shadow-2xl",
+          pillGlow
+            ? "border-emerald-400/40 commit-pill-glow"
+            : "border-white/10",
+        ].join(" ")}
+        style={{
+          transition: "border-color 300ms ease, box-shadow 600ms ease",
+        }}
+      >
+        {/* Confetti burst */}
+        {celebrating && <ConfettiBurst />}
 
         {/* Status indicator + label */}
         <div className="flex items-center gap-2">
