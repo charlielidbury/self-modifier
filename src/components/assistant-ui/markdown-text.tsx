@@ -346,5 +346,15 @@ const defaultComponents = memoizeMarkdownComponents({
       />
     );
   },
+  img: ({ className, alt, ...props }) => (
+    <img
+      className={cn(
+        "aui-md-img my-2.5 max-w-full rounded-lg border border-border/50",
+        className,
+      )}
+      alt={alt ?? ""}
+      {...props}
+    />
+  ),
   CodeHeader,
 });
