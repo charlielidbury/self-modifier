@@ -105,6 +105,7 @@ export async function* runAgent(
     const q: Query = query({
       prompt: iterable,
       options: {
+        model: "claude-opus-4-6",
         cwd: process.cwd(),
         resume: sessionId,
         systemPrompt: SYSTEM_PROMPT,
