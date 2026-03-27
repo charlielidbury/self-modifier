@@ -160,30 +160,45 @@ const HARDCODED_SUGGESTIONS: {
   title: string;
   description: string;
   icon: ElementType;
+  accentBg: string;
+  accentText: string;
+  hoverBorder: string;
 }[] = [
   {
     prompt: "What pages and features does this app have?",
     title: "Explore the app",
     description: "Get an overview of all features",
     icon: LayoutDashboardIcon,
+    accentBg: "bg-blue-500/10 dark:bg-blue-500/15",
+    accentText: "text-blue-600 dark:text-blue-400",
+    hoverBorder: "hover:border-blue-400/40 dark:hover:border-blue-500/40",
   },
   {
     prompt: "Look at the codebase and suggest a meaningful improvement you could make",
     title: "Suggest an improvement",
     description: "Ideas for enhancing this app",
     icon: LightbulbIcon,
+    accentBg: "bg-amber-500/10 dark:bg-amber-500/15",
+    accentText: "text-amber-600 dark:text-amber-400",
+    hoverBorder: "hover:border-amber-400/40 dark:hover:border-amber-500/40",
   },
   {
     prompt: "What is the most interesting or complex part of this codebase?",
     title: "Explore the code",
     description: "Learn about the architecture",
     icon: Code2Icon,
+    accentBg: "bg-green-500/10 dark:bg-green-500/15",
+    accentText: "text-green-600 dark:text-green-400",
+    hoverBorder: "hover:border-green-400/40 dark:hover:border-green-500/40",
   },
   {
     prompt: "Make a small but meaningful visual polish improvement to the UI",
     title: "Polish the UI",
     description: "Enhance the look and feel",
     icon: SparklesIcon,
+    accentBg: "bg-violet-500/10 dark:bg-violet-500/15",
+    accentText: "text-violet-600 dark:text-violet-400",
+    hoverBorder: "hover:border-violet-400/40 dark:hover:border-violet-500/40",
   },
 ];
 
@@ -202,9 +217,12 @@ const ThreadSuggestions: FC = () => {
           <ThreadPrimitive.Suggestion prompt={s.prompt} send asChild>
             <Button
               variant="ghost"
-              className="h-auto w-full flex-row items-center justify-start gap-3 rounded-3xl border bg-background px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
+              className={cn(
+                "h-auto w-full flex-row items-center justify-start gap-3 rounded-3xl border bg-background px-4 py-3 text-left text-sm transition-colors hover:bg-muted",
+                s.hoverBorder
+              )}
             >
-              <div className="shrink-0 flex size-8 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+              <div className={cn("shrink-0 flex size-8 items-center justify-center rounded-xl", s.accentBg, s.accentText)}>
                 <s.icon className="size-4" />
               </div>
               <div className="flex min-w-0 flex-col">
