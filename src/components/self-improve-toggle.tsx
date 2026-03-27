@@ -14,6 +14,10 @@ import {
   ChevronRight,
   X,
   PartyPopper,
+  BarChart3,
+  TrendingUp,
+  Clock,
+  Zap,
 } from "lucide-react";
 import { dispatchAmbientEvent } from "./ambient-canvas";
 
@@ -46,6 +50,8 @@ type Commit = {
   message: string;
   date: string;
   author: string;
+  additions?: number;
+  deletions?: number;
 };
 
 type DiffFile = {
@@ -545,6 +551,197 @@ function ActivityFeed({ isRunning }: { isRunning: boolean }) {
   );
 }
 
+// ── Stats tab sub-components ─────────────────────────────────────────────────
+
+/** Mini SVG area-chart sparkline of lines changed per commit. */
+function CommitSparkline({ commits }: { commits: Commit[] }) {
+  // Reverse so oldest is on the left, newest on right
+  const data = [...commits].reverse().map((c) => (c.additions ?? 0) + (c.deletions ?? 0));
+
+  if (data.length < 2) {
+    return (
+      <div className="h-16 flex items-center justify-center text-[10px] text-white/20">
+        Need at least 2 commits for a chart.
+      </div>
+    );
+  }
+
+  const W = 264;
+  const H = 56;
+  const PAD_TOP = 4;
+  const PAD_BOT = 2;
+  const max = Math.max(...data, 1);
+  const stepX = W / (data.length - 1);
+
+  const points = data.map((v, i) => ({
+    x: i * stepX,
+    y: PAD_TOP + (1 - v / max) * (H - PAD_TOP - PAD_BOT),
+  }));
+
+  // Build the area path (line + fill down to bottom)
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  const areaPath = `${linePath} L ${W} ${H} L 0 ${H} Z`;
+
+  return (
+    <div className="px-3 pt-2 pb-1">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#34d399" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="#34d399" stopOpacity="0.02" />
+          </linearGradient>
+          <linearGradient id="sparkStroke" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#34d399" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#34d399" stopOpacity="0.9" />
+          </linearGradient>
+        </defs>
+        {/* Grid lines */}
+        {[0.25, 0.5, 0.75].map((frac) => (
+          <line
+            key={frac}
+            x1="0"
+            y1={PAD_TOP + frac * (H - PAD_TOP - PAD_BOT)}
+            x2={W}
+            y2={PAD_TOP + frac * (H - PAD_TOP - PAD_BOT)}
+            stroke="white"
+            strokeOpacity="0.04"
+            strokeWidth="0.5"
+          />
+        ))}
+        {/* Area fill */}
+        <path d={areaPath} fill="url(#sparkFill)" />
+        {/* Line */}
+        <path d={linePath} fill="none" stroke="url(#sparkStroke)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Dots on each point */}
+        {points.map((p, i) => (
+          <circle
+            key={i}
+            cx={p.x}
+            cy={p.y}
+            r={i === points.length - 1 ? 2.5 : 1.5}
+            fill={i === points.length - 1 ? "#34d399" : "#34d399"}
+            fillOpacity={i === points.length - 1 ? 1 : 0.5}
+          />
+        ))}
+        {/* Glow on latest point */}
+        <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r="6" fill="#34d399" fillOpacity="0.15" />
+      </svg>
+      <div className="flex justify-between text-[8px] text-white/20 px-0.5 -mt-0.5">
+        <span>oldest</span>
+        <span>latest</span>
+      </div>
+    </div>
+  );
+}
+
+/** A single metric card for the stats grid. */
+function StatCard({ icon, label, value, sub, color }: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
+  color: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1 rounded-lg bg-white/[0.03] border border-white/[0.05] px-3 py-2">
+      <div className="flex items-center gap-1.5">
+        <span className={color}>{icon}</span>
+        <span className="text-[9px] uppercase tracking-wider text-white/30 font-semibold">{label}</span>
+      </div>
+      <span className="text-sm font-bold text-white/80 font-mono tabular-nums">{value}</span>
+      {sub && <span className="text-[9px] text-white/25">{sub}</span>}
+    </div>
+  );
+}
+
+/** Full stats panel content. */
+function StatsPanel({ commits }: { commits: Commit[] }) {
+  const totalAdds = commits.reduce((sum, c) => sum + (c.additions ?? 0), 0);
+  const totalDels = commits.reduce((sum, c) => sum + (c.deletions ?? 0), 0);
+  const totalChanges = totalAdds + totalDels;
+
+  // Time span
+  const dates = commits.map((c) => new Date(c.date).getTime()).filter(Boolean);
+  const oldest = dates.length > 0 ? Math.min(...dates) : 0;
+  const newest = dates.length > 0 ? Math.max(...dates) : 0;
+  const spanMs = newest - oldest;
+  const spanHours = spanMs / 3_600_000;
+
+  // Pace: commits per hour
+  const pace = spanHours > 0 ? commits.length / spanHours : 0;
+  const paceStr = pace >= 1 ? `${pace.toFixed(1)}/hr` : pace > 0 ? `${(pace * 24).toFixed(1)}/day` : "—";
+
+  // Time span human-readable
+  let spanStr = "—";
+  if (spanMs > 0) {
+    const hours = Math.floor(spanHours);
+    const mins = Math.floor((spanMs % 3_600_000) / 60_000);
+    if (hours > 24) {
+      const days = Math.floor(hours / 24);
+      spanStr = `${days}d ${hours % 24}h`;
+    } else if (hours > 0) {
+      spanStr = `${hours}h ${mins}m`;
+    } else {
+      spanStr = `${mins}m`;
+    }
+  }
+
+  // Average lines per commit
+  const avgLines = commits.length > 0 ? Math.round(totalChanges / commits.length) : 0;
+
+  if (commits.length === 0) {
+    return (
+      <div className="px-4 py-8 text-center text-[11px] text-white/20">
+        No data yet. Stats appear after commits are made.
+      </div>
+    );
+  }
+
+  return (
+    <div className="stats-panel-in">
+      {/* Sparkline chart */}
+      <CommitSparkline commits={commits} />
+
+      {/* Legend */}
+      <div className="px-3 pb-1.5 flex items-center gap-1.5">
+        <span className="inline-block w-2 h-[2px] rounded bg-emerald-400/70" />
+        <span className="text-[9px] text-white/30">Lines changed per commit</span>
+      </div>
+
+      {/* Stats grid */}
+      <div className="px-3 pb-3 grid grid-cols-2 gap-2">
+        <StatCard
+          icon={<GitCommit size={10} />}
+          label="Commits"
+          value={commits.length.toString()}
+          sub={`~${avgLines} lines/commit`}
+          color="text-emerald-400/70"
+        />
+        <StatCard
+          icon={<Zap size={10} />}
+          label="Pace"
+          value={paceStr}
+          sub={spanStr !== "—" ? `over ${spanStr}` : undefined}
+          color="text-amber-400/70"
+        />
+        <StatCard
+          icon={<TrendingUp size={10} />}
+          label="Added"
+          value={`+${totalAdds.toLocaleString()}`}
+          color="text-emerald-400/70"
+        />
+        <StatCard
+          icon={<Clock size={10} />}
+          label="Removed"
+          value={`−${totalDels.toLocaleString()}`}
+          sub={totalChanges > 0 ? `${Math.round((totalAdds / totalChanges) * 100)}% adds` : undefined}
+          color="text-red-400/70"
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function SelfImproveToggle() {
@@ -560,8 +757,8 @@ export function SelfImproveToggle() {
 
   // Which commit hash is currently showing its diff (null = none)
   const [viewingDiff, setViewingDiff] = useState<string | null>(null);
-  // Panel tab: "activity" (live feed) vs "commits"
-  const [panelTab, setPanelTab] = useState<"activity" | "commits">("activity");
+  // Panel tab: "activity" (live feed) vs "commits" vs "stats"
+  const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats">("activity");
 
   // ── Celebration state ───────────────────────────────────────────────────
   const [celebrating, setCelebrating] = useState(false);
@@ -773,10 +970,24 @@ export function SelfImproveToggle() {
                 </span>
               )}
             </button>
+            <button
+              onClick={() => setPanelTab("stats")}
+              className={[
+                "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors",
+                panelTab === "stats"
+                  ? "text-amber-400 border-b-2 border-amber-400/60 -mb-px"
+                  : "text-white/30 hover:text-white/50",
+              ].join(" ")}
+            >
+              <BarChart3 size={10} />
+              Stats
+            </button>
           </div>
 
           {/* Tab content */}
-          {panelTab === "activity" ? (
+          {panelTab === "stats" ? (
+            <StatsPanel commits={commits} />
+          ) : panelTab === "activity" ? (
             <>
               {/* Running session header */}
               {status.running && runningEntry && (
