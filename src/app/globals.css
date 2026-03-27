@@ -170,6 +170,27 @@ body {
   to   { height: 0; }
 }
 
+/* Self-improve panel slide-in / slide-out */
+@keyframes selfImprovePanelIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+@keyframes selfImprovePanelOut {
+  from { opacity: 1; transform: translateY(0)   scale(1);    }
+  to   { opacity: 0; transform: translateY(8px) scale(0.97); }
+}
+
+.self-improve-panel-in {
+  animation: selfImprovePanelIn 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  transform-origin: bottom right;
+}
+
+.self-improve-panel-out {
+  animation: selfImprovePanelOut 160ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  transform-origin: bottom right;
+}
+
 @keyframes confettiFall {
   from {
     transform: translateY(-16px) rotate(0deg);
