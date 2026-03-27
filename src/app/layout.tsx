@@ -6,6 +6,7 @@ import { SelfImproveToggle } from "@/components/self-improve-toggle";
 import { CommandPalette } from "@/components/command-palette";
 import { PageTransition } from "@/components/page-transition";
 import { AmbientCanvas } from "@/components/ambient-canvas";
+import { AmbientBorder } from "@/components/ambient-border";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -48,6 +49,7 @@ export default function RootLayout({
         </main>
         <CommandPalette />
         <SelfImproveToggle />
+        <AmbientBorder />
       </body>
     </html>
   );

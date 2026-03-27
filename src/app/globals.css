@@ -390,6 +390,182 @@ body {
   animation: homeFooterIn 600ms ease 400ms both;
 }
 
+/* ── Ambient border glow: reflects self-improve agent state ─────────────── */
+
+.ambient-border {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  transition: box-shadow 0.6s ease;
+}
+
+/* Idle: subtle breathing blue edge glow */
+.ambient-border-idle {
+  animation: ambientBorderIdle 4s ease-in-out infinite;
+}
+
+@keyframes ambientBorderIdle {
+  0%, 100% {
+    box-shadow:
+      inset 0 0 40px -10px rgba(100, 150, 220, 0.04),
+      inset 0 0 80px -20px rgba(100, 150, 220, 0.02);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 60px -8px rgba(100, 150, 220, 0.08),
+      inset 0 0 120px -20px rgba(100, 150, 220, 0.04);
+  }
+}
+
+/* Active: orbiting purple/blue glow that shifts emphasis around edges */
+.ambient-border-active {
+  animation: ambientBorderActive 3s ease-in-out infinite;
+}
+
+@keyframes ambientBorderActive {
+  0% {
+    box-shadow:
+      inset 0 3px 50px -8px rgba(139, 92, 246, 0.18),
+      inset 0 -1px 30px -12px rgba(96, 165, 250, 0.06),
+      inset 0 0 20px 0 rgba(139, 92, 246, 0.03);
+  }
+  25% {
+    box-shadow:
+      inset 3px 0 50px -8px rgba(96, 165, 250, 0.18),
+      inset -1px 0 30px -12px rgba(139, 92, 246, 0.06),
+      inset 0 0 20px 0 rgba(96, 165, 250, 0.03);
+  }
+  50% {
+    box-shadow:
+      inset 0 -3px 50px -8px rgba(139, 92, 246, 0.18),
+      inset 0 1px 30px -12px rgba(96, 165, 250, 0.06),
+      inset 0 0 20px 0 rgba(139, 92, 246, 0.03);
+  }
+  75% {
+    box-shadow:
+      inset -3px 0 50px -8px rgba(96, 165, 250, 0.18),
+      inset 1px 0 30px -12px rgba(139, 92, 246, 0.06),
+      inset 0 0 20px 0 rgba(96, 165, 250, 0.03);
+  }
+  100% {
+    box-shadow:
+      inset 0 3px 50px -8px rgba(139, 92, 246, 0.18),
+      inset 0 -1px 30px -12px rgba(96, 165, 250, 0.06),
+      inset 0 0 20px 0 rgba(139, 92, 246, 0.03);
+  }
+}
+
+/* Commit: bright emerald/gold flash that fades */
+.ambient-border-commit {
+  animation: ambientBorderCommit 2.5s ease-out forwards;
+}
+
+@keyframes ambientBorderCommit {
+  0% {
+    box-shadow:
+      inset 0 0 120px -5px rgba(52, 211, 153, 0.30),
+      inset 0 0 200px -20px rgba(52, 211, 153, 0.15);
+  }
+  20% {
+    box-shadow:
+      inset 0 0 80px -5px rgba(250, 204, 21, 0.20),
+      inset 0 0 160px -20px rgba(52, 211, 153, 0.12);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 60px -8px rgba(52, 211, 153, 0.10),
+      inset 0 0 100px -20px rgba(52, 211, 153, 0.05);
+  }
+  100% {
+    box-shadow:
+      inset 0 0 40px -10px rgba(100, 150, 220, 0.04),
+      inset 0 0 80px -20px rgba(100, 150, 220, 0.02);
+  }
+}
+
+/* In dark mode, make the glow slightly more visible */
+.dark .ambient-border-idle {
+  animation-name: ambientBorderIdleDark;
+}
+
+@keyframes ambientBorderIdleDark {
+  0%, 100% {
+    box-shadow:
+      inset 0 0 50px -10px rgba(100, 150, 220, 0.06),
+      inset 0 0 100px -20px rgba(100, 150, 220, 0.03);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 80px -8px rgba(100, 150, 220, 0.12),
+      inset 0 0 150px -20px rgba(100, 150, 220, 0.06);
+  }
+}
+
+.dark .ambient-border-active {
+  animation-name: ambientBorderActiveDark;
+}
+
+@keyframes ambientBorderActiveDark {
+  0% {
+    box-shadow:
+      inset 0 3px 60px -6px rgba(139, 92, 246, 0.25),
+      inset 0 -1px 35px -12px rgba(96, 165, 250, 0.08),
+      inset 0 0 25px 0 rgba(139, 92, 246, 0.04);
+  }
+  25% {
+    box-shadow:
+      inset 3px 0 60px -6px rgba(96, 165, 250, 0.25),
+      inset -1px 0 35px -12px rgba(139, 92, 246, 0.08),
+      inset 0 0 25px 0 rgba(96, 165, 250, 0.04);
+  }
+  50% {
+    box-shadow:
+      inset 0 -3px 60px -6px rgba(139, 92, 246, 0.25),
+      inset 0 1px 35px -12px rgba(96, 165, 250, 0.08),
+      inset 0 0 25px 0 rgba(139, 92, 246, 0.04);
+  }
+  75% {
+    box-shadow:
+      inset -3px 0 60px -6px rgba(96, 165, 250, 0.25),
+      inset 1px 0 35px -12px rgba(139, 92, 246, 0.08),
+      inset 0 0 25px 0 rgba(96, 165, 250, 0.04);
+  }
+  100% {
+    box-shadow:
+      inset 0 3px 60px -6px rgba(139, 92, 246, 0.25),
+      inset 0 -1px 35px -12px rgba(96, 165, 250, 0.08),
+      inset 0 0 25px 0 rgba(139, 92, 246, 0.04);
+  }
+}
+
+.dark .ambient-border-commit {
+  animation-name: ambientBorderCommitDark;
+}
+
+@keyframes ambientBorderCommitDark {
+  0% {
+    box-shadow:
+      inset 0 0 150px -5px rgba(52, 211, 153, 0.35),
+      inset 0 0 250px -20px rgba(52, 211, 153, 0.18);
+  }
+  20% {
+    box-shadow:
+      inset 0 0 100px -5px rgba(250, 204, 21, 0.25),
+      inset 0 0 200px -20px rgba(52, 211, 153, 0.15);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 70px -8px rgba(52, 211, 153, 0.12),
+      inset 0 0 120px -20px rgba(52, 211, 153, 0.06);
+  }
+  100% {
+    box-shadow:
+      inset 0 0 50px -10px rgba(100, 150, 220, 0.06),
+      inset 0 0 100px -20px rgba(100, 150, 220, 0.03);
+  }
+}
+
 @keyframes confettiFall {
   from {
     transform: translateY(-16px) rotate(0deg);
