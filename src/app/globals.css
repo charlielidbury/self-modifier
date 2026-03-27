@@ -50,6 +50,8 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --animate-collapsible-down: collapsible-down 200ms ease;
+  --animate-collapsible-up: collapsible-up 200ms ease;
 }
 
 .dark {
@@ -133,6 +135,39 @@ body {
 @keyframes chessSquareFlash {
   0%   { opacity: 0.8; }
   100% { opacity: 0; }
+}
+
+/* Chess game-over overlay entrance animations */
+@keyframes chessOverlayBgIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes chessOverlayCardIn {
+  0%   { opacity: 0; transform: scale(0.78) translateY(10px); }
+  65%  { opacity: 1; transform: scale(1.04) translateY(-2px); }
+  100% { opacity: 1; transform: scale(1.0)  translateY(0);    }
+}
+
+.chess-overlay-bg {
+  animation: chessOverlayBgIn 220ms ease both;
+}
+
+.chess-overlay-card {
+  animation: chessOverlayCardIn 380ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Collapsible open/close height animations (used by Radix CollapsibleContent).
+   These rely on the --radix-collapsible-content-height CSS variable that Radix
+   measures and exposes automatically. */
+@keyframes collapsible-down {
+  from { height: 0; }
+  to   { height: var(--radix-collapsible-content-height); }
+}
+
+@keyframes collapsible-up {
+  from { height: var(--radix-collapsible-content-height); }
+  to   { height: 0; }
 }
 
 @keyframes confettiFall {

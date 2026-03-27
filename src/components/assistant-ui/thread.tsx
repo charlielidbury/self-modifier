@@ -24,7 +24,9 @@ import {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  BrainIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   Code2Icon,
@@ -42,6 +44,11 @@ import {
   SunIcon,
 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState, type FC, type ElementType } from "react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 export const Thread: FC = () => {
   return (
@@ -528,6 +535,82 @@ const MessageWordCount: FC = () => {
   );
 };
 
+/**
+ * Collapsible panel that shows the AI's extended thinking / reasoning when
+ * the current message contains a "reasoning" content part.
+ *
+ * Behaviour:
+ *  - Auto-expands while the message is still streaming (so you can watch the
+ *    thinking unfold in real-time).
+ *  - Auto-collapses once the response is complete (keeps the chat tidy).
+ *  - If the user manually toggles the panel, that choice is respected for the
+ *    rest of the message's lifetime.
+ */
+const ReasoningBlock: FC = () => {
+  const content = useMessage((m) => m.content);
+  const isRunning = useMessage((m) => m.status?.type === "running");
+
+  // null = auto-managed (follows isRunning); boolean = user has overridden
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+
+  const reasoningText = useMemo(() => {
+    if (!content) return "";
+    return content
+      .filter(
+        (p): p is { type: "reasoning"; text: string } =>
+          (p as { type: string }).type === "reasoning" &&
+          typeof (p as { type: string; text: unknown }).text === "string"
+      )
+      .map((p) => p.text)
+      .join("");
+  }, [content]);
+
+  if (!reasoningText) return null;
+
+  const wordCount = reasoningText.trim().split(/\s+/).filter(Boolean).length;
+  const open = manualOpen !== null ? manualOpen : isRunning;
+
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={(o) => setManualOpen(o)}
+      className="mb-3"
+    >
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="group flex items-center gap-1.5 rounded-md py-0.5 text-xs text-muted-foreground/55 transition-colors hover:text-muted-foreground select-none cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <BrainIcon className="size-3.5 shrink-0 text-violet-400/70 dark:text-violet-400/60" />
+          <span className="italic">
+            {isRunning
+              ? "Thinking…"
+              : `Thought for ${wordCount} word${wordCount !== 1 ? "s" : ""}`}
+          </span>
+          <ChevronDownIcon
+            className={cn(
+              "size-3 shrink-0 transition-transform duration-200",
+              open ? "rotate-0" : "-rotate-90"
+            )}
+          />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent
+        className={cn(
+          "overflow-hidden",
+          "data-[state=open]:animate-collapsible-down",
+          "data-[state=closed]:animate-collapsible-up",
+          "data-[state=closed]:fill-mode-forwards",
+        )}
+      >
+        <div className="mt-1.5 max-h-52 overflow-y-auto rounded-lg border border-muted-foreground/10 bg-muted/40 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground/70 whitespace-pre-wrap">
+          {reasoningText}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+};
+
 const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root
@@ -535,6 +618,7 @@ const AssistantMessage: FC = () => {
       data-role="assistant"
     >
       <div className="aui-assistant-message-content wrap-break-word px-2 text-foreground leading-relaxed">
+        <ReasoningBlock />
         <MessagePrimitive.Parts
           components={{
             Text: MarkdownText,

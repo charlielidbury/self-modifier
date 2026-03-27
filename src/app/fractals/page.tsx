@@ -21,6 +21,7 @@ import {
   Palette,
   Undo2,
   Redo2,
+  Shuffle,
 } from "lucide-react";
 
 // ─── WebGL Shaders ────────────────────────────────────────────────────────────
@@ -428,6 +429,9 @@ export default function FractalsPage() {
   // Preset name toast — shown briefly when cycling presets with [ / ]
   const [presetToast, setPresetToast] = useState<string | null>(null);
   const presetToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mode description toast — shown briefly when switching fractal type
+  const [modeToast, setModeToast] = useState<string | null>(null);
+  const modeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Navigation history state (for button enabled/disabled)
@@ -458,6 +462,13 @@ export default function FractalsPage() {
     presetToastTimerRef.current = setTimeout(() => setPresetToast(null), 2500);
   }, []);
 
+  /** Show a brief fractal description toast when switching modes. */
+  const showModeToast = useCallback((description: string) => {
+    setModeToast(description);
+    if (modeToastTimerRef.current) clearTimeout(modeToastTimerRef.current);
+    modeToastTimerRef.current = setTimeout(() => setModeToast(null), 3500);
+  }, []);
+
   // ── Fullscreen toggle ────────────────────────────────────────────────────────
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -472,6 +483,7 @@ export default function FractalsPage() {
     return () => {
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
       if (presetToastTimerRef.current) clearTimeout(presetToastTimerRef.current);
+      if (modeToastTimerRef.current) clearTimeout(modeToastTimerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -699,6 +711,11 @@ export default function FractalsPage() {
             else goBack();
           }
           break;
+        case "Backspace":
+          e.preventDefault();
+          if (e.shiftKey) goForward();
+          else goBack();
+          break;
         case "r":
         case "R": {
           // Reset to defaults for the current mode
@@ -795,6 +812,8 @@ export default function FractalsPage() {
           if (nextMode === "newton")     { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.5; setZoomLevel(0.5); setCenterDisplay({ x: 0.0, y: 0 }); }
           if (nextMode === "tricorn")    { centerRef.current = { x:  0.0, y: 0 }; zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: 0.0, y: 0 }); }
           needsDrawRef.current = true;
+          const nextModeInfo = FRACTAL_MODES.find(f => f.key === nextMode);
+          if (nextModeInfo) showModeToast(nextModeInfo.description);
           break;
         }
         case "f":
@@ -843,7 +862,7 @@ export default function FractalsPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [resetHintTimer, toggleFullscreen, showPresetToast, goBack, goForward]); // all refs and state setters are stable; these callbacks are also stable
+  }, [resetHintTimer, toggleFullscreen, showPresetToast, showModeToast, goBack, goForward]); // all refs and state setters are stable; these callbacks are also stable
 
   // ── Pointer events (pan + pinch-to-zoom) ────────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
@@ -1062,6 +1081,8 @@ export default function FractalsPage() {
     if (m === "newton")     { centerRef.current = { x:  0.0, y: 0 };    zoomRef.current = 0.5;  setZoomLevel(0.5);  setCenterDisplay({ x: 0.0,  y: 0 }); }
     if (m === "tricorn")    { centerRef.current = { x:  0.0, y: 0 };    zoomRef.current = 0.35; setZoomLevel(0.35); setCenterDisplay({ x: 0.0,  y: 0 }); }
     needsDrawRef.current = true;
+    const modeInfo = FRACTAL_MODES.find(f => f.key === m);
+    if (modeInfo) showModeToast(modeInfo.description);
   };
 
   const setPaletteUI = (i: number) => {
@@ -1300,6 +1321,20 @@ export default function FractalsPage() {
       {/* ── Controls overlay ── */}
       <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3 pointer-events-none">
 
+        {/* Mode description toast — briefly describes the active fractal type */}
+        <div
+          className="text-white/90 text-[11px] text-center bg-black/70 backdrop-blur-sm px-4 py-2 rounded-lg pointer-events-none max-w-xs leading-snug"
+          style={{
+            transition: "opacity 400ms ease, transform 400ms ease",
+            opacity: modeToast ? 1 : 0,
+            transform: modeToast ? "scale(1) translateY(0)" : "scale(0.95) translateY(4px)",
+          }}
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {modeToast ?? ""}
+        </div>
+
         {/* Julia C display */}
         {mode === "julia" && (
           <div className="text-white/60 text-xs font-mono bg-black/40 backdrop-blur px-3 py-1 rounded-full pointer-events-none">
@@ -1417,6 +1452,19 @@ export default function FractalsPage() {
             className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-xl text-white/60 hover:text-white transition-colors"
           >
             <RotateCcw size={14} />
+          </button>
+
+          {/* Surprise Me — fly to a random preset */}
+          <button
+            onClick={() => {
+              const idx = Math.floor(Math.random() * PRESETS.length);
+              applyPreset(PRESETS[idx]);
+            }}
+            title="Surprise me — jump to a random preset location"
+            className="flex items-center gap-1.5 px-2.5 py-2 bg-black/50 backdrop-blur border border-white/10 rounded-xl text-xs font-medium text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <Shuffle size={13} />
+            <span>Surprise</span>
           </button>
 
           {/* Presets */}
