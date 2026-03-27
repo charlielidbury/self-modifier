@@ -140,6 +140,8 @@ type ChatProviderProps = {
   setIsRunning: (running: boolean) => void;
   activeSessionId: string | null;
   setActiveSessionId: (id: string | null) => void;
+  /** Optional working directory override for the agent subprocess. */
+  cwd?: string;
   children: React.ReactNode;
 };
 
@@ -263,6 +265,7 @@ export function ChatProvider({
   setIsRunning,
   activeSessionId,
   setActiveSessionId,
+  cwd,
   children,
 }: ChatProviderProps) {
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -438,6 +441,7 @@ export function ChatProvider({
             message: text,
             sessionId: activeSessionIdRef.current ?? undefined,
             images: images && images.length > 0 ? images : undefined,
+            ...(cwd ? { cwd } : {}),
           }),
           signal: abortController.signal,
         });

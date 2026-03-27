@@ -11,7 +11,10 @@ import {
   Lightbulb,
   Info,
   Quote,
+  Bot,
+  X,
 } from "lucide-react";
+import { ChatView } from "@/components/chat-view";
 
 function Collapsible({
   title,
@@ -76,7 +79,37 @@ const C = ({ children }: { children: React.ReactNode }) => (
   <code className="bg-muted px-1.5 py-0.5 rounded text-sm">{children}</code>
 );
 
+const OCHRE_REPO_PATH = "/Users/charlielidbury/repos/ochre";
+
 export default function OchrePage() {
+  const [chatOpen, setChatOpen] = useState(false);
+
+  if (chatOpen) {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 border-b border-neutral-200 dark:border-neutral-800 bg-background/80 backdrop-blur-sm">
+          <Bot className="size-4 text-amber-500" />
+          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
+            Ochre Agent
+          </span>
+          <span className="text-xs text-muted-foreground font-mono">
+            {OCHRE_REPO_PATH}
+          </span>
+          <button
+            onClick={() => setChatOpen(false)}
+            className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          >
+            <X className="size-3" />
+            Back to docs
+          </button>
+        </div>
+        <div className="flex-1 min-h-0">
+          <ChatView cwd={OCHRE_REPO_PATH} showSidebar={false} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-3xl mx-auto px-6 py-12 space-y-10">
@@ -112,6 +145,12 @@ export default function OchrePage() {
               <Github className="w-4 h-4" /> GitHub
               <ExternalLink className="w-3 h-3 opacity-50" />
             </a>
+            <button
+              onClick={() => setChatOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-colors text-sm font-medium text-amber-700 dark:text-amber-400"
+            >
+              <Bot className="w-4 h-4" /> Talk to Agent
+            </button>
           </div>
         </div>
 

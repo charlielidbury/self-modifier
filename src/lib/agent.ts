@@ -7,9 +7,14 @@ import {
 import type { StreamEvent } from "./types";
 import { emit } from "./event-bus";
 
-const SYSTEM_PROMPT = `You are an AI assistant embedded in a Next.js application. You can read and modify the application's source code, including the code that powers this very chat interface. The project root is your cwd. Do whatever the user asks.
+const DEFAULT_SYSTEM_PROMPT = `You are an AI assistant embedded in a Next.js application. You can read and modify the application's source code, including the code that powers this very chat interface. The project root is your cwd. Do whatever the user asks.
 
 Important: Editing src/app/api/chat/route.ts, next.config.ts, tsconfig.json, or running npm install may interrupt your current turn due to dev server restarts. Batch those edits together and do them last when possible.`;
+
+function getSystemPrompt(agentCwd?: string): string {
+  if (!agentCwd || agentCwd === process.cwd()) return DEFAULT_SYSTEM_PROMPT;
+  return `You are an AI assistant working in the repository at ${agentCwd}. You can read and modify the source code in this directory. Do whatever the user asks.`;
+}
 
 // A simple push-based async iterable — lets us feed messages into a running
 // query() subprocess one at a time without closing it.
@@ -102,7 +107,8 @@ function emitSessionStatus(sessionId: string) {
 export async function* runAgent(
   message: string,
   sessionId?: string,
-  images?: string[]
+  images?: string[],
+  cwd?: string
 ): AsyncGenerator<StreamEvent> {
   let state = sessionId ? sessions.get(sessionId) : undefined;
 
@@ -115,9 +121,9 @@ export async function* runAgent(
       prompt: iterable,
       options: {
         model: "claude-opus-4-6",
-        cwd: process.cwd(),
+        cwd: cwd || process.cwd(),
         resume: sessionId,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: getSystemPrompt(cwd),
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         includePartialMessages: true,

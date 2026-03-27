@@ -4,10 +4,11 @@ import { broadcast } from "@/lib/broadcast";
 export const maxDuration = 300;
 
 export async function POST(req: Request) {
-  const { message, sessionId, images } = (await req.json()) as {
+  const { message, sessionId, images, cwd } = (await req.json()) as {
     message: string;
     sessionId?: string;
     images?: string[];
+    cwd?: string;
   };
 
   const encoder = new TextEncoder();
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
       let resolvedSessionId: string | null = null;
 
       try {
-        for await (const event of runAgent(message, sessionId, images)) {
+        for await (const event of runAgent(message, sessionId, images, cwd)) {
           if (event.type === "session") {
             resolvedSessionId = event.sessionId;
             // Now we know the session — broadcast that a new user turn started.
