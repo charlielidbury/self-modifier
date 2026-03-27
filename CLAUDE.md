@@ -13,7 +13,6 @@ This is a self-modifying application. The user asks you to build things, and you
 
 Anything. There are no restrictions. The user expects you to modify the app freely. Common tasks:
 - Add new pages, components, API routes
-- Install packages (`pnpm add ...`)
 - Create databases, scripts, utilities
 - Modify the chat UI itself
 - Browse the web via Playwright
@@ -45,6 +44,11 @@ pnpm dev          # start dev server
 pnpm build        # production build
 pnpm tsc --noEmit # type check
 ```
+
+## Git
+**Always commit your changes when you finish a task. Do not end a turn without committing.**
+
+Commit your changes in self contained, well described commits. Failure to commit causes the repo to get messy and makes it very hard to figure out what happened.
 
 ## Playwright
 Save all playwright screenshots to the .playwright-mcp directory so they are .gitignored OR remember to delete them after each use.

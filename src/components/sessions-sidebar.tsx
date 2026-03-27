@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
-import { Trash2, MessageSquare, Pencil, Plus } from "lucide-react";
-import type { SessionInfo, ChatMessage } from "@/lib/types";
+import { Trash2, MessageSquare, Pencil, Plus, Pin } from "lucide-react";
+import type { SessionInfo, ChatMessage, ContentPart } from "@/lib/types";
 import type { AgentStatus } from "@/lib/agent";
 import {
   Tooltip,
@@ -162,6 +162,34 @@ export function SessionsSidebar({
   const [isOpen, setIsOpen] = useState(true);
   // Track which session is "armed" for deletion (first click arms, second click deletes)
   const [armedForDelete, setArmedForDelete] = useState<string | null>(null);
+
+  // Pinned session IDs, persisted to localStorage.
+  const PINNED_KEY = "pinned-sessions";
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = localStorage.getItem(PINNED_KEY);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  const togglePin = useCallback((sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) {
+        next.delete(sessionId);
+      } else {
+        next.add(sessionId);
+      }
+      try {
+        localStorage.setItem(PINNED_KEY, JSON.stringify([...next]));
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
   // IDs currently mid-exit-animation (fade out before removal)
   const [exitingSessionIds, setExitingSessionIds] = useState<Set<string>>(new Set());
   // Inline rename state
@@ -265,34 +293,174 @@ export function SessionsSidebar({
       try {
         const res = await fetch(`/api/sessions/${sessionId}`);
         const data = await res.json();
-        const loaded: ChatMessage[] = (
-          data as {
-            type: string;
-            uuid: string;
-            message: {
-              content?: string | { type: string; text?: string }[];
-            };
-          }[]
-        )
-          .filter((m) => m.type === "user" || m.type === "assistant")
-          .map((m) => {
+        // Parse raw SDK messages into ChatMessage objects, properly handling
+        // tool_use / tool_result blocks that span multiple raw messages.
+        //
+        // The Claude Agent SDK stores messages as:
+        //   1. user (text content)
+        //   2. assistant (tool_use blocks)
+        //   3. user (tool_result blocks — synthetic, not real user messages)
+        //   4. assistant (text response)
+        // We need to merge assistant tool_use messages with their subsequent
+        // text response, and skip synthetic tool_result "user" messages.
+        type RawBlock = {
+          type: string;
+          text?: string;
+          name?: string;
+          id?: string;
+          input?: Record<string, unknown>;
+          tool_use_id?: string;
+          content?: string | { type: string; text?: string }[];
+        };
+        type RawMsg = {
+          type: string;
+          uuid: string;
+          message: {
+            content?: string | RawBlock[];
+          };
+        };
+
+        const raw = data as RawMsg[];
+        const loaded: ChatMessage[] = [];
+
+        // Collect tool results from synthetic "user" messages into a lookup
+        const toolResultsByUseId = new Map<
+          string,
+          { tool: string; content: string }
+        >();
+        for (const m of raw) {
+          if (m.type !== "user" || !Array.isArray(m.message?.content)) continue;
+          for (const block of m.message.content) {
+            if (block.type === "tool_result" && block.tool_use_id) {
+              let resultContent = "";
+              if (typeof block.content === "string") {
+                resultContent = block.content;
+              } else if (Array.isArray(block.content)) {
+                resultContent = block.content
+                  .filter((b) => b.type === "text")
+                  .map((b) => b.text ?? "")
+                  .join("");
+              }
+              toolResultsByUseId.set(block.tool_use_id, {
+                tool: block.tool_use_id,
+                content: resultContent,
+              });
+            }
+          }
+        }
+
+        // Track pending parts from assistant messages so we can merge
+        // tool-use-only messages with subsequent text into one ChatMessage.
+        let pendingParts: ContentPart[] = [];
+        let pendingToolUseUuid: string | null = null;
+        let pendingContent = "";
+
+        for (const m of raw) {
+          // Skip synthetic tool_result user messages
+          if (
+            m.type === "user" &&
+            Array.isArray(m.message?.content) &&
+            m.message.content.some((b: RawBlock) => b.type === "tool_result")
+          ) {
+            continue;
+          }
+
+          if (m.type === "user") {
+            // Real user message
             let content = "";
             if (typeof m.message.content === "string") {
               content = m.message.content;
             } else if (Array.isArray(m.message.content)) {
               content = m.message.content
-                .filter(
-                  (b: { type: string; text?: string }) => b.type === "text"
-                )
-                .map((b: { type: string; text?: string }) => b.text ?? "")
+                .filter((b: RawBlock) => b.type === "text")
+                .map((b: RawBlock) => b.text ?? "")
                 .join("");
             }
-            return {
-              id: m.uuid,
-              role: m.type as "user" | "assistant",
-              content,
-            };
+            if (content) {
+              loaded.push({
+                id: m.uuid,
+                role: "user",
+                content,
+              });
+            }
+            continue;
+          }
+
+          if (m.type === "assistant") {
+            const blocks = Array.isArray(m.message?.content)
+              ? m.message.content
+              : [];
+            const textParts = blocks
+              .filter((b: RawBlock) => b.type === "text")
+              .map((b: RawBlock) => b.text ?? "")
+              .join("");
+            const hasToolUse = blocks.some(
+              (b: RawBlock) => b.type === "tool_use"
+            );
+
+            // Build ordered parts from this message's blocks
+            for (const block of blocks) {
+              if (block.type === "thinking" && block.text) {
+                // Merge consecutive reasoning parts
+                const last = pendingParts[pendingParts.length - 1];
+                if (last && last.type === "reasoning") {
+                  last.text += block.text;
+                } else {
+                  pendingParts.push({ type: "reasoning", text: block.text });
+                }
+              } else if (block.type === "text" && block.text) {
+                // Merge consecutive text parts
+                const last = pendingParts[pendingParts.length - 1];
+                if (last && last.type === "text") {
+                  last.text += block.text;
+                } else {
+                  pendingParts.push({ type: "text", text: block.text });
+                }
+                pendingContent += block.text;
+              } else if (block.type === "tool_use") {
+                const toolId = block.id ?? "";
+                const result = toolResultsByUseId.get(toolId);
+                pendingParts.push({
+                  type: "tool-use",
+                  tool: block.name ?? "unknown",
+                  input: (block.input as Record<string, unknown>) ?? {},
+                  toolCallId: toolId,
+                  result: result?.content,
+                });
+              }
+            }
+
+            pendingToolUseUuid = pendingToolUseUuid || m.uuid;
+
+            if (hasToolUse && !textParts) {
+              // Tool-use-only message — keep accumulating, merge with next
+              continue;
+            }
+
+            // Flush: emit a ChatMessage with all accumulated parts
+            loaded.push({
+              id: pendingToolUseUuid || m.uuid,
+              role: "assistant",
+              content: pendingContent,
+              parts: pendingParts.length > 0 ? pendingParts : undefined,
+            });
+
+            pendingParts = [];
+            pendingToolUseUuid = null;
+            pendingContent = "";
+            continue;
+          }
+        }
+
+        // Flush any remaining pending parts (edge case: session ended mid-tool)
+        if (pendingParts.length > 0) {
+          loaded.push({
+            id: pendingToolUseUuid || "pending-" + Date.now(),
+            role: "assistant",
+            content: pendingContent,
+            parts: pendingParts,
           });
+        }
         onLoadSession(loaded, sessionId, sessionLabel);
       } catch {
         onLoadSession([], sessionId, sessionLabel);
@@ -382,17 +550,28 @@ export function SessionsSidebar({
     setRenameValue("");
   }, []);
 
-  // Derived: sessions filtered by the current search query.
-  const filteredSessions = useMemo(
-    () =>
-      sessions.filter((s) => {
-        if (!searchQuery) return true;
-        const q = searchQuery.toLowerCase();
-        const label = (s.summary || s.sessionId.slice(0, 8)).toLowerCase();
-        return label.includes(q);
-      }),
-    [sessions, searchQuery]
-  );
+  // Derived: sessions filtered by the current search query, with pinned ones sorted to the top.
+  const filteredSessions = useMemo(() => {
+    const filtered = sessions.filter((s) => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      const label = (s.summary || s.sessionId.slice(0, 8)).toLowerCase();
+      return label.includes(q);
+    });
+
+    // When not actively searching, sort pinned sessions to the top while preserving
+    // the existing lastModified-desc order within each group.
+    if (!searchQuery) {
+      return [...filtered].sort((a, b) => {
+        const aPinned = pinnedIds.has(a.sessionId) ? 0 : 1;
+        const bPinned = pinnedIds.has(b.sessionId) ? 0 : 1;
+        if (aPinned !== bPinned) return aPinned - bPinned;
+        return b.lastModified - a.lastModified;
+      });
+    }
+
+    return filtered;
+  }, [sessions, searchQuery, pinnedIds]);
 
   // Reset keyboard focus whenever the search query changes.
   useEffect(() => {
@@ -625,15 +804,27 @@ export function SessionsSidebar({
             const isRenaming = renamingSessionId === s.sessionId;
             const isExiting = exitingSessionIds.has(s.sessionId);
 
-            // Date group header — only shown when not actively searching
-            const group = !searchQuery ? getSessionGroup(s.lastModified, now) : null;
-            const prevGroup = !searchQuery && idx > 0
+            const isPinned = !searchQuery && pinnedIds.has(s.sessionId);
+            const prevIsPinned = !searchQuery && idx > 0 && pinnedIds.has(filteredSessions[idx - 1].sessionId);
+
+            // "Pinned" section header — shown before the first pinned session
+            const showPinnedHeader = isPinned && (idx === 0 || !prevIsPinned);
+
+            // Date group headers — only shown for unpinned sessions when not actively searching
+            const group = !searchQuery && !isPinned ? getSessionGroup(s.lastModified, now) : null;
+            const prevGroup = !searchQuery && !isPinned && idx > 0 && !prevIsPinned
               ? getSessionGroup(filteredSessions[idx - 1].lastModified, now)
               : null;
             const showGroupHeader = group !== null && group !== prevGroup;
 
             return (
               <Fragment key={s.sessionId}>
+                {showPinnedHeader && (
+                  <div className="px-4 pt-3 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-500/70 dark:text-amber-400/60 select-none flex items-center gap-1">
+                    <Pin className="h-2.5 w-2.5" />
+                    Pinned
+                  </div>
+                )}
                 {showGroupHeader && (
                   <div className="px-4 pt-3 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500 select-none">
                     {group}
@@ -699,6 +890,18 @@ export function SessionsSidebar({
                 </button>
                 {!isRenaming && (
                   <>
+                    {/* Pin / unpin — always visible when pinned, appears on hover otherwise */}
+                    <button
+                      onClick={(e) => togglePin(s.sessionId, e)}
+                      title={isPinned ? "Unpin session" : "Pin session to top"}
+                      className={`mr-1 flex-shrink-0 rounded p-1 transition-all focus:opacity-100 ${
+                        isPinned
+                          ? "opacity-100 text-amber-500 dark:text-amber-400 hover:text-amber-600 dark:hover:text-amber-300"
+                          : "opacity-0 group-hover:opacity-100 text-neutral-400 dark:text-neutral-500 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                      }`}
+                    >
+                      <Pin className={`h-3.5 w-3.5 ${isPinned ? "fill-current" : ""}`} />
+                    </button>
                     <button
                       onClick={(e) => startRename(s.sessionId, label, e)}
                       title="Rename session"

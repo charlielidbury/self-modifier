@@ -8,11 +8,63 @@ import {
 } from "@assistant-ui/react";
 import type {
   AppendMessage,
+  CompleteAttachment,
   ImageMessagePart,
   TextMessagePart,
   ThreadMessageLike,
 } from "@assistant-ui/react";
-import type { ChatMessage, StreamEvent } from "@/lib/types";
+import type { ChatMessage, ContentPart, StreamEvent } from "@/lib/types";
+
+/**
+ * Append a streaming event to the ordered parts array of an assistant message.
+ * Returns a new parts array (immutable update).
+ */
+function appendToParts(
+  parts: ContentPart[],
+  event: StreamEvent
+): ContentPart[] {
+  const next = [...parts];
+  switch (event.type) {
+    case "text": {
+      const last = next[next.length - 1];
+      if (last && last.type === "text") {
+        next[next.length - 1] = { ...last, text: last.text + event.content };
+      } else {
+        next.push({ type: "text", text: event.content });
+      }
+      break;
+    }
+    case "reasoning": {
+      const last = next[next.length - 1];
+      if (last && last.type === "reasoning") {
+        next[next.length - 1] = { ...last, text: last.text + event.content };
+      } else {
+        next.push({ type: "reasoning", text: event.content });
+      }
+      break;
+    }
+    case "tool_use": {
+      next.push({
+        type: "tool-use",
+        tool: event.tool,
+        input: event.input,
+      });
+      break;
+    }
+    case "tool_result": {
+      // Find the last tool-use part without a result and attach it.
+      for (let i = next.length - 1; i >= 0; i--) {
+        const p = next[i];
+        if (p.type === "tool-use" && p.result === undefined) {
+          next[i] = { ...p, result: event.content };
+          break;
+        }
+      }
+      break;
+    }
+  }
+  return next;
+}
 
 type ChatProviderProps = {
   messages: readonly ChatMessage[];
@@ -49,31 +101,63 @@ function convertMessage(msg: ChatMessage): ThreadMessageLike {
 
   const content: ThreadMessageLike["content"] = [];
 
-  if (msg.reasoning) {
-    (content as unknown[]).push({
-      type: "reasoning" as const,
-      text: msg.reasoning,
-    });
-  }
-
-  if (msg.content) {
-    (content as { type: "text"; text: string }[]).push({
-      type: "text",
-      text: msg.content,
-    });
-  }
-
-  if (msg.toolUses && msg.toolUses.length > 0) {
-    for (let i = 0; i < msg.toolUses.length; i++) {
-      const toolUse = msg.toolUses[i];
-      const toolResult = msg.toolResults?.[i];
+  if (msg.parts && msg.parts.length > 0) {
+    // New path: ordered parts preserve interleaving of text and tool calls.
+    let toolCallIndex = 0;
+    for (const part of msg.parts) {
+      switch (part.type) {
+        case "reasoning":
+          (content as unknown[]).push({
+            type: "reasoning" as const,
+            text: part.text,
+          });
+          break;
+        case "text":
+          (content as { type: "text"; text: string }[]).push({
+            type: "text",
+            text: part.text,
+          });
+          break;
+        case "tool-use":
+          (content as unknown[]).push({
+            type: "tool-call" as const,
+            toolCallId: part.toolCallId ?? `${msg.id}-tc-${toolCallIndex}`,
+            toolName: part.tool,
+            args: part.input as Record<string, string | number | boolean | null>,
+            result: part.result,
+          });
+          toolCallIndex++;
+          break;
+      }
+    }
+  } else {
+    // Legacy fallback for older persisted sessions without parts.
+    if (msg.reasoning) {
       (content as unknown[]).push({
-        type: "tool-call" as const,
-        toolCallId: `${msg.id}-tc-${i}`,
-        toolName: toolUse.tool,
-        args: toolUse.input as Record<string, string | number | boolean | null>,
-        result: toolResult?.content,
+        type: "reasoning" as const,
+        text: msg.reasoning,
       });
+    }
+
+    if (msg.content) {
+      (content as { type: "text"; text: string }[]).push({
+        type: "text",
+        text: msg.content,
+      });
+    }
+
+    if (msg.toolUses && msg.toolUses.length > 0) {
+      for (let i = 0; i < msg.toolUses.length; i++) {
+        const toolUse = msg.toolUses[i];
+        const toolResult = msg.toolResults?.[i];
+        (content as unknown[]).push({
+          type: "tool-call" as const,
+          toolCallId: `${msg.id}-tc-${i}`,
+          toolName: toolUse.tool,
+          args: toolUse.input as Record<string, string | number | boolean | null>,
+          result: toolResult?.content,
+        });
+      }
     }
   }
 
@@ -145,9 +229,7 @@ export function ChatProvider({
             id: assistantId,
             role: "assistant",
             content: "",
-            reasoning: "",
-            toolUses: [],
-            toolResults: [],
+            parts: [],
           };
           const next = [...sseStateRef.current.messages, userMsg, assistantMsg];
           sseStateRef.current.messages = next;
@@ -156,51 +238,9 @@ export function ChatProvider({
           break;
         }
 
-        case "text": {
-          const { assistantId, messages: cur } = sseStateRef.current;
-          if (!assistantId) break;
-          const next = cur.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: m.content + event.content }
-              : m
-          );
-          sseStateRef.current.messages = next;
-          setMessages(next);
-          break;
-        }
-
-        case "reasoning": {
-          const { assistantId, messages: cur } = sseStateRef.current;
-          if (!assistantId) break;
-          const next = cur.map((m) =>
-            m.id === assistantId
-              ? { ...m, reasoning: (m.reasoning ?? "") + event.content }
-              : m
-          );
-          sseStateRef.current.messages = next;
-          setMessages(next);
-          break;
-        }
-
-        case "tool_use": {
-          const { assistantId, messages: cur } = sseStateRef.current;
-          if (!assistantId) break;
-          const next = cur.map((m) =>
-            m.id === assistantId
-              ? {
-                  ...m,
-                  toolUses: [
-                    ...(m.toolUses ?? []),
-                    { tool: event.tool, input: event.input },
-                  ],
-                }
-              : m
-          );
-          sseStateRef.current.messages = next;
-          setMessages(next);
-          break;
-        }
-
+        case "text":
+        case "reasoning":
+        case "tool_use":
         case "tool_result": {
           const { assistantId, messages: cur } = sseStateRef.current;
           if (!assistantId) break;
@@ -208,10 +248,11 @@ export function ChatProvider({
             m.id === assistantId
               ? {
                   ...m,
-                  toolResults: [
-                    ...(m.toolResults ?? []),
-                    { tool: event.tool, content: event.content },
-                  ],
+                  content:
+                    event.type === "text"
+                      ? m.content + event.content
+                      : m.content,
+                  parts: appendToParts(m.parts ?? [], event),
                 }
               : m
           );
@@ -223,9 +264,17 @@ export function ChatProvider({
         case "error": {
           const { assistantId, messages: cur } = sseStateRef.current;
           if (!assistantId) break;
+          const errorText = `\n\nError: ${event.message}`;
           const next = cur.map((m) =>
             m.id === assistantId
-              ? { ...m, content: m.content + `\n\nError: ${event.message}` }
+              ? {
+                  ...m,
+                  content: m.content + errorText,
+                  parts: appendToParts(m.parts ?? [], {
+                    type: "text",
+                    content: errorText,
+                  }),
+                }
               : m
           );
           sseStateRef.current.messages = next;
@@ -269,9 +318,16 @@ export function ChatProvider({
         .filter((p): p is TextMessagePart => p.type === "text")
         .map((p) => p.text)
         .join("");
-      const images = (message.content as (TextMessagePart | ImageMessagePart)[])
-        .filter((p): p is ImageMessagePart => p.type === "image")
-        .map((p) => p.image);
+
+      // Images come from attachments (via SimpleImageAttachmentAdapter), not message.content.
+      // Each completed attachment has a `content` array with image parts.
+      const images = (
+        (message as { attachments?: CompleteAttachment[] }).attachments ?? []
+      ).flatMap((att) =>
+        (att.content ?? [])
+          .filter((p): p is ImageMessagePart => p.type === "image")
+          .map((p) => p.image)
+      );
 
       if (!text.trim() && images.length === 0) return;
 
@@ -288,9 +344,7 @@ export function ChatProvider({
         id: assistantId,
         role: "assistant",
         content: "",
-        reasoning: "",
-        toolUses: [],
-        toolResults: [],
+        parts: [],
       };
 
       setMessages([...messages, userMsg, assistantMsg]);
@@ -337,51 +391,19 @@ export function ChatProvider({
                 setActiveSessionId(event.sessionId);
                 break;
 
-              case "text": {
-                currentMessages = currentMessages.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, content: m.content + event.content }
-                    : m
-                );
-                setMessages(currentMessages);
-                break;
-              }
-
-              case "reasoning": {
-                currentMessages = currentMessages.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, reasoning: (m.reasoning ?? "") + event.content }
-                    : m
-                );
-                setMessages(currentMessages);
-                break;
-              }
-
-              case "tool_use": {
-                currentMessages = currentMessages.map((m) =>
-                  m.id === assistantId
-                    ? {
-                        ...m,
-                        toolUses: [
-                          ...(m.toolUses ?? []),
-                          { tool: event.tool, input: event.input },
-                        ],
-                      }
-                    : m
-                );
-                setMessages(currentMessages);
-                break;
-              }
-
+              case "text":
+              case "reasoning":
+              case "tool_use":
               case "tool_result": {
                 currentMessages = currentMessages.map((m) =>
                   m.id === assistantId
                     ? {
                         ...m,
-                        toolResults: [
-                          ...(m.toolResults ?? []),
-                          { tool: event.tool, content: event.content },
-                        ],
+                        content:
+                          event.type === "text"
+                            ? m.content + event.content
+                            : m.content,
+                        parts: appendToParts(m.parts ?? [], event),
                       }
                     : m
                 );
@@ -390,12 +412,16 @@ export function ChatProvider({
               }
 
               case "error": {
+                const errorText = `\n\nError: ${event.message}`;
                 currentMessages = currentMessages.map((m) =>
                   m.id === assistantId
                     ? {
                         ...m,
-                        content:
-                          m.content + `\n\nError: ${event.message}`,
+                        content: m.content + errorText,
+                        parts: appendToParts(m.parts ?? [], {
+                          type: "text",
+                          content: errorText,
+                        }),
                       }
                     : m
                 );
@@ -416,13 +442,16 @@ export function ChatProvider({
         }
       } catch (err) {
         if ((err as { name?: string }).name === "AbortError") return;
+        const errorText = `\n\nConnection error: ${err instanceof Error ? err.message : String(err)}`;
         currentMessages = currentMessages.map((m) =>
           m.id === assistantId
             ? {
                 ...m,
-                content:
-                  m.content +
-                  `\n\nConnection error: ${err instanceof Error ? err.message : String(err)}`,
+                content: m.content + errorText,
+                parts: appendToParts(m.parts ?? [], {
+                  type: "text",
+                  content: errorText,
+                }),
               }
             : m
         );
