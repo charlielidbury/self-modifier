@@ -15,7 +15,7 @@ export async function GET() {
     // %H = full hash, %h = short hash, %s = subject, %aI = author date ISO, %an = author name
     // Use git's %x00 format specifier for null byte delimiter (can't embed \x00 in JS string for execSync)
     const raw = execSync(
-      `git log --format="%H%x00%h%x00%s%x00%aI%x00%an" -30`,
+      `git log --format="%H%x00%h%x00%s%x00%aI%x00%an" -100`,
       { encoding: "utf-8", cwd: process.cwd() }
     ).trim();
 
@@ -43,7 +43,7 @@ export async function GET() {
     //   (blank line between commits)
     try {
       const numstatRaw = execSync(
-        `git log -30 --format="COMMIT:%H" --numstat`,
+        `git log -100 --format="COMMIT:%H" --numstat`,
         { encoding: "utf-8", cwd: process.cwd() }
       ).trim();
 

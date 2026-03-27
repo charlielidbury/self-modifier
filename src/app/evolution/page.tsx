@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   GitCommit,
   Loader2,
@@ -19,6 +19,10 @@ import {
   ArrowUpRight,
   RefreshCw,
   X,
+  Copy,
+  Check,
+  Users,
+  Activity,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -48,6 +52,12 @@ type CommitDiff = {
   totalDeletions: number;
 };
 
+type CommitGroup = {
+  label: string;
+  dateKey: string;
+  commits: Commit[];
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function timeAgo(iso: string): string {
@@ -56,7 +66,9 @@ function timeAgo(iso: string): string {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   const d = Math.floor(s / 86400);
-  return `${d}d ago`;
+  if (d === 1) return "yesterday";
+  if (d < 30) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function formatDate(iso: string): string {
@@ -96,7 +108,7 @@ function categorise(message: string): {
       dotColor: "bg-amber-400",
       icon: <Wrench size={12} />,
     };
-  if (m.startsWith("add") || m.includes("new page") || m.includes("feature"))
+  if (m.startsWith("add") || m.includes("new page") || m.includes("feature") || m.startsWith("feat"))
     return {
       label: "Feature",
       color: "text-blue-400",
@@ -123,6 +135,33 @@ function categorise(message: string): {
     dotColor: "bg-emerald-400",
     icon: <Sparkles size={12} />,
   };
+}
+
+function groupCommitsByDay(commits: Commit[]): CommitGroup[] {
+  const groups: Map<string, Commit[]> = new Map();
+  for (const commit of commits) {
+    const d = new Date(commit.date);
+    const key = d.toISOString().slice(0, 10);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(commit);
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+  return Array.from(groups.entries()).map(([dateKey, dayCommits]) => {
+    let label: string;
+    if (dateKey === today) label = "Today";
+    else if (dateKey === yesterday) label = "Yesterday";
+    else {
+      label = new Date(dateKey + "T00:00:00").toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
+    return { label, dateKey, commits: dayCommits };
+  });
 }
 
 // ─── Diff viewer ─────────────────────────────────────────────────────────────
@@ -238,8 +277,12 @@ function TimelineCard({
   const [diff, setDiff] = useState<CommitDiff | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const cat = useMemo(() => categorise(commit.message), [commit.message]);
+
+  const additions = commit.additions ?? 0;
+  const deletions = commit.deletions ?? 0;
 
   const loadDiff = useCallback(() => {
     if (diff) {
@@ -258,6 +301,16 @@ function TimelineCard({
       .catch(() => setError("Could not load diff"))
       .finally(() => setLoading(false));
   }, [commit.hash, diff]);
+
+  const copyHash = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(commit.shortHash);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    },
+    [commit.shortHash]
+  );
 
   return (
     <div
@@ -297,33 +350,71 @@ function TimelineCard({
               <span className="text-muted-foreground/30">·</span>
               <span>{formatDate(commit.date)}</span>
               <span className="text-muted-foreground/30">·</span>
-              <span className="font-mono text-[10px]">{commit.shortHash}</span>
+              <button
+                onClick={copyHash}
+                className="inline-flex items-center gap-1 px-1 py-0.5 rounded-md font-mono text-[10px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 transition-colors"
+                title="Copy commit hash"
+              >
+                {copied ? (
+                  <Check size={9} className="text-green-500" />
+                ) : (
+                  <Copy size={9} />
+                )}
+                {commit.shortHash}
+              </button>
               {commit.author && (
                 <>
                   <span className="text-muted-foreground/30">·</span>
                   <span>{commit.author}</span>
                 </>
               )}
-              {(commit.additions !== undefined || commit.deletions !== undefined) && (
+              {(additions > 0 || deletions > 0) && (
                 <>
                   <span className="text-muted-foreground/30">·</span>
                   <span className="flex items-center gap-1 font-mono text-[10px]">
-                    {commit.additions !== undefined && commit.additions > 0 && (
+                    {additions > 0 && (
                       <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
                         <Plus size={8} />
-                        {commit.additions}
+                        {additions}
                       </span>
                     )}
-                    {commit.deletions !== undefined && commit.deletions > 0 && (
+                    {deletions > 0 && (
                       <span className="text-red-500 dark:text-red-400 flex items-center gap-0.5">
                         <Minus size={8} />
-                        {commit.deletions}
+                        {deletions}
                       </span>
                     )}
                   </span>
                 </>
               )}
             </div>
+
+            {/* Stat bar */}
+            {(additions > 0 || deletions > 0) && (
+              <div className="mt-2 flex items-center gap-2">
+                <div className="flex-1 h-1 rounded-full bg-muted/60 overflow-hidden flex">
+                  {additions > 0 && (
+                    <div
+                      className="h-full bg-green-500/70 rounded-l-full"
+                      style={{
+                        width: `${(additions / (additions + deletions)) * 100}%`,
+                      }}
+                    />
+                  )}
+                  {deletions > 0 && (
+                    <div
+                      className="h-full bg-red-500/60 rounded-r-full"
+                      style={{
+                        width: `${(deletions / (additions + deletions)) * 100}%`,
+                      }}
+                    />
+                  )}
+                </div>
+                <span className="text-[9px] text-muted-foreground/40 font-mono tabular-nums">
+                  {additions + deletions}
+                </span>
+              </div>
+            )}
           </div>
           <button
             onClick={loadDiff}
@@ -345,7 +436,7 @@ function TimelineCard({
             {loading ? (
               <div className="py-6 flex items-center justify-center gap-2">
                 <Loader2 size={12} className="text-muted-foreground animate-spin" />
-                <span className="text-[11px] text-muted-foreground">Loading diff…</span>
+                <span className="text-[11px] text-muted-foreground">Loading diff...</span>
               </div>
             ) : error ? (
               <div className="py-4 text-center text-[11px] text-red-400/70">{error}</div>
@@ -415,7 +506,6 @@ function StatCard({
 // ─── Activity sparkline ──────────────────────────────────────────────────────
 
 function ActivitySparkline({ commits }: { commits: Commit[] }) {
-  // Group commits into day buckets (last 14 days)
   const now = Date.now();
   const dayMs = 86400_000;
   const buckets = new Array(14).fill(0);
@@ -424,7 +514,7 @@ function ActivitySparkline({ commits }: { commits: Commit[] }) {
     const age = now - new Date(c.date).getTime();
     const dayIdx = Math.floor(age / dayMs);
     if (dayIdx >= 0 && dayIdx < 14) {
-      buckets[13 - dayIdx]++; // reverse so latest is rightmost
+      buckets[13 - dayIdx]++;
     }
   }
 
@@ -454,7 +544,6 @@ export default function EvolutionPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [, setTick] = useState(0);
-  // null = show all; a string = show only that category label
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
 
   const fetchCommits = useCallback((isManual = false) => {
@@ -505,7 +594,7 @@ export default function EvolutionPage() {
 
   // Compute stats
   const timeSpan = useMemo(() => {
-    if (commits.length < 2) return "—";
+    if (commits.length < 2) return "\u2014";
     const oldest = new Date(commits[commits.length - 1].date).getTime();
     const newest = new Date(commits[0].date).getTime();
     const diffMs = newest - oldest;
@@ -514,6 +603,23 @@ export default function EvolutionPage() {
     if (days > 0) return `${days}d ${hours % 24}h`;
     if (hours > 0) return `${hours}h`;
     return `${Math.floor(diffMs / 60_000)}m`;
+  }, [commits]);
+
+  const uniqueAuthors = useMemo(
+    () => new Set(commits.map((c) => c.author)).size,
+    [commits]
+  );
+
+  const daySpan = useMemo(() => {
+    if (commits.length < 2) return 1;
+    return Math.max(
+      1,
+      Math.ceil(
+        (new Date(commits[0].date).getTime() -
+          new Date(commits[commits.length - 1].date).getTime()) /
+          86400000
+      )
+    );
   }, [commits]);
 
   const categoryCounts = useMemo(() => {
@@ -525,8 +631,6 @@ export default function EvolutionPage() {
     return counts;
   }, [commits]);
 
-  // Aggregate line-change stats across all loaded commits (best-effort; only
-  // commits whose numstat data was returned by the API will contribute).
   const lineStats = useMemo(() => {
     let totalAdditions = 0;
     let totalDeletions = 0;
@@ -551,7 +655,7 @@ export default function EvolutionPage() {
     return { totalAdditions, totalDeletions, net, display: fmt(net) };
   }, [commits]);
 
-  // Commits to actually render in the timeline (respects the active category filter)
+  // Apply category filter
   const filteredCommits = useMemo(
     () =>
       activeFilter
@@ -560,12 +664,18 @@ export default function EvolutionPage() {
     [commits, activeFilter]
   );
 
+  // Group filtered commits by day
+  const groups = useMemo(
+    () => groupCommitsByDay(filteredCommits),
+    [filteredCommits]
+  );
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="flex items-center gap-3 text-muted-foreground">
           <Loader2 size={18} className="animate-spin" />
-          <span className="text-sm">Loading evolution history…</span>
+          <span className="text-sm">Loading evolution history...</span>
         </div>
       </div>
     );
@@ -633,6 +743,18 @@ export default function EvolutionPage() {
                   color="text-violet-500"
                 />
               )}
+              <StatCard
+                icon={<Users size={18} />}
+                label="Contributors"
+                value={String(uniqueAuthors)}
+                color="text-amber-500"
+              />
+              <StatCard
+                icon={<Activity size={18} />}
+                label="Commits/day"
+                value={(commits.length / daySpan).toFixed(1)}
+                color="text-cyan-500"
+              />
             </div>
 
             {/* Activity sparkline */}
@@ -747,8 +869,8 @@ export default function EvolutionPage() {
               </span>
             </div>
 
-            {/* Cards */}
-            {filteredCommits.length === 0 ? (
+            {/* Day-grouped cards */}
+            {groups.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-muted-foreground text-sm">
                   No{" "}
@@ -759,13 +881,26 @@ export default function EvolutionPage() {
                 </p>
               </div>
             ) : (
-              filteredCommits.map((commit, i) => (
-                <TimelineCard
-                  key={commit.hash}
-                  commit={commit}
-                  index={i}
-                  isLatest={i === 0 && activeFilter === null}
-                />
+              groups.map((group) => (
+                <div key={group.dateKey}>
+                  {/* Day header */}
+                  <div className="flex items-center gap-3 mb-4 mt-2">
+                    <div className="h-px flex-1 bg-border/50" />
+                    <span className="text-xs font-semibold text-muted-foreground/60 uppercase tracking-wider px-1">
+                      {group.label}
+                    </span>
+                    <div className="h-px flex-1 bg-border/50" />
+                  </div>
+
+                  {group.commits.map((commit, i) => (
+                    <TimelineCard
+                      key={commit.hash}
+                      commit={commit}
+                      index={i}
+                      isLatest={i === 0 && group === groups[0] && activeFilter === null}
+                    />
+                  ))}
+                </div>
               ))
             )}
 

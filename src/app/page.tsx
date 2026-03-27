@@ -17,7 +17,6 @@ import {
   Mountain,
   FlaskConical,
   Brain,
-  GitCommitHorizontal,
   ArrowRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -83,7 +82,7 @@ const cards: CardInfo[] = [
   {
     href: "/evolution",
     label: "Evolution",
-    description: "Watch genetic algorithms evolve solutions with an interactive fitness timeline.",
+    description: "A living timeline of every self-improvement commit — explore diffs, stats, and activity.",
     Icon: TrendingUp,
     color: "text-rose-500",
     bgColor: "bg-rose-500/10 dark:bg-rose-500/15",
@@ -200,17 +199,6 @@ const cards: CardInfo[] = [
     borderColor: "hover:border-yellow-500/40",
     glowColor: "rgba(234,179,8,0.15)",
     category: "AI",
-  },
-  {
-    href: "/changelog",
-    label: "Changelog",
-    description: "A living timeline of every self-improvement commit — explore diffs, stats, and the evolution of this app.",
-    Icon: GitCommitHorizontal,
-    color: "text-violet-500",
-    bgColor: "bg-violet-500/10 dark:bg-violet-500/15",
-    borderColor: "hover:border-violet-500/40",
-    glowColor: "rgba(139,92,246,0.15)",
-    category: "Meta",
   },
 ];
 

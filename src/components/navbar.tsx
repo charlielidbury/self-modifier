@@ -19,7 +19,6 @@ import {
   Mountain,
   FlaskConical,
   Brain,
-  GitCommitHorizontal,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -52,7 +51,6 @@ const PAGE_HUES: Record<string, number> = {
   "/terrain":   142, // emerald
   "/reaction":  190, // cyan-teal
   "/neural":     45, // yellow
-  "/changelog": 258, // violet
 };
 
 // Mapping from route to page label + icon (used for the breadcrumb-style indicator).
@@ -73,7 +71,6 @@ const PAGE_INFO: Record<string, { label: string; Icon: LucideIcon }> = {
   "/terrain":   { label: "Terrain",   Icon: Mountain },
   "/reaction":  { label: "Reaction",  Icon: FlaskConical },
   "/neural":    { label: "Neural Net", Icon: Brain },
-  "/changelog": { label: "Changelog", Icon: GitCommitHorizontal },
 };
 
 // Per-page accent colours for the active page indicator.
@@ -94,7 +91,6 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/terrain":   { pill: "bg-emerald-500/15 dark:bg-emerald-500/20", text: "text-emerald-700 dark:text-emerald-300" },
   "/reaction":  { pill: "bg-cyan-500/15 dark:bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
   "/neural":    { pill: "bg-yellow-500/15 dark:bg-yellow-500/20", text: "text-yellow-700 dark:text-yellow-300" },
-  "/changelog": { pill: "bg-violet-500/15 dark:bg-violet-500/20", text: "text-violet-700 dark:text-violet-300" },
 };
 
 // Actual color values used for the animated brand accent dot.
@@ -115,7 +111,6 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/terrain":   "#10b981",
   "/reaction":  "#06b6d4",
   "/neural":    "#eab308",
-  "/changelog": "#8b5cf6",
 };
 
 // Browser tab titles per page.
@@ -135,7 +130,6 @@ const PAGE_TITLES: Record<string, string> = {
   "/attractor": "Attractor — Self-Modifier",
   "/terrain":   "Terrain — Self-Modifier",
   "/reaction":  "Reaction — Self-Modifier",
-  "/changelog": "Changelog — Self-Modifier",
 };
 
 // Alt+number quick-nav targets (kept so the global keyboard shortcuts still work).
