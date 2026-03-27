@@ -29,6 +29,15 @@ const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
   "/fractals":  { pill: "bg-violet-500/15 dark:bg-violet-500/20", text: "text-violet-700 dark:text-violet-300" },
 };
 
+// Actual color values used for the animated brand accent dot (inline style so
+// the value can be transitioned smoothly without Tailwind purging dynamic classes).
+const PAGE_DOT_COLORS: Record<string, string> = {
+  "/":          "#3b82f6", // blue-500
+  "/chess":     "#f59e0b", // amber-500
+  "/minecraft": "#22c55e", // green-500
+  "/fractals":  "#8b5cf6", // violet-500
+};
+
 export function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -70,7 +79,16 @@ export function Navbar() {
   return (
     <TooltipProvider delayDuration={600}>
       <nav className="h-12 flex-none border-b border-border bg-background flex items-center px-4 gap-1">
-        <span className="font-semibold text-sm mr-4 text-foreground/70 select-none">
+        <span className="font-semibold text-sm mr-4 text-foreground/70 select-none flex items-center gap-1.5">
+          <span
+            className="size-2 rounded-full flex-shrink-0"
+            style={{
+              backgroundColor: PAGE_DOT_COLORS[pathname] ?? "#737373",
+              transition: "background-color 300ms cubic-bezier(0.4,0,0.2,1)",
+              boxShadow: `0 0 6px 1px ${PAGE_DOT_COLORS[pathname] ?? "#737373"}55`,
+            }}
+            aria-hidden="true"
+          />
           Self-Modifier
         </span>
 
