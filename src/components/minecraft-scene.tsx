@@ -195,6 +195,8 @@ export default function MinecraftScene({ onReady }: MinecraftSceneProps) {
   // Refs for the day/night HUD overlay – updated every animation frame without triggering React re-renders.
   const sunRef  = useRef<HTMLSpanElement>(null);
   const moonRef = useRef<HTMLSpanElement>(null);
+  // Ref for the FPS counter – also mutated directly each frame to avoid re-renders.
+  const fpsRef  = useRef<HTMLSpanElement>(null);
 
   // Build the stable capture function once, wire it up via onReady when the renderer is first set.
   const capture = useCallback(() => {
@@ -413,9 +415,27 @@ export default function MinecraftScene({ onReady }: MinecraftSceneProps) {
     let rafId: number;
     let t = 0;
 
+    // ── FPS tracking ──────────────────────────────────────────────────────────
+    let lastFrameTime = performance.now();
+    let fpsFrameCount = 0;
+    let fpsAccum      = 0;
+
     const animate = () => {
       rafId = requestAnimationFrame(animate);
       t += 0.012;
+
+      // Compute instantaneous FPS and update the HUD every 20 frames.
+      const now = performance.now();
+      const dt  = now - lastFrameTime;
+      lastFrameTime = now;
+      if (dt > 0) fpsAccum += 1000 / dt;
+      fpsFrameCount++;
+      if (fpsFrameCount >= 20) {
+        const fps = Math.round(fpsAccum / fpsFrameCount);
+        if (fpsRef.current) fpsRef.current.textContent = `${fps} fps`;
+        fpsFrameCount = 0;
+        fpsAccum      = 0;
+      }
 
       // ── Day / night cycle ──────────────────────────────────────────────────
       // dayFactor: 0 = full night, 1 = full day.  One full cycle ≈ 2.9 minutes.
@@ -558,6 +578,26 @@ export default function MinecraftScene({ onReady }: MinecraftSceneProps) {
           }}
         >
           🌙
+        </span>
+      </div>
+
+      {/* ── FPS counter ──
+          Updated directly by the animation loop (no React re-renders).
+          Styled in the pixelated Minecraft monospace aesthetic. */}
+      <div
+        className="absolute pointer-events-none select-none"
+        style={{ top: 42, right: 16 }}
+      >
+        <span
+          ref={fpsRef}
+          style={{
+            fontFamily: 'monospace',
+            fontSize: '10px',
+            color: 'rgba(255,255,255,0.40)',
+            textShadow: '1px 1px 0 rgba(0,0,0,0.8)',
+          }}
+        >
+          -- fps
         </span>
       </div>
     </div>
