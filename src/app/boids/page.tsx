@@ -95,6 +95,7 @@ export default function BoidsPage() {
   const [paused, setPaused] = useState(false);
   const [trails, setTrails] = useState(true);
   const [showPanel, setShowPanel] = useState(true);
+  const [showInfo, setShowInfo] = useState(false);
 
   // Refs for animation loop access
   const separationRef = useRef(separation);
@@ -449,10 +450,59 @@ export default function BoidsPage() {
                 <path d="M21 12h-9" />
               </svg>
               Boids Flocking
+              <button
+                onClick={() => setShowInfo(s => !s)}
+                className={`ml-auto w-5 h-5 flex items-center justify-center rounded-full transition-colors ${
+                  showInfo
+                    ? "bg-white/20 text-white"
+                    : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70"
+                }`}
+                aria-label="About Boids"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 16v-4" />
+                  <path d="M12 8h.01" />
+                </svg>
+              </button>
             </h2>
             <p className="text-white/50 text-xs">
               Emergent flocking from three simple rules
             </p>
+
+            {/* Info popover */}
+            {showInfo && (
+              <div className="mt-3 p-3 rounded-lg bg-white/5 border border-white/10 text-[11px] leading-relaxed text-white/70 space-y-2.5">
+                <p className="text-white/90 font-medium text-xs">
+                  In 1986, Craig Reynolds created &ldquo;Boids&rdquo; — a simulation proving that
+                  complex, lifelike flocking needs no leader or global plan. Each boid
+                  follows just three local rules:
+                </p>
+                <div className="space-y-1.5">
+                  <div className="flex gap-2">
+                    <span className="flex-shrink-0 mt-px w-1.5 h-1.5 rounded-full bg-rose-400" />
+                    <span><strong className="text-rose-300">Separation</strong> — steer away from neighbors that are too close, avoiding collisions.</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="flex-shrink-0 mt-px w-1.5 h-1.5 rounded-full bg-sky-400" />
+                    <span><strong className="text-sky-300">Alignment</strong> — match the average heading of nearby boids, creating coordinated movement.</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="flex-shrink-0 mt-px w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    <span><strong className="text-emerald-300">Cohesion</strong> — steer gently toward the center of mass of neighbors, keeping the flock together.</span>
+                  </div>
+                </div>
+                <p>
+                  That&apos;s it. No choreography, no central control — just these three
+                  tiny impulses per frame, and flocks, schools, and swarms emerge
+                  spontaneously. This is <em className="text-white/90">emergence</em>: complex
+                  global order from simple local interactions.
+                </p>
+                <p className="text-white/40 text-[10px]">
+                  Try cranking separation to max and cohesion to zero — watch the flock explode into chaos.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Separation */}
