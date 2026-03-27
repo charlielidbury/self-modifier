@@ -38,6 +38,23 @@ const PAGE_DOT_COLORS: Record<string, string> = {
   "/fractals":  "#8b5cf6", // violet-500
 };
 
+// Subtle ambient glow applied to the sliding pill so the active tab feels alive.
+// Kept low-opacity so it looks tasteful in both light and dark mode.
+const PAGE_PILL_GLOWS: Record<string, string> = {
+  "/":          "0 0 14px 3px rgba(59,130,246,0.22)",
+  "/chess":     "0 0 14px 3px rgba(245,158,11,0.22)",
+  "/minecraft": "0 0 14px 3px rgba(34,197,94,0.22)",
+  "/fractals":  "0 0 14px 3px rgba(139,92,246,0.22)",
+};
+
+// Browser tab titles per page.
+const PAGE_TITLES: Record<string, string> = {
+  "/":          "Chat — Self-Modifier",
+  "/chess":     "Chess — Self-Modifier",
+  "/minecraft": "Minecraft — Self-Modifier",
+  "/fractals":  "Fractals — Self-Modifier",
+};
+
 export function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -47,6 +64,11 @@ export function Navbar() {
   // Track whether pill has been positioned at least once so we can suppress
   // the transition on the very first render (avoids slide-in from 0).
   const initializedRef = useRef(false);
+
+  // Update the browser tab title whenever the active page changes.
+  useEffect(() => {
+    document.title = PAGE_TITLES[pathname] ?? "Self-Modifier";
+  }, [pathname]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -104,11 +126,12 @@ export function Navbar() {
               style={{
                 left: pill.left,
                 width: pill.width,
+                boxShadow: PAGE_PILL_GLOWS[pathname] ?? undefined,
                 // Only animate position after initial placement to avoid slide-in from 0.
-                // Always animate background-color so page-specific accent transitions smoothly.
+                // Always animate background-color and box-shadow so page-specific accent transitions smoothly.
                 transition: initializedRef.current
-                  ? "left 200ms cubic-bezier(0.4,0,0.2,1), width 200ms cubic-bezier(0.4,0,0.2,1), background-color 200ms ease"
-                  : "background-color 200ms ease",
+                  ? "left 200ms cubic-bezier(0.4,0,0.2,1), width 200ms cubic-bezier(0.4,0,0.2,1), background-color 200ms ease, box-shadow 300ms ease"
+                  : "background-color 200ms ease, box-shadow 300ms ease",
               }}
             />
           )}
