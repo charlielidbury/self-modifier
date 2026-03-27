@@ -224,7 +224,6 @@ export function Navbar() {
             }}
             aria-hidden="true"
           />
-          <span className="hidden sm:inline">Self-Modifier</span>
         </span>
 
         {/* Live neural pulse — shows self-improve agent heartbeat */}
