@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 
 // ─── Palette ───────────────────────────────────────────────────────────────
@@ -181,8 +181,41 @@ function buildCloud(): THREE.Group {
 }
 
 // ─── Main component ────────────────────────────────────────────────────────
-export default function MinecraftScene() {
+type MinecraftSceneProps = {
+  /** Called once the scene is ready, providing a function to capture the current frame as a PNG. */
+  onReady?: (capture: () => void) => void;
+};
+
+export default function MinecraftScene({ onReady }: MinecraftSceneProps) {
   const mountRef = useRef<HTMLDivElement>(null);
+  // Refs so the capture callback (stable across renders) can reach into the effect's objects.
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sceneRef    = useRef<THREE.Scene | null>(null);
+  const cameraRef   = useRef<THREE.Camera | null>(null);
+  // Refs for the day/night HUD overlay – updated every animation frame without triggering React re-renders.
+  const sunRef  = useRef<HTMLSpanElement>(null);
+  const moonRef = useRef<HTMLSpanElement>(null);
+
+  // Build the stable capture function once, wire it up via onReady when the renderer is first set.
+  const capture = useCallback(() => {
+    const renderer = rendererRef.current;
+    const scene    = sceneRef.current;
+    const camera   = cameraRef.current;
+    if (!renderer || !scene || !camera) return;
+    // Re-render so preserveDrawingBuffer gives a fresh frame.
+    renderer.render(scene, camera);
+    renderer.domElement.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href     = url;
+      a.download = `minecraft-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  }, []);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -233,12 +266,25 @@ export default function MinecraftScene() {
     // ── Keyboard orbit / zoom ──
     const keys = new Set<string>();
     const ORBIT_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '=', '-', '_']);
+    const DEFAULT_ROT_Y = 0;
+    const DEFAULT_ROT_X = 0;
+    const DEFAULT_CAM_Z = 18;
+
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       const isEditable =
         tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable;
       if (isEditable) return;
       if (ORBIT_KEYS.has(e.key)) e.preventDefault();
+      // Reset view to default position with R
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        rotY = DEFAULT_ROT_Y;
+        rotX = DEFAULT_ROT_X;
+        camZ = DEFAULT_CAM_Z;
+        targetCamZ = DEFAULT_CAM_Z;
+        return;
+      }
       keys.add(e.key);
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -249,20 +295,31 @@ export default function MinecraftScene() {
 
     // ── Scene ──
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(P.BG);
-    scene.fog = new THREE.FogExp2(P.BG, 0.018);
+    const bgColor = new THREE.Color(P.BG);
+    const nightBg = new THREE.Color(0x060614);
+    const dayBg   = new THREE.Color(0x4A90D9);
+    scene.background = bgColor;
+    const fogObj = new THREE.FogExp2(P.BG, 0.018);
+    scene.fog = fogObj;
 
     // ── Camera ──
     const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 200);
     camera.position.set(0, 1.5, 18);
 
     // ── Renderer (pixelated Minecraft feel) ──
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
     renderer.setSize(W, H);
     renderer.setPixelRatio(1);
     renderer.domElement.style.imageRendering = 'pixelated';
     renderer.domElement.style.cursor = 'grab';
     mount.appendChild(renderer.domElement);
+
+    // Expose scene objects so the stable capture() callback can reach them.
+    rendererRef.current = renderer;
+    sceneRef.current    = scene;
+    cameraRef.current   = camera;
+    // Notify the parent that capture is available.
+    onReady?.(capture);
 
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('pointermove', onPointerMove);
@@ -271,7 +328,8 @@ export default function MinecraftScene() {
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
     // ── Lights ──
-    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+    scene.add(ambientLight);
     const sun = new THREE.DirectionalLight(0xFFE87C, 1.1);
     sun.position.set(8, 14, 10);
     scene.add(sun);
@@ -289,7 +347,8 @@ export default function MinecraftScene() {
     }
     const sGeo = new THREE.BufferGeometry();
     sGeo.setAttribute('position', new THREE.Float32BufferAttribute(sverts, 3));
-    scene.add(new THREE.Points(sGeo, new THREE.PointsMaterial({ color: P.STAR, size: 0.4 })));
+    const starsMat = new THREE.PointsMaterial({ color: P.STAR, size: 0.4, transparent: true, opacity: 1 });
+    scene.add(new THREE.Points(sGeo, starsMat));
 
     // ── Main rotating group ──
     const mainGroup = new THREE.Group();
@@ -357,6 +416,20 @@ export default function MinecraftScene() {
     const animate = () => {
       rafId = requestAnimationFrame(animate);
       t += 0.012;
+
+      // ── Day / night cycle ──────────────────────────────────────────────────
+      // dayFactor: 0 = full night, 1 = full day.  One full cycle ≈ 2.9 minutes.
+      const dayFactor = (Math.sin(t * 0.036) + 1) * 0.5;
+      // Update day/night HUD overlay via direct DOM mutation – no React re-render cost.
+      if (sunRef.current)  sunRef.current.style.opacity  = dayFactor.toFixed(3);
+      if (moonRef.current) moonRef.current.style.opacity = (1 - dayFactor).toFixed(3);
+      bgColor.lerpColors(nightBg, dayBg, dayFactor);
+      fogObj.color.copy(bgColor);
+      starsMat.opacity = Math.max(0, 1 - dayFactor * 1.25);
+      ambientLight.intensity = 0.55 + dayFactor * 0.35;
+      sun.intensity = 1.1 + dayFactor * 0.45;
+      // Warm sunrise/sunset orange → pure white midday
+      sun.color.setHSL(0.08 - dayFactor * 0.06, 0.7 - dayFactor * 0.45, 0.7 + dayFactor * 0.3);
 
       // Smooth zoom interpolation
       camZ += (targetCamZ - camZ) * 0.1;
@@ -437,8 +510,56 @@ export default function MinecraftScene() {
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);
       }
+      // Clear refs so stale captures are no-ops.
+      rendererRef.current = null;
+      sceneRef.current    = null;
+      cameraRef.current   = null;
     };
-  }, []);
+  }, [capture, onReady]);
 
-  return <div ref={mountRef} className="w-full h-full" />;
+  return (
+    <div className="relative w-full h-full">
+      <div ref={mountRef} className="w-full h-full" />
+
+      {/* ── Day / night cycle indicator ──
+          Sun and moon emojis are stacked and cross-faded by the animation loop
+          (direct opacity mutations on sunRef / moonRef).  No React re-renders. */}
+      <div
+        className="absolute pointer-events-none select-none"
+        style={{ top: 12, right: 16, width: 22, height: 22 }}
+      >
+        {/* Sun – visible during day (opacity driven by dayFactor) */}
+        <span
+          ref={sunRef}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '15px',
+            filter: 'drop-shadow(0 0 5px rgba(255,215,0,0.9))',
+          }}
+        >
+          ☀
+        </span>
+        {/* Moon – visible during night (opacity driven by 1 − dayFactor) */}
+        <span
+          ref={moonRef}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '15px',
+            filter: 'drop-shadow(0 0 5px rgba(148,163,230,0.9))',
+            opacity: 0,
+          }}
+        >
+          🌙
+        </span>
+      </div>
+    </div>
+  );
 }
