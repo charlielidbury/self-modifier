@@ -8,6 +8,8 @@ export type ContentPart =
       input: Record<string, unknown>;
       toolCallId?: string;
       result?: string;
+      /** Nested tool calls from sub-agents (Agent/Explore). */
+      children?: ContentPart[];
     };
 
 export type StreamEvent =

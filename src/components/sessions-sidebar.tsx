@@ -418,15 +418,35 @@ export function SessionsSidebar({
                 }
                 pendingContent += block.text;
               } else if (block.type === "tool_use") {
+                const toolName = block.name ?? "unknown";
                 const toolId = block.id ?? "";
                 const result = toolResultsByUseId.get(toolId);
-                pendingParts.push({
+                const isContainer = toolName === "Agent";
+                const toolPart: ContentPart = {
                   type: "tool-use",
-                  tool: block.name ?? "unknown",
+                  tool: toolName,
                   input: (block.input as Record<string, unknown>) ?? {},
                   toolCallId: toolId,
                   result: result?.content,
-                });
+                  ...(isContainer ? { children: [] } : {}),
+                };
+                // If there's an open container (Agent without result), nest inside it
+                let openContainer: (ContentPart & { type: "tool-use" }) | undefined;
+                for (let pi = pendingParts.length - 1; pi >= 0; pi--) {
+                  const pp = pendingParts[pi];
+                  if (pp.type === "tool-use" && pp.children !== undefined && pp.result === undefined) {
+                    openContainer = pp as ContentPart & { type: "tool-use" };
+                    break;
+                  }
+                }
+                if (openContainer && !isContainer) {
+                  openContainer.children = [
+                    ...(openContainer.children ?? []),
+                    toolPart,
+                  ];
+                } else {
+                  pendingParts.push(toolPart);
+                }
               }
             }
 

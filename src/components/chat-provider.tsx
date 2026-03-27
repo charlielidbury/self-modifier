@@ -15,9 +15,30 @@ import type {
 } from "@assistant-ui/react";
 import type { ChatMessage, ContentPart, StreamEvent } from "@/lib/types";
 
+/** Container tool names whose sub-tool calls should be nested as children. */
+const CONTAINER_TOOLS = new Set(["Agent"]);
+
+/** Find the index of the innermost open container tool (Agent with children[] but no result). */
+function findOpenContainer(parts: ContentPart[]): number {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    if (
+      p.type === "tool-use" &&
+      p.children !== undefined &&
+      p.result === undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 /**
  * Append a streaming event to the ordered parts array of an assistant message.
  * Returns a new parts array (immutable update).
+ *
+ * Tool calls that arrive while a container tool (Agent) is open are nested
+ * inside its `children` array instead of being added at the top level.
  */
 function appendToParts(
   parts: ContentPart[],
@@ -26,6 +47,7 @@ function appendToParts(
   const next = [...parts];
   switch (event.type) {
     case "text": {
+      // Text events always go to top level (they arrive after sub-agent finishes)
       const last = next[next.length - 1];
       if (last && last.type === "text") {
         next[next.length - 1] = { ...last, text: last.text + event.content };
@@ -44,20 +66,59 @@ function appendToParts(
       break;
     }
     case "tool_use": {
-      next.push({
-        type: "tool-use",
-        tool: event.tool,
-        input: event.input,
-      });
+      const openIdx = findOpenContainer(next);
+      if (openIdx >= 0) {
+        // Nest inside the open container (Agent)
+        const container = next[openIdx] as ContentPart & { type: "tool-use" };
+        const children = [...(container.children ?? [])];
+        children.push({
+          type: "tool-use",
+          tool: event.tool,
+          input: event.input,
+          // Nested Agents also get children tracking
+          ...(CONTAINER_TOOLS.has(event.tool) ? { children: [] } : {}),
+        });
+        next[openIdx] = { ...container, children };
+      } else {
+        // Top-level tool use
+        next.push({
+          type: "tool-use",
+          tool: event.tool,
+          input: event.input,
+          ...(CONTAINER_TOOLS.has(event.tool) ? { children: [] } : {}),
+        });
+      }
       break;
     }
     case "tool_result": {
-      // Find the last tool-use part without a result and attach it.
-      for (let i = next.length - 1; i >= 0; i--) {
-        const p = next[i];
-        if (p.type === "tool-use" && p.result === undefined) {
-          next[i] = { ...p, result: event.content };
-          break;
+      const openIdx = findOpenContainer(next);
+      if (openIdx >= 0) {
+        const container = next[openIdx] as ContentPart & { type: "tool-use" };
+        const children = [...(container.children ?? [])];
+        // Try to resolve an unresolved child first
+        let resolved = false;
+        for (let i = children.length - 1; i >= 0; i--) {
+          const child = children[i];
+          if (child.type === "tool-use" && child.result === undefined) {
+            children[i] = { ...child, result: event.content };
+            resolved = true;
+            break;
+          }
+        }
+        if (resolved) {
+          next[openIdx] = { ...container, children };
+        } else {
+          // No unresolved children — this is the container's own result
+          next[openIdx] = { ...container, result: event.content, children };
+        }
+      } else {
+        // Regular top-level tool result
+        for (let i = next.length - 1; i >= 0; i--) {
+          const p = next[i];
+          if (p.type === "tool-use" && p.result === undefined) {
+            next[i] = { ...p, result: event.content };
+            break;
+          }
         }
       }
       break;
@@ -118,16 +179,23 @@ function convertMessage(msg: ChatMessage): ThreadMessageLike {
             text: part.text,
           });
           break;
-        case "tool-use":
+        case "tool-use": {
+          // For container tools (Agent), inject children metadata into args
+          // so the renderer can display a summary / nested list.
+          const args: Record<string, unknown> = { ...part.input };
+          if (part.children && part.children.length > 0) {
+            args._children = part.children;
+          }
           (content as unknown[]).push({
             type: "tool-call" as const,
             toolCallId: part.toolCallId ?? `${msg.id}-tc-${toolCallIndex}`,
             toolName: part.tool,
-            args: part.input as Record<string, string | number | boolean | null>,
+            args: args as Record<string, string | number | boolean | null>,
             result: part.result,
           });
           toolCallIndex++;
           break;
+        }
       }
     }
   } else {
