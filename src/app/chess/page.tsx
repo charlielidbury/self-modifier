@@ -363,9 +363,42 @@ export default function ChessPage() {
   const [isThinking, setIsThinking] = useState(false);
   const [lastMove, setLastMove] = useState<[[number, number], [number, number]] | null>(null);
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
-  const [difficulty, setDifficulty] = useState<DifficultyLabel>("Hard");
-  const [vsAI, setVsAI] = useState(true);
-  const [playerColor, setPlayerColor] = useState<Color>("w");
+  // Increments each time the move list changes so the flash overlay remounts and replays.
+  const [moveAnimKey, setMoveAnimKey] = useState(0);
+  // ── User preferences (persisted in localStorage) ─────────────────────────
+  const [difficulty, setDifficulty] = useState<DifficultyLabel>(() => {
+    if (typeof window === "undefined") return "Hard";
+    try {
+      const saved = localStorage.getItem("chess-prefs");
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (DIFFICULTIES.some((d) => d.label === p.difficulty)) return p.difficulty;
+      }
+    } catch { /* ignore */ }
+    return "Hard";
+  });
+  const [vsAI, setVsAI] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const saved = localStorage.getItem("chess-prefs");
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (typeof p.vsAI === "boolean") return p.vsAI;
+      }
+    } catch { /* ignore */ }
+    return true;
+  });
+  const [playerColor, setPlayerColor] = useState<Color>(() => {
+    if (typeof window === "undefined") return "w";
+    try {
+      const saved = localStorage.getItem("chess-prefs");
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (p.playerColor === "w" || p.playerColor === "b") return p.playerColor;
+      }
+    } catch { /* ignore */ }
+    return "w";
+  });
   const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
   const [flipped, setFlipped] = useState(false);
   const [pendingPromotion, setPendingPromotion] = useState<{
@@ -397,7 +430,17 @@ export default function ChessPage() {
   });
   const [hint, setHint] = useState<[[number, number], [number, number]] | null>(null);
   const [isHinting, setIsHinting] = useState(false);
-  const [boardTheme, setBoardTheme] = useState<BoardThemeName>("Classic");
+  const [boardTheme, setBoardTheme] = useState<BoardThemeName>(() => {
+    if (typeof window === "undefined") return "Classic";
+    try {
+      const saved = localStorage.getItem("chess-prefs");
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (BOARD_THEMES.some((t) => t.name === p.boardTheme)) return p.boardTheme;
+      }
+    } catch { /* ignore */ }
+    return "Classic";
+  });
 
   // ── Time control ──────────────────────────────────────────────────────────
   const [timeControl, setTimeControl] = useState<TimeControlLabel>("∞");
@@ -410,7 +453,17 @@ export default function ChessPage() {
   const confettiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Sound effects ────────────────────────────────────────────────────────
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const saved = localStorage.getItem("chess-prefs");
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (typeof p.soundEnabled === "boolean") return p.soundEnabled;
+      }
+    } catch { /* ignore */ }
+    return true;
+  });
   // Use a ref so the stable playChessSound callback can always read the latest value
   const soundEnabledRef = useRef(true);
   useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
@@ -484,6 +537,19 @@ export default function ChessPage() {
   useEffect(() => {
     try { localStorage.setItem("chess-stats", JSON.stringify(stats)); } catch { /* ignore */ }
   }, [stats]);
+
+  // Persist user preferences whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem("chess-prefs", JSON.stringify({
+        difficulty,
+        vsAI,
+        playerColor,
+        boardTheme,
+        soundEnabled,
+      }));
+    } catch { /* ignore */ }
+  }, [difficulty, vsAI, playerColor, boardTheme, soundEnabled]);
 
   // Record a result once per game (vs AI only)
   useEffect(() => {
@@ -564,6 +630,11 @@ export default function ChessPage() {
   // Auto-scroll move history to bottom when moves are added
   useEffect(() => {
     historyEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [moveHistory]);
+
+  // Replay the last-move flash animation whenever the move list changes (move made or undone).
+  useEffect(() => {
+    setMoveAnimKey((k) => k + 1);
   }, [moveHistory]);
 
   // ── Engine move ───────────────────────────────────────────────────────────
@@ -1363,6 +1434,17 @@ export default function ChessPage() {
                           interactive ? "cursor-pointer" : "cursor-default",
                         ].join(" ")}
                       >
+                        {/* Last-move flash overlay — briefly pulses bright yellow then fades */}
+                        {isLastMove && (
+                          <div
+                            key={moveAnimKey}
+                            className="absolute inset-0 pointer-events-none z-[5]"
+                            style={{
+                              backgroundColor: "#f6f669",
+                              animation: "chessSquareFlash 0.55s ease-out forwards",
+                            }}
+                          />
+                        )}
                         {/* Legal-move dot */}
                         {isLegal && !isCapture && (
                           <div className="absolute w-5 h-5 rounded-full bg-black/20 pointer-events-none z-10" />

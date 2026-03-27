@@ -123,6 +123,12 @@ body {
   animation: ai-progress-shimmer 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+/* Brief bright-yellow flash on chess squares after each move */
+@keyframes chessSquareFlash {
+  0%   { opacity: 0.8; }
+  100% { opacity: 0; }
+}
+
 @keyframes confettiFall {
   from {
     transform: translateY(-16px) rotate(0deg);
