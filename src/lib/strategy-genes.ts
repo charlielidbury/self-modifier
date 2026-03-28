@@ -11,6 +11,7 @@
 
 import fs from "fs";
 import path from "path";
+import { invalidateCache } from "./api-cache";
 
 // ── Gene definitions ──────────────────────────────────────────────────────────
 
@@ -393,6 +394,9 @@ export function recordOutcome(
   }
 
   writeGenePool(pool);
+
+  // Bust caches that depend on genome/commit state
+  invalidateCache("self-improve:genome", "self-improve:lineage", "self-improve:commits", "self-improve:hotspots");
 }
 
 /**
@@ -637,5 +641,6 @@ export function applyFeedbackFitness(genomeId: string, delta: number): boolean {
   if (!genome) return false;
   genome.fitness += delta;
   writeGenePool(pool);
+  invalidateCache("self-improve:genome", "self-improve:lineage");
   return true;
 }

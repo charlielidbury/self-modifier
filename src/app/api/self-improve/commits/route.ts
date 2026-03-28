@@ -1,4 +1,5 @@
 import { execSync } from "child_process";
+import { cachedJsonResponse } from "@/lib/api-cache";
 
 export type GitCommit = {
   hash: string;
@@ -34,7 +35,7 @@ function parseTrailers(body: string): { agentSessionId?: string; agentCwd?: stri
   };
 }
 
-export async function GET() {
+function computeCommits() {
   try {
     // %H = full hash, %h = short hash, %s = subject, %aI = author date ISO, %an = author name, %b = body
     // Use %x00 as field delimiter within a record and %x1e (record separator) between commits
@@ -44,7 +45,7 @@ export async function GET() {
       { encoding: "utf-8", cwd: process.cwd() }
     ).trim();
 
-    if (!raw) return Response.json({ commits: [] });
+    if (!raw) return { commits: [] };
 
     const commits: GitCommit[] = raw
       .split("\x1e")
@@ -66,11 +67,6 @@ export async function GET() {
       });
 
     // Fetch per-commit line-change stats via a single `git log --numstat` call.
-    // Output format (one commit block per entry):
-    //   COMMIT:<full-hash>
-    //   <adds>\t<dels>\t<filepath>
-    //   ...
-    //   (blank line between commits)
     try {
       const numstatRaw = execSync(
         `git log -100 --format="COMMIT:%H" --numstat`,
@@ -94,7 +90,6 @@ export async function GET() {
         } else {
           const trimmed = line.trim();
           if (trimmed && /^\d/.test(trimmed)) {
-            // Tab-separated: additions \t deletions \t filepath
             const parts = trimmed.split("\t");
             currentAdd += parseInt(parts[0] ?? "0", 10) || 0;
             currentDel += parseInt(parts[1] ?? "0", 10) || 0;
@@ -118,8 +113,13 @@ export async function GET() {
       // Line stats are best-effort — proceed without them if git fails
     }
 
-    return Response.json({ commits });
+    return { commits };
   } catch {
-    return Response.json({ commits: [] });
+    return { commits: [] };
   }
+}
+
+// Cache for 5 seconds — commits don't change unless a new commit lands
+export async function GET(req: Request) {
+  return cachedJsonResponse("self-improve:commits", 5_000, computeCommits, req);
 }
