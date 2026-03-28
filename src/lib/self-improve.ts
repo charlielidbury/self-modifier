@@ -284,7 +284,8 @@ async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: 
   const basePrompt = getPrompt();
   const memoryContext = buildMemoryContext();
   const codebaseMap = buildCodebaseMap();
-  let effectivePrompt = basePrompt + strategyDirective + memoryContext + codebaseMap;
+  const errorContext = buildErrorContext();
+  let effectivePrompt = basePrompt + strategyDirective + memoryContext + codebaseMap + errorContext;
   if (userSuggestion) {
     effectivePrompt += `\n\n---\n\n🎯 USER SUGGESTION FOR THIS SESSION:\nThe user has specifically requested the following improvement. Prioritise this above your own ideas:\n\n"${userSuggestion}"\n\nMake sure the improvement directly addresses this suggestion.`;
   }
@@ -303,6 +304,12 @@ async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: 
     "text",
     `🗺️ Codebase map injected (${codebaseMap.length} chars) — agent starts with full structural awareness`,
   );
+  if (errorContext) {
+    pushActivity(
+      "text",
+      `🔧 ${baselineErrorCount} pre-existing TS error(s) injected into prompt — agent can fix them`,
+    );
+  }
 
   for await (const msg of query({
     prompt: effectivePrompt,
@@ -436,20 +443,37 @@ function runTypecheck(): { errorCount: number; output: string } {
   }
 }
 
-/** Baseline error count captured before each agent run. */
+/** Baseline error count and output captured before each agent run. */
 let baselineErrorCount = -1;
+let baselineErrorOutput = "";
 
 function captureBaseline(): void {
-  const cwd = path.resolve(process.cwd());
   pushActivity("text", "📊 Capturing pre-run typecheck baseline...");
   try {
     const result = runTypecheck();
     baselineErrorCount = result.errorCount;
+    baselineErrorOutput = result.output;
     pushActivity("text", `📊 Baseline: ${baselineErrorCount} pre-existing error(s)`);
   } catch {
     baselineErrorCount = -1; // couldn't establish baseline — skip verification
+    baselineErrorOutput = "";
     pushActivity("text", "📊 Could not establish baseline — build verification will be skipped");
   }
+}
+
+/** Build a prompt section listing pre-existing TS errors so the agent can fix them. */
+function buildErrorContext(): string {
+  if (baselineErrorCount <= 0 || !baselineErrorOutput) return "";
+  // Truncate to avoid overwhelming the context — keep the first 40 error lines
+  const errorLines = baselineErrorOutput
+    .split("\n")
+    .filter(line => /:\s*error\s+TS\d+/.test(line))
+    .slice(0, 40);
+  if (errorLines.length === 0) return "";
+  const truncatedNote = baselineErrorCount > 40
+    ? `\n(showing 40 of ${baselineErrorCount} errors)`
+    : "";
+  return `\n\n---\n\n🔧 PRE-EXISTING BUILD ERRORS (${baselineErrorCount} TypeScript error(s)):\nThe following errors exist in the codebase BEFORE your session. Fixing any of these is a valuable contribution — especially if you can do it as part of your main improvement, or as the improvement itself.\n\n\`\`\`\n${errorLines.join("\n")}${truncatedNote}\n\`\`\`\n`;
 }
 
 async function verifyBuild(): Promise<{ passed: boolean; errors: string; commitHash: string }> {
