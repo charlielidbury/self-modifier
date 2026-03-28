@@ -2,28 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  Home,
-  MessageSquare,
-  Swords,
-  Cuboid,
-  Infinity,
-  TrendingUp,
-  Dna,
-  Music,
-  Orbit,
-  Waves,
-  Atom,
-  Fan,
-  Sparkles,
-  Mountain,
-  FlaskConical,
-  Brain,
-  BarChart3,
-  Droplets,
-  Compass,
-  Bird,
-} from "lucide-react";
+import { Home } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Tooltip,
@@ -37,140 +16,13 @@ import { dispatchAmbientEvent } from "@/components/ambient-canvas";
 import { NeuralPulse } from "@/components/neural-pulse";
 import { CodebaseHeartbeat } from "@/components/codebase-heartbeat";
 import { MobileNavDrawer } from "@/components/mobile-nav-drawer";
-import type { LucideIcon } from "lucide-react";
-
-// Hue values for each page's accent colour (used to tint the ambient canvas).
-const PAGE_HUES: Record<string, number> = {
-  "/":          217, // blue
-  "/chat":      217, // blue
-  "/chess":      38, // amber
-  "/minecraft": 142, // green
-  "/fractals":  258, // violet
-  "/evolution": 350, // rose
-  "/life":      173, // teal
-  "/synth":     330, // pink
-  "/gravity":    24, // warm orange
-  "/waves":     195, // cyan
-  "/particles":  82, // lime
-  "/pendulum":  270, // indigo
-  "/attractor": 300, // fuchsia
-  "/terrain":   142, // emerald
-  "/reaction":  190, // cyan-teal
-  "/neural":     45, // yellow
-  "/sorting":   210, // steel blue
-  "/fluid":           0, // red
-  "/constellation": 230, // deep blue
-  "/boids":          55, // gold-yellow
-};
-
-// Mapping from route to page label + icon (used for the breadcrumb-style indicator).
-const PAGE_INFO: Record<string, { label: string; Icon: LucideIcon }> = {
-  "/":          { label: "Home",      Icon: Home },
-  "/chat":      { label: "Chat",      Icon: MessageSquare },
-  "/chess":     { label: "Chess",     Icon: Swords },
-  "/minecraft": { label: "Minecraft", Icon: Cuboid },
-  "/fractals":  { label: "Fractals",  Icon: Infinity },
-  "/evolution": { label: "Evolution", Icon: TrendingUp },
-  "/life":      { label: "Life",      Icon: Dna },
-  "/synth":     { label: "Synth",     Icon: Music },
-  "/gravity":   { label: "Gravity",   Icon: Orbit },
-  "/waves":     { label: "Waves",     Icon: Waves },
-  "/particles": { label: "Particles", Icon: Atom },
-  "/pendulum":  { label: "Pendulum",  Icon: Fan },
-  "/attractor": { label: "Attractor", Icon: Sparkles },
-  "/terrain":   { label: "Terrain",   Icon: Mountain },
-  "/reaction":  { label: "Reaction",  Icon: FlaskConical },
-  "/neural":    { label: "Neural Net", Icon: Brain },
-  "/sorting":   { label: "Sorting",    Icon: BarChart3 },
-  "/fluid":          { label: "Fluid",          Icon: Droplets },
-  "/constellation":  { label: "Constellation",  Icon: Compass },
-  "/boids":          { label: "Boids",          Icon: Bird },
-};
-
-// Per-page accent colours for the active page indicator.
-const PAGE_ACCENTS: Record<string, { pill: string; text: string }> = {
-  "/":          { pill: "bg-blue-500/15 dark:bg-blue-500/20",   text: "text-blue-700 dark:text-blue-300" },
-  "/chat":      { pill: "bg-blue-500/15 dark:bg-blue-500/20",   text: "text-blue-700 dark:text-blue-300" },
-  "/chess":     { pill: "bg-amber-500/15 dark:bg-amber-400/20", text: "text-amber-700 dark:text-amber-300" },
-  "/minecraft": { pill: "bg-green-500/15 dark:bg-green-500/20", text: "text-green-700 dark:text-green-300" },
-  "/fractals":  { pill: "bg-violet-500/15 dark:bg-violet-500/20", text: "text-violet-700 dark:text-violet-300" },
-  "/evolution": { pill: "bg-rose-500/15 dark:bg-rose-500/20",   text: "text-rose-700 dark:text-rose-300" },
-  "/life":      { pill: "bg-teal-500/15 dark:bg-teal-500/20",   text: "text-teal-700 dark:text-teal-300" },
-  "/synth":     { pill: "bg-pink-500/15 dark:bg-pink-500/20",   text: "text-pink-700 dark:text-pink-300" },
-  "/gravity":   { pill: "bg-orange-500/15 dark:bg-orange-500/20", text: "text-orange-700 dark:text-orange-300" },
-  "/waves":     { pill: "bg-cyan-500/15 dark:bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
-  "/particles": { pill: "bg-lime-500/15 dark:bg-lime-500/20", text: "text-lime-700 dark:text-lime-300" },
-  "/pendulum":  { pill: "bg-indigo-500/15 dark:bg-indigo-500/20", text: "text-indigo-700 dark:text-indigo-300" },
-  "/attractor": { pill: "bg-fuchsia-500/15 dark:bg-fuchsia-500/20", text: "text-fuchsia-700 dark:text-fuchsia-300" },
-  "/terrain":   { pill: "bg-emerald-500/15 dark:bg-emerald-500/20", text: "text-emerald-700 dark:text-emerald-300" },
-  "/reaction":  { pill: "bg-cyan-500/15 dark:bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
-  "/neural":    { pill: "bg-yellow-500/15 dark:bg-yellow-500/20", text: "text-yellow-700 dark:text-yellow-300" },
-  "/sorting":   { pill: "bg-sky-500/15 dark:bg-sky-500/20", text: "text-sky-700 dark:text-sky-300" },
-  "/fluid":          { pill: "bg-red-500/15 dark:bg-red-500/20",   text: "text-red-700 dark:text-red-300" },
-  "/constellation":  { pill: "bg-sky-500/15 dark:bg-sky-500/20",   text: "text-sky-700 dark:text-sky-300" },
-  "/boids":          { pill: "bg-yellow-500/15 dark:bg-yellow-500/20", text: "text-yellow-700 dark:text-yellow-300" },
-};
-
-// Actual color values used for the animated brand accent dot.
-const PAGE_DOT_COLORS: Record<string, string> = {
-  "/":          "#3b82f6",
-  "/chat":      "#3b82f6",
-  "/chess":     "#f59e0b",
-  "/minecraft": "#22c55e",
-  "/fractals":  "#8b5cf6",
-  "/evolution": "#f43f5e",
-  "/life":      "#14b8a6",
-  "/synth":     "#ec4899",
-  "/gravity":   "#f97316",
-  "/waves":     "#06b6d4",
-  "/particles": "#84cc16",
-  "/pendulum":  "#6366f1",
-  "/attractor": "#d946ef",
-  "/terrain":   "#10b981",
-  "/reaction":  "#06b6d4",
-  "/neural":    "#eab308",
-  "/sorting":   "#0ea5e9",
-  "/fluid":          "#ef4444",
-  "/constellation":  "#38bdf8",
-  "/boids":          "#eab308",
-};
-
-// Browser tab titles per page.
-const PAGE_TITLES: Record<string, string> = {
-  "/":          "Self-Modifier",
-  "/chat":      "Chat — Self-Modifier",
-  "/chess":     "Chess — Self-Modifier",
-  "/minecraft": "Minecraft — Self-Modifier",
-  "/fractals":  "Fractals — Self-Modifier",
-  "/evolution": "Evolution — Self-Modifier",
-  "/life":      "Life — Self-Modifier",
-  "/synth":     "Synth — Self-Modifier",
-  "/gravity":   "Gravity — Self-Modifier",
-  "/waves":     "Waves — Self-Modifier",
-  "/particles": "Particles — Self-Modifier",
-  "/pendulum":  "Pendulum — Self-Modifier",
-  "/attractor": "Attractor — Self-Modifier",
-  "/terrain":   "Terrain — Self-Modifier",
-  "/reaction":  "Reaction — Self-Modifier",
-  "/sorting":   "Sorting — Self-Modifier",
-  "/fluid":          "Fluid — Self-Modifier",
-  "/constellation":  "Constellation — Self-Modifier",
-  "/boids":          "Boids — Self-Modifier",
-};
-
-// Alt+number quick-nav targets (kept so the global keyboard shortcuts still work).
-const ALT_NAV_ROUTES = [
-  "/chat",      // Alt+1
-  "/chess",     // Alt+2
-  "/minecraft", // Alt+3
-  "/fractals",  // Alt+4
-  "/evolution", // Alt+5
-  "/life",      // Alt+6
-  "/synth",     // Alt+7
-  "/gravity",   // Alt+8
-  "/waves",     // Alt+9
-  "/particles", // Alt+0
-];
+import {
+  PAGE_HUES,
+  PAGE_INFO,
+  PAGE_ACCENTS,
+  PAGE_TITLES,
+  ALT_NAV_ROUTES,
+} from "@/lib/routes";
 
 export function Navbar() {
   const pathname = usePathname();

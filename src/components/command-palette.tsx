@@ -1,13 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Home,
-  MessageSquare,
-  Swords,
-  Cuboid,
-  Infinity,
   Sun,
   Moon,
   Keyboard,
@@ -24,23 +19,10 @@ import {
   Link,
   Camera,
   Shuffle,
-  TrendingUp,
-  Dna,
   SkipForward,
-  Music,
-  Orbit,
-  Waves,
-  Atom,
-  Fan,
   Sparkles,
-  Mountain,
-  FlaskConical,
-  Brain,
-  BarChart3,
-  Droplets,
-  Compass,
-  Bird,
 } from "lucide-react";
+import { ROUTES } from "@/lib/routes";
 
 // ─── Command definitions ─────────────────────────────────────────────────────
 
@@ -57,6 +39,9 @@ interface Command {
   /** Extra search terms that match but aren't displayed */
   keywords?: string[];
 }
+
+/** Alt shortcut hint strings indexed by altIndex */
+const ALT_HINTS = ["Alt+1", "Alt+2", "Alt+3", "Alt+4", "Alt+5", "Alt+6", "Alt+7", "Alt+8", "Alt+9", "Alt+0"];
 
 function useCommands(): Command[] {
   const router = useRouter();
@@ -95,178 +80,20 @@ function useCommands(): Command[] {
     }
   }, []);
 
+  // Generate navigation commands from the unified route registry
+  const navCommands: Command[] = ROUTES.map((route) => ({
+    id: `nav-${route.path === "/" ? "home" : route.path.slice(1)}`,
+    label: `Go to ${route.label}`,
+    hint: route.altIndex !== undefined ? ALT_HINTS[route.altIndex] : undefined,
+    icon: React.createElement(route.Icon, { size: 16 }),
+    group: "Navigation",
+    action: () => router.push(route.path),
+    keywords: route.keywords,
+  }));
+
   return [
-    // ── Navigation ────────────────────────────────────────────────────────────
-    {
-      id: "nav-home",
-      label: "Go to Home",
-      icon: <Home size={16} />,
-      group: "Navigation",
-      action: () => router.push("/"),
-      keywords: ["home", "landing", "overview", "index"],
-    },
-    {
-      id: "nav-chat",
-      label: "Go to Chat",
-      hint: "Alt+1",
-      icon: <MessageSquare size={16} />,
-      group: "Navigation",
-      action: () => router.push("/chat"),
-      keywords: ["ai", "conversation", "message"],
-    },
-    {
-      id: "nav-chess",
-      label: "Go to Chess",
-      hint: "Alt+2",
-      icon: <Swords size={16} />,
-      group: "Navigation",
-      action: () => router.push("/chess"),
-      keywords: ["game", "board", "play"],
-    },
-    {
-      id: "nav-minecraft",
-      label: "Go to Minecraft",
-      hint: "Alt+3",
-      icon: <Cuboid size={16} />,
-      group: "Navigation",
-      action: () => router.push("/minecraft"),
-      keywords: ["3d", "scene", "three", "blocks"],
-    },
-    {
-      id: "nav-fractals",
-      label: "Go to Fractals",
-      hint: "Alt+4",
-      icon: <Infinity size={16} />,
-      group: "Navigation",
-      action: () => router.push("/fractals"),
-      keywords: ["mandelbrot", "julia", "webgl", "math"],
-    },
-    {
-      id: "nav-evolution",
-      label: "Go to Evolution",
-      hint: "Alt+5",
-      icon: <TrendingUp size={16} />,
-      group: "Navigation",
-      action: () => router.push("/evolution"),
-      keywords: ["timeline", "history", "commits", "changelog", "self-improve", "git", "log", "diff"],
-    },
-    {
-      id: "nav-life",
-      label: "Go to Life",
-      hint: "Alt+6",
-      icon: <Dna size={16} />,
-      group: "Navigation",
-      action: () => router.push("/life"),
-      keywords: ["conway", "game", "cellular", "automata", "simulation", "cells"],
-    },
-    {
-      id: "nav-synth",
-      label: "Go to Synth",
-      hint: "Alt+7",
-      icon: <Music size={16} />,
-      group: "Navigation",
-      action: () => router.push("/synth"),
-      keywords: ["synthesizer", "music", "audio", "piano", "sound", "instrument", "keys"],
-    },
-    {
-      id: "nav-gravity",
-      label: "Go to Gravity",
-      hint: "Alt+8",
-      icon: <Orbit size={16} />,
-      group: "Navigation",
-      action: () => router.push("/gravity"),
-      keywords: ["physics", "orbit", "nbody", "simulation", "planets", "stars", "space"],
-    },
-    {
-      id: "nav-waves",
-      label: "Go to Waves",
-      hint: "Alt+9",
-      icon: <Waves size={16} />,
-      group: "Navigation",
-      action: () => router.push("/waves"),
-      keywords: ["wave", "interference", "ripple", "simulation", "physics", "water", "sound"],
-    },
-    {
-      id: "nav-particles",
-      label: "Go to Particles",
-      hint: "Alt+0",
-      icon: <Atom size={16} />,
-      group: "Navigation",
-      action: () => router.push("/particles"),
-      keywords: ["particle", "life", "emergence", "chemistry", "artificial", "simulation", "swarm"],
-    },
-    {
-      id: "nav-pendulum",
-      label: "Go to Pendulum",
-      icon: <Fan size={16} />,
-      group: "Navigation",
-      action: () => router.push("/pendulum"),
-      keywords: ["double", "pendulum", "chaos", "butterfly", "physics", "simulation", "lagrangian"],
-    },
-    {
-      id: "nav-attractor",
-      label: "Go to Attractor",
-      icon: <Sparkles size={16} />,
-      group: "Navigation",
-      action: () => router.push("/attractor"),
-      keywords: ["strange", "attractor", "lorenz", "chaos", "particles", "3d", "rossler", "aizawa", "thomas"],
-    },
-    {
-      id: "nav-terrain",
-      label: "Go to Terrain",
-      icon: <Mountain size={16} />,
-      group: "Navigation",
-      action: () => router.push("/terrain"),
-      keywords: ["terrain", "procedural", "landscape", "perlin", "noise", "3d", "mountains", "heightmap", "generation"],
-    },
-    {
-      id: "nav-reaction",
-      label: "Go to Reaction Diffusion",
-      icon: <FlaskConical size={16} />,
-      group: "Navigation",
-      action: () => router.push("/reaction"),
-      keywords: ["reaction", "diffusion", "gray-scott", "turing", "pattern", "chemical", "morphogenesis", "spots", "stripes"],
-    },
-    {
-      id: "nav-neural",
-      label: "Go to Neural Network",
-      icon: <Brain size={16} />,
-      group: "Navigation",
-      action: () => router.push("/neural"),
-      keywords: ["neural", "network", "nn", "brain", "machine learning", "ml", "backpropagation", "classifier", "train", "playground"],
-    },
-    {
-      id: "nav-sorting",
-      label: "Go to Sorting Visualizer",
-      icon: <BarChart3 size={16} />,
-      group: "Navigation",
-      action: () => router.push("/sorting"),
-      keywords: ["sort", "sorting", "algorithm", "bubble", "merge", "quick", "heap", "visualizer", "bars", "comparison"],
-    },
-    {
-      id: "nav-fluid",
-      label: "Go to Fluid Simulation",
-      icon: <Droplets size={16} />,
-      group: "Navigation",
-      action: () => router.push("/fluid"),
-      keywords: ["fluid", "water", "navier", "stokes", "simulation", "dye", "smoke", "liquid", "dynamics"],
-    },
-    {
-      id: "nav-constellation",
-      label: "Go to Constellation Map",
-      icon: <Compass size={16} />,
-      group: "Navigation",
-      action: () => router.push("/constellation"),
-      keywords: ["constellation", "map", "stars", "navigate", "overview", "starfield", "categories"],
-    },
-    {
-      id: "nav-boids",
-      label: "Go to Boids",
-      icon: <Bird size={16} />,
-      group: "Navigation",
-      action: () => router.push("/boids"),
-      keywords: ["boids", "flocking", "birds", "swarm", "emergence", "separation", "alignment", "cohesion", "reynolds"],
-    },
+    // ── Navigation (auto-generated from route registry) ───────────────────────
+    ...navCommands,
     // ── Actions ───────────────────────────────────────────────────────────────
     {
       id: "theme-toggle",

@@ -3,103 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Home,
-  MessageSquare,
-  Swords,
-  Cuboid,
-  Infinity,
-  TrendingUp,
-  Dna,
-  Music,
-  Orbit,
-  Waves,
-  Atom,
-  Fan,
-  Sparkles,
-  Mountain,
-  FlaskConical,
-  Brain,
-  BarChart3,
-  Droplets,
-  Compass,
-  Bird,
-  FlaskRound,
-  Menu,
-  X,
-  ChevronRight,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { Home, Menu, X, ChevronRight } from "lucide-react";
+import { routesByCategory } from "@/lib/routes";
 
-// ── Page data ──────────────────────────────────────────────────────────────────
-
-interface NavItem {
-  href: string;
-  label: string;
-  Icon: LucideIcon;
-  color: string; // Tailwind text color
-  bgColor: string; // Tailwind bg for icon container
-}
-
-interface NavSection {
-  title: string;
-  items: NavItem[];
-}
-
-const SECTIONS: NavSection[] = [
-  {
-    title: "Featured",
-    items: [
-      { href: "/chat", label: "Chat", Icon: MessageSquare, color: "text-blue-500", bgColor: "bg-blue-500/10 dark:bg-blue-500/15" },
-      { href: "/ochre", label: "Ochre", Icon: FlaskRound, color: "text-amber-600", bgColor: "bg-amber-600/10 dark:bg-amber-600/15" },
-    ],
-  },
-  {
-    title: "Physics",
-    items: [
-      { href: "/gravity", label: "Gravity", Icon: Orbit, color: "text-orange-500", bgColor: "bg-orange-500/10 dark:bg-orange-500/15" },
-      { href: "/waves", label: "Waves", Icon: Waves, color: "text-cyan-500", bgColor: "bg-cyan-500/10 dark:bg-cyan-500/15" },
-      { href: "/pendulum", label: "Pendulum", Icon: Fan, color: "text-indigo-500", bgColor: "bg-indigo-500/10 dark:bg-indigo-500/15" },
-      { href: "/attractor", label: "Attractors", Icon: Sparkles, color: "text-fuchsia-500", bgColor: "bg-fuchsia-500/10 dark:bg-fuchsia-500/15" },
-      { href: "/fluid", label: "Fluid", Icon: Droplets, color: "text-red-500", bgColor: "bg-red-500/10 dark:bg-red-500/15" },
-    ],
-  },
-  {
-    title: "Simulations",
-    items: [
-      { href: "/life", label: "Game of Life", Icon: Dna, color: "text-teal-500", bgColor: "bg-teal-500/10 dark:bg-teal-500/15" },
-      { href: "/particles", label: "Particle Life", Icon: Atom, color: "text-lime-500", bgColor: "bg-lime-500/10 dark:bg-lime-500/15" },
-      { href: "/boids", label: "Boids", Icon: Bird, color: "text-yellow-500", bgColor: "bg-yellow-500/10 dark:bg-yellow-500/15" },
-      { href: "/reaction", label: "Reaction Diffusion", Icon: FlaskConical, color: "text-cyan-500", bgColor: "bg-cyan-500/10 dark:bg-cyan-500/15" },
-    ],
-  },
-  {
-    title: "3D & Visuals",
-    items: [
-      { href: "/minecraft", label: "Minecraft", Icon: Cuboid, color: "text-green-500", bgColor: "bg-green-500/10 dark:bg-green-500/15" },
-      { href: "/terrain", label: "Terrain", Icon: Mountain, color: "text-emerald-500", bgColor: "bg-emerald-500/10 dark:bg-emerald-500/15" },
-      { href: "/fractals", label: "Fractals", Icon: Infinity, color: "text-violet-500", bgColor: "bg-violet-500/10 dark:bg-violet-500/15" },
-    ],
-  },
-  {
-    title: "Interactive Tools",
-    items: [
-      { href: "/chess", label: "Chess", Icon: Swords, color: "text-amber-500", bgColor: "bg-amber-500/10 dark:bg-amber-500/15" },
-      { href: "/synth", label: "Synthesizer", Icon: Music, color: "text-pink-500", bgColor: "bg-pink-500/10 dark:bg-pink-500/15" },
-      { href: "/neural", label: "Neural Network", Icon: Brain, color: "text-yellow-500", bgColor: "bg-yellow-500/10 dark:bg-yellow-500/15" },
-      { href: "/sorting", label: "Sorting", Icon: BarChart3, color: "text-sky-500", bgColor: "bg-sky-500/10 dark:bg-sky-500/15" },
-    ],
-  },
-  {
-    title: "Meta",
-    items: [
-      { href: "/evolution", label: "Evolution", Icon: TrendingUp, color: "text-rose-500", bgColor: "bg-rose-500/10 dark:bg-rose-500/15" },
-      { href: "/constellation", label: "Constellation", Icon: Compass, color: "text-sky-400", bgColor: "bg-sky-500/10 dark:bg-sky-500/15" },
-    ],
-  },
-];
-
-// ── Component ──────────────────────────────────────────────────────────────────
+// Pre-compute sections once at module level
+const SECTIONS = routesByCategory();
 
 export function MobileNavDrawer() {
   const [open, setOpen] = useState(false);
@@ -263,15 +171,15 @@ export function MobileNavDrawer() {
                     </span>
                   </div>
                   {section.items.map((item) => {
-                    const isActive = pathname === item.href;
+                    const isActive = pathname === item.path;
                     const linkRef = isFirstLink ? firstLinkRef : undefined;
                     if (isFirstLink) isFirstLink = false;
 
                     return (
                       <Link
-                        key={item.href}
+                        key={item.path}
                         ref={linkRef}
-                        href={item.href}
+                        href={item.path}
                         onClick={closeDrawer}
                         className={[
                           "flex items-center gap-3 mx-2 px-3 py-2.5 rounded-lg text-sm transition-colors",
@@ -283,12 +191,12 @@ export function MobileNavDrawer() {
                       >
                         <div
                           className={`flex items-center justify-center w-8 h-8 rounded-md flex-shrink-0 ${
-                            isActive ? item.bgColor : "bg-muted/50"
+                            isActive ? item.iconBg : "bg-muted/50"
                           }`}
                         >
                           <item.Icon
                             size={16}
-                            className={isActive ? item.color : "text-muted-foreground"}
+                            className={isActive ? item.iconColor : "text-muted-foreground"}
                           />
                         </div>
                         <span className="flex-1 truncate">{item.label}</span>
