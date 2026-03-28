@@ -36,6 +36,7 @@ import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
 import { dispatchAmbientEvent } from "@/components/ambient-canvas";
 import { NeuralPulse } from "@/components/neural-pulse";
 import { CodebaseHeartbeat } from "@/components/codebase-heartbeat";
+import { MobileNavDrawer } from "@/components/mobile-nav-drawer";
 import type { LucideIcon } from "lucide-react";
 
 // Hue values for each page's accent colour (used to tint the ambient canvas).
@@ -230,6 +231,9 @@ export function Navbar() {
 
         {/* Live neural pulse — shows self-improve agent heartbeat */}
         <NeuralPulse />
+
+        {/* Mobile hamburger menu — visible only on small screens */}
+        <MobileNavDrawer />
 
         {/* Breadcrumb-style navigation: Home / Current Page */}
         <div ref={containerRef} className="relative flex items-center gap-1">

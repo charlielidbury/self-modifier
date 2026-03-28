@@ -744,3 +744,41 @@ body {
   from { opacity: 0; transform: translateY(-4px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* ── Mobile navigation drawer ─────────────────────────────────────────────── */
+
+@keyframes mobileNavBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes mobileNavBackdropOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+.mobile-nav-backdrop-in {
+  animation: mobileNavBackdropIn 200ms ease both;
+}
+
+.mobile-nav-backdrop-out {
+  animation: mobileNavBackdropOut 200ms ease both;
+}
+
+@keyframes mobileNavPanelIn {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes mobileNavPanelOut {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+
+.mobile-nav-panel-in {
+  animation: mobileNavPanelIn 280ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.mobile-nav-panel-out {
+  animation: mobileNavPanelOut 200ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
