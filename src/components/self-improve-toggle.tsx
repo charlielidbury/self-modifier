@@ -47,13 +47,22 @@ import {
 } from "lucide-react";
 import { dispatchAmbientEvent } from "./ambient-canvas";
 import { playCommitChimeIfUnmuted, isSoundMuted, setSoundMuted } from "@/lib/commit-sound";
+import { playSoundForEvent, startPresenceDrone, stopPresenceDrone } from "@/lib/agent-soundscape";
 import { useEventBus } from "@/hooks/use-event-bus";
+
+type CooldownInfo = {
+  durationMs: number;
+  startedAt: string;
+  endsAt: string;
+  reason: string;
+};
 
 type AgentStatus = {
   enabled: boolean;
   running: boolean;
   entries: { id: string; startedAt: string; status: string }[];
   suggestion: string;
+  cooldown?: CooldownInfo | null;
 };
 
 type ActivityEvent = {
@@ -522,6 +531,10 @@ function ActivityFeed({ isRunning }: { isRunning: boolean }) {
   useEventBus("self-improve:activity", useCallback((raw: unknown) => {
     const data = raw as { events: ActivityEvent[]; running: boolean };
     if (data.events.length > 0) {
+      // Play ambient sounds for new events
+      for (const evt of data.events) {
+        playSoundForEvent(evt.kind, evt.tool);
+      }
       cursorRef.current = data.events[data.events.length - 1].id;
       setLines((prev) => {
         const newLines = coalesceEvents(data.events);
@@ -1033,6 +1046,167 @@ function FileHotspotsChart() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Cooldown configuration types ─────────────────────────────────────────────
+
+type CooldownConfig = {
+  cooldownSeconds: number;
+  failureMultiplier: number;
+  revertMultiplier: number;
+  maxCooldownSeconds: number;
+  backoffSteps: number;
+};
+
+/** Inline cooldown settings panel shown in the Prompt tab. */
+function CooldownSettings() {
+  const [config, setConfig] = useState<CooldownConfig | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const fetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    fetch("/api/self-improve/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: CooldownConfig | null) => {
+        if (data) setConfig(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  const save = useCallback(async (updated: CooldownConfig) => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/self-improve/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as CooldownConfig;
+        setConfig(data);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 1500);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  if (!config) return null;
+
+  const updateField = (field: keyof CooldownConfig, value: number) => {
+    const updated = { ...config, [field]: value };
+    setConfig(updated);
+    save(updated);
+  };
+
+  return (
+    <div className="border-t border-white/[0.06]">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-3 py-2 flex items-center gap-2 text-[10px] text-white/40 hover:text-white/60 transition-colors"
+      >
+        <Wrench size={10} />
+        <span className="font-semibold uppercase tracking-wider">Cooldown Settings</span>
+        {saved && <span className="text-emerald-400/80 text-[9px] ml-auto">✓ saved</span>}
+        <ChevronRight
+          size={10}
+          className={`ml-auto transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+        />
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3 space-y-2.5 text-[10px]">
+          {/* Base cooldown */}
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-white/30 flex-shrink-0" title="Minimum pause between sessions">
+              Base cooldown
+            </label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="range"
+                min={5}
+                max={300}
+                step={5}
+                value={config.cooldownSeconds}
+                onChange={(e) => updateField("cooldownSeconds", Number(e.target.value))}
+                className="w-20 h-1 accent-violet-500 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400"
+              />
+              <span className="text-white/50 font-mono w-10 text-right">{config.cooldownSeconds}s</span>
+            </div>
+          </div>
+
+          {/* Failure multiplier */}
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-white/30 flex-shrink-0" title="Cooldown multiplier after a failed session">
+              Fail ×
+            </label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={0.5}
+                value={config.failureMultiplier}
+                onChange={(e) => updateField("failureMultiplier", Number(e.target.value))}
+                className="w-20 h-1 accent-amber-500 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-amber-400"
+              />
+              <span className="text-white/50 font-mono w-10 text-right">×{config.failureMultiplier}</span>
+            </div>
+          </div>
+
+          {/* Revert multiplier */}
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-white/30 flex-shrink-0" title="Cooldown multiplier after a reverted session">
+              Revert ×
+            </label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="range"
+                min={1}
+                max={20}
+                step={1}
+                value={config.revertMultiplier}
+                onChange={(e) => updateField("revertMultiplier", Number(e.target.value))}
+                className="w-20 h-1 accent-red-500 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-red-400"
+              />
+              <span className="text-white/50 font-mono w-10 text-right">×{config.revertMultiplier}</span>
+            </div>
+          </div>
+
+          {/* Max cooldown */}
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-white/30 flex-shrink-0" title="Maximum cooldown cap (even with exponential backoff)">
+              Max cooldown
+            </label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="range"
+                min={60}
+                max={3600}
+                step={60}
+                value={config.maxCooldownSeconds}
+                onChange={(e) => updateField("maxCooldownSeconds", Number(e.target.value))}
+                className="w-20 h-1 accent-rose-500 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-rose-400"
+              />
+              <span className="text-white/50 font-mono w-10 text-right">{config.maxCooldownSeconds >= 60 ? `${Math.round(config.maxCooldownSeconds / 60)}m` : `${config.maxCooldownSeconds}s`}</span>
+            </div>
+          </div>
+
+          {/* Summary */}
+          <div className="pt-1 text-[9px] text-white/20 leading-relaxed border-t border-white/[0.04]">
+            After success: <span className="text-white/40">{config.cooldownSeconds}s</span>
+            {" · "}After fail: <span className="text-amber-400/40">{Math.round(config.cooldownSeconds * config.failureMultiplier)}s</span>
+            {" · "}After revert: <span className="text-red-400/40">{Math.round(config.cooldownSeconds * config.revertMultiplier)}s</span>
+            {" · "}Cap: <span className="text-white/40">{config.maxCooldownSeconds >= 60 ? `${Math.round(config.maxCooldownSeconds / 60)}m` : `${config.maxCooldownSeconds}s`}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3005,15 +3179,18 @@ export function SelfImproveToggle() {
     });
   }, []);
 
-  // ── Broadcast running state to ambient canvas ────────────────────────────
+  // ── Broadcast running state to ambient canvas + soundscape ──────────────
   const prevRunningRef = useRef(false);
   useEffect(() => {
     if (status.running !== prevRunningRef.current) {
       prevRunningRef.current = status.running;
       dispatchAmbientEvent({ type: "self-improve-running", running: status.running });
-      // Auto-switch to live tab when agent starts running
+      // Start/stop the ambient presence drone
       if (status.running) {
+        startPresenceDrone();
         setPanelTab("activity");
+      } else {
+        stopPresenceDrone();
       }
     }
   }, [status.running]);
@@ -3036,6 +3213,40 @@ export function SelfImproveToggle() {
   useEventBus("self-improve:status", useCallback((raw: unknown) => {
     setStatus(raw as AgentStatus);
   }, []));
+
+  // ── Cooldown state ────────────────────────────────────────────────────────
+  const [cooldown, setCooldown] = useState<CooldownInfo | null>(null);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const [skippingCooldown, setSkippingCooldown] = useState(false);
+
+  // Listen for cooldown SSE events
+  useEventBus("self-improve:cooldown", useCallback((raw: unknown) => {
+    setCooldown(raw as CooldownInfo | null);
+  }, []));
+
+  // Tick the countdown every second
+  useEffect(() => {
+    if (!cooldown) {
+      setCooldownRemaining(0);
+      return;
+    }
+    const update = () => {
+      const remaining = Math.max(0, new Date(cooldown.endsAt).getTime() - Date.now());
+      setCooldownRemaining(remaining);
+    };
+    update();
+    const iv = setInterval(update, 1000);
+    return () => clearInterval(iv);
+  }, [cooldown]);
+
+  const skipCooldown = useCallback(async () => {
+    setSkippingCooldown(true);
+    try {
+      await fetch("/api/self-improve/cooldown", { method: "POST" });
+    } finally {
+      setSkippingCooldown(false);
+    }
+  }, []);
 
   // ── Fetch commits (once on mount, then via SSE notification) ──────────────
   const fetchCommits = useCallback(async () => {
@@ -3454,6 +3665,9 @@ export function SelfImproveToggle() {
                     <span>{promptText.split(/\s+/).filter(Boolean).length} words</span>
                     <span>{promptText.split("\n").length} lines</span>
                   </div>
+
+                  {/* Cooldown settings */}
+                  <CooldownSettings />
                 </>
               )}
             </div>
@@ -3461,6 +3675,31 @@ export function SelfImproveToggle() {
             <StatsPanel commits={commits} />
           ) : panelTab === "activity" ? (
             <>
+              {/* Cooldown banner */}
+              {!status.running && cooldown && cooldownRemaining > 0 && (
+                <div className="px-3 py-2 flex items-center gap-2.5 border-b border-white/[0.06] bg-amber-950/20">
+                  <Timer size={12} className="text-amber-400/60 animate-pulse flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-medium text-amber-300/70">
+                      Cooldown{" "}
+                      <span className="text-white/30 font-mono">
+                        {Math.ceil(cooldownRemaining / 1000)}s
+                      </span>
+                    </p>
+                    <p className="text-[9px] text-white/20 truncate" title={cooldown.reason}>
+                      {cooldown.reason}
+                    </p>
+                  </div>
+                  <button
+                    onClick={skipCooldown}
+                    disabled={skippingCooldown}
+                    className="text-[10px] font-medium text-amber-400/50 hover:text-amber-300 px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 transition-all flex-shrink-0"
+                  >
+                    Skip
+                  </button>
+                </div>
+              )}
+
               {/* Running session header */}
               {status.running && runningEntry && (
                 <div className="px-3 py-2 flex items-center gap-2.5 border-b border-white/[0.06] bg-emerald-950/30">
@@ -3625,6 +3864,8 @@ export function SelfImproveToggle() {
               <ProgressRing progress={etaProgress} size={28} strokeWidth={2.5} />
               <Sparkles size={12} className="text-emerald-400 relative z-10" />
             </span>
+          ) : cooldown && cooldownRemaining > 0 ? (
+            <Timer size={13} className="text-amber-400 animate-pulse" />
           ) : status.enabled ? (
             <Sparkles size={13} className="text-emerald-400" />
           ) : (
@@ -3639,6 +3880,8 @@ export function SelfImproveToggle() {
             >
               {status.running
                 ? "Improving…"
+                : cooldown && cooldownRemaining > 0
+                ? `Next in ${Math.ceil(cooldownRemaining / 1000)}s`
                 : commits.length > 0
                 ? `${commits.length} commit${commits.length !== 1 ? "s" : ""}`
                 : "Self-Improve"}
@@ -3655,6 +3898,16 @@ export function SelfImproveToggle() {
                     : "finishing up…";
                 })()}
               </span>
+            )}
+            {!status.running && cooldown && cooldownRemaining > 0 && (
+              <button
+                onClick={skipCooldown}
+                disabled={skippingCooldown}
+                className="text-[9px] text-amber-400/60 hover:text-amber-300 font-medium leading-tight transition-colors cursor-pointer"
+                title={cooldown.reason}
+              >
+                skip →
+              </button>
             )}
           </div>
         </div>
