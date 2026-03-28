@@ -45,6 +45,8 @@ export function DeferredIsland({
       style={{
         animation: "deferredFadeIn 300ms ease-out forwards",
         opacity: 0,
+        position: "relative" as const,
+        zIndex: 9999,
       }}
     >
       <style>{`
