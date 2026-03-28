@@ -2624,6 +2624,83 @@ function SessionReplayPanel() {
   );
 }
 
+// ── Progress Ring with ETA ──────────────────────────────────────────────────
+
+type EtaData = {
+  estimateMs: number;
+  sessionCount: number;
+  runningStartedAt: string | null;
+};
+
+/** Animated SVG progress ring that fills as a session progresses toward its ETA. */
+function ProgressRing({
+  progress,
+  size = 28,
+  strokeWidth = 2.5,
+}: {
+  progress: number; // 0..1
+  size?: number;
+  strokeWidth?: number;
+}) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const filled = Math.min(Math.max(progress, 0), 1) * circumference;
+  const gap = circumference - filled;
+
+  // Color transitions from emerald → amber → red as we approach/exceed ETA
+  const color =
+    progress < 0.7
+      ? "#34d399" // emerald-400
+      : progress < 1.0
+        ? "#fbbf24" // amber-400
+        : "#f87171"; // red-400
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      className="absolute inset-0"
+      style={{ transform: "rotate(-90deg)" }}
+    >
+      {/* Background track */}
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="rgba(255,255,255,0.06)"
+        strokeWidth={strokeWidth}
+      />
+      {/* Progress arc */}
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeDasharray={`${filled} ${gap}`}
+        strokeLinecap="round"
+        style={{
+          transition: "stroke-dasharray 1s ease-out, stroke 500ms ease",
+          filter: `drop-shadow(0 0 3px ${color}40)`,
+          animation: progress >= 1 ? "progressRingPulse 2s ease-in-out infinite" : undefined,
+        }}
+      />
+    </svg>
+  );
+}
+
+/** Formats remaining milliseconds into a concise string like "2m 34s" */
+function formatEta(ms: number): string {
+  if (ms <= 0) return "any moment";
+  const totalSecs = Math.ceil(ms / 1000);
+  if (totalSecs < 60) return `${totalSecs}s`;
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function SelfImproveToggle() {
@@ -2642,6 +2719,50 @@ export function SelfImproveToggle() {
   const [viewingDiff, setViewingDiff] = useState<string | null>(null);
   // Panel tab: "activity" (live feed) vs "commits" vs "stats" vs "prompt" vs "memory" vs "genome" vs "queue" vs "replay"
   const [panelTab, setPanelTab] = useState<"activity" | "commits" | "stats" | "prompt" | "memory" | "genome" | "queue" | "replay">("activity");
+
+  // ── Session ETA state ──────────────────────────────────────────────────
+  const [eta, setEta] = useState<EtaData | null>(null);
+  const [etaProgress, setEtaProgress] = useState(0);
+  const etaFetchedRef = useRef(false);
+
+  // Fetch ETA when agent starts running
+  const fetchEta = useCallback(async () => {
+    try {
+      const res = await fetch("/api/self-improve/eta");
+      if (res.ok) {
+        const data = (await res.json()) as EtaData;
+        setEta(data);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Re-fetch ETA when running state changes
+  useEffect(() => {
+    if (status.running) {
+      fetchEta();
+      etaFetchedRef.current = true;
+    } else {
+      // Reset when not running
+      setEtaProgress(0);
+      etaFetchedRef.current = false;
+    }
+  }, [status.running, fetchEta]);
+
+  // Update progress every second based on elapsed time vs estimate
+  useEffect(() => {
+    if (!status.running || !eta?.runningStartedAt || !eta.estimateMs) return;
+
+    const updateProgress = () => {
+      const elapsed = Date.now() - new Date(eta.runningStartedAt!).getTime();
+      setEtaProgress(elapsed / eta.estimateMs);
+    };
+
+    updateProgress(); // immediate
+    const iv = setInterval(updateProgress, 1000);
+    return () => clearInterval(iv);
+  }, [status.running, eta]);
 
   // ── User feedback state (thumbs up/down on commits) ────────────────────
   const [feedback, setFeedback] = useState<Record<string, { rating: "up" | "down" | null }>>({});
@@ -3343,10 +3464,33 @@ export function SelfImproveToggle() {
               {/* Running session header */}
               {status.running && runningEntry && (
                 <div className="px-3 py-2 flex items-center gap-2.5 border-b border-white/[0.06] bg-emerald-950/30">
-                  <Loader2 size={11} className="text-emerald-400 animate-spin flex-shrink-0" />
-                  <p className="text-[10px] font-medium text-emerald-300/80">
-                    Improving... <span className="text-white/25 font-normal">{elapsed(runningEntry.startedAt)}</span>
-                  </p>
+                  <span className="relative flex items-center justify-center flex-shrink-0" style={{ width: 22, height: 22 }}>
+                    <ProgressRing progress={etaProgress} size={22} strokeWidth={2} />
+                    <Loader2 size={9} className="text-emerald-400 animate-spin relative z-10" />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-medium text-emerald-300/80">
+                      Improving… <span className="text-white/25 font-normal">{elapsed(runningEntry.startedAt)}</span>
+                    </p>
+                    {eta && eta.sessionCount > 0 && (
+                      <p className="text-[9px] text-white/20 font-mono eta-fade-in">
+                        {(() => {
+                          const elapsedMs = eta.runningStartedAt
+                            ? Date.now() - new Date(eta.runningStartedAt).getTime()
+                            : 0;
+                          const remainingMs = eta.estimateMs - elapsedMs;
+                          return remainingMs > 0
+                            ? `ETA ~${formatEta(remainingMs)} · based on ${eta.sessionCount} session${eta.sessionCount !== 1 ? "s" : ""}`
+                            : `Exceeding estimate · avg was ${formatEta(eta.estimateMs)}`;
+                        })()}
+                      </p>
+                    )}
+                  </div>
+                  {eta && eta.sessionCount > 0 && (
+                    <span className="text-[9px] font-mono text-white/15 flex-shrink-0 tabular-nums">
+                      {Math.min(Math.round(etaProgress * 100), 100)}%
+                    </span>
+                  )}
                 </div>
               )}
               <ActivityFeed isRunning={status.running} />
@@ -3477,9 +3621,9 @@ export function SelfImproveToggle() {
         {/* Status indicator + label */}
         <div className="flex items-center gap-2">
           {status.running ? (
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+            <span className="relative flex items-center justify-center" style={{ width: 28, height: 28 }}>
+              <ProgressRing progress={etaProgress} size={28} strokeWidth={2.5} />
+              <Sparkles size={12} className="text-emerald-400 relative z-10" />
             </span>
           ) : status.enabled ? (
             <Sparkles size={13} className="text-emerald-400" />
@@ -3487,17 +3631,32 @@ export function SelfImproveToggle() {
             <Sparkles size={13} className="text-white/25" />
           )}
 
-          <span
-            className={`text-xs font-medium ${
-              status.enabled ? "text-white/90" : "text-white/40"
-            }`}
-          >
-            {status.running
-              ? "Improving…"
-              : commits.length > 0
-              ? `${commits.length} commit${commits.length !== 1 ? "s" : ""}`
-              : "Self-Improve"}
-          </span>
+          <div className="flex flex-col">
+            <span
+              className={`text-xs font-medium leading-tight ${
+                status.enabled ? "text-white/90" : "text-white/40"
+              }`}
+            >
+              {status.running
+                ? "Improving…"
+                : commits.length > 0
+                ? `${commits.length} commit${commits.length !== 1 ? "s" : ""}`
+                : "Self-Improve"}
+            </span>
+            {status.running && eta && eta.sessionCount > 0 && (
+              <span className="text-[9px] text-white/30 font-mono leading-tight eta-fade-in">
+                {(() => {
+                  const elapsedMs = eta.runningStartedAt
+                    ? Date.now() - new Date(eta.runningStartedAt).getTime()
+                    : 0;
+                  const remainingMs = eta.estimateMs - elapsedMs;
+                  return remainingMs > 0
+                    ? `~${formatEta(remainingMs)} left`
+                    : "finishing up…";
+                })()}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Expand/collapse */}
