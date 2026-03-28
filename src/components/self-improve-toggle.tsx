@@ -1094,6 +1094,7 @@ type CooldownConfig = {
   revertMultiplier: number;
   maxCooldownSeconds: number;
   backoffSteps: number;
+  maxTurns: number;
 };
 
 /** Inline cooldown settings panel shown in the Prompt tab. */
@@ -1234,12 +1235,32 @@ function CooldownSettings() {
             </div>
           </div>
 
+          {/* Max turns per session */}
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-white/30 flex-shrink-0" title="Maximum agent turns per session (tool calls + responses)">
+              Max turns
+            </label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="range"
+                min={5}
+                max={200}
+                step={5}
+                value={config.maxTurns}
+                onChange={(e) => updateField("maxTurns", Number(e.target.value))}
+                className="w-20 h-1 accent-cyan-500 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-400"
+              />
+              <span className="text-white/50 font-mono w-10 text-right">{config.maxTurns}</span>
+            </div>
+          </div>
+
           {/* Summary */}
           <div className="pt-1 text-[9px] text-white/20 leading-relaxed border-t border-white/[0.04]">
             After success: <span className="text-white/40">{config.cooldownSeconds}s</span>
             {" · "}After fail: <span className="text-amber-400/40">{Math.round(config.cooldownSeconds * config.failureMultiplier)}s</span>
             {" · "}After revert: <span className="text-red-400/40">{Math.round(config.cooldownSeconds * config.revertMultiplier)}s</span>
             {" · "}Cap: <span className="text-white/40">{config.maxCooldownSeconds >= 60 ? `${Math.round(config.maxCooldownSeconds / 60)}m` : `${config.maxCooldownSeconds}s`}</span>
+            {" · "}Turns: <span className="text-cyan-400/40">{config.maxTurns}</span>
           </div>
         </div>
       )}

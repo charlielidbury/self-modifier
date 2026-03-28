@@ -22,7 +22,7 @@ import { recordCommitGenome } from "./commit-feedback";
 import { popNextItem, completeItem, skipItem, type QueueItem } from "./improvement-queue";
 import { saveSession } from "./session-recorder";
 import { registerAgentSession, clearAgentSession } from "./agent-session-tracker";
-import { computeCooldown, type CooldownState } from "./self-improve-config";
+import { computeCooldown, readConfig, type CooldownState } from "./self-improve-config";
 import { buildCodebaseMap } from "./codebase-map";
 
 export type ImprovementEntry = {
@@ -281,6 +281,7 @@ async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: 
     selfImproveState.suggestion = ""; // clear so it's single-use (writes to file)
   }
 
+  const config = readConfig();
   const basePrompt = getPrompt();
   const memoryContext = buildMemoryContext();
   const codebaseMap = buildCodebaseMap();
@@ -304,6 +305,10 @@ async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: 
     "text",
     `🗺️ Codebase map injected (${codebaseMap.length} chars) — agent starts with full structural awareness`,
   );
+  pushActivity(
+    "text",
+    `⚙️ Max turns: ${config.maxTurns}`,
+  );
   if (errorContext) {
     pushActivity(
       "text",
@@ -320,7 +325,7 @@ async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: 
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       includePartialMessages: true,
-      maxTurns: 50,
+      maxTurns: config.maxTurns,
     },
   })) {
     // Capture session ID from the system message so we can stamp commits
