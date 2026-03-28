@@ -22,6 +22,8 @@ import { recordCommitGenome } from "./commit-feedback";
 import { popNextItem, completeItem, skipItem, type QueueItem } from "./improvement-queue";
 import { saveSession } from "./session-recorder";
 import { registerAgentSession, clearAgentSession } from "./agent-session-tracker";
+import { computeCooldown, type CooldownState } from "./self-improve-config";
+import { buildCodebaseMap } from "./codebase-map";
 
 export type ImprovementEntry = {
   id: string;
@@ -65,6 +67,9 @@ type SelfImproveGlobal = {
   activity: ActivityEvent[];
   activitySeq: number;
   buildHealth: BuildHealthStatus | null;
+  cooldown: CooldownState | null;
+  consecutiveFailures: number;
+  cooldownSkipRequested: boolean;
 };
 
 const g = globalThis as typeof globalThis & {
@@ -80,6 +85,9 @@ if (!g.__selfImprove) {
     activity: [],
     activitySeq: 0,
     buildHealth: null,
+    cooldown: null,
+    consecutiveFailures: 0,
+    cooldownSkipRequested: false,
   };
 } else {
   // Patch in any missing fields so stale HMR state doesn't cause crashes
@@ -89,6 +97,9 @@ if (!g.__selfImprove) {
   g.__selfImprove.activity ??= [];
   g.__selfImprove.activitySeq ??= 0;
   g.__selfImprove.buildHealth ??= null;
+  g.__selfImprove.cooldown ??= null;
+  g.__selfImprove.consecutiveFailures ??= 0;
+  g.__selfImprove.cooldownSkipRequested ??= false;
 }
 
 const inMemory: SelfImproveGlobal = g.__selfImprove;
@@ -155,7 +166,37 @@ export const selfImproveState = {
   set buildHealth(value: BuildHealthStatus | null) {
     inMemory.buildHealth = value;
   },
+
+  get cooldown(): CooldownState | null {
+    return inMemory.cooldown;
+  },
+  set cooldown(value: CooldownState | null) {
+    inMemory.cooldown = value;
+    emitCooldown();
+  },
+
+  get consecutiveFailures(): number {
+    return inMemory.consecutiveFailures;
+  },
+  set consecutiveFailures(value: number) {
+    inMemory.consecutiveFailures = value;
+  },
+
+  get cooldownSkipRequested(): boolean {
+    return inMemory.cooldownSkipRequested;
+  },
+  set cooldownSkipRequested(value: boolean) {
+    inMemory.cooldownSkipRequested = value;
+  },
 };
+
+/** Emit cooldown state via SSE. */
+function emitCooldown() {
+  emit({
+    channel: "self-improve:cooldown",
+    data: inMemory.cooldown,
+  });
+}
 
 /** Emit the current self-improve status to all SSE subscribers. */
 function emitStatus() {
@@ -242,7 +283,8 @@ async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: 
 
   const basePrompt = getPrompt();
   const memoryContext = buildMemoryContext();
-  let effectivePrompt = basePrompt + strategyDirective + memoryContext;
+  const codebaseMap = buildCodebaseMap();
+  let effectivePrompt = basePrompt + strategyDirective + memoryContext + codebaseMap;
   if (userSuggestion) {
     effectivePrompt += `\n\n---\n\n🎯 USER SUGGESTION FOR THIS SESSION:\nThe user has specifically requested the following improvement. Prioritise this above your own ideas:\n\n"${userSuggestion}"\n\nMake sure the improvement directly addresses this suggestion.`;
   }
@@ -256,6 +298,10 @@ async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: 
   pushActivity(
     "text",
     `🧬 Genome selected: Gen ${genome.generation} | Focus: ${genome.focus} | Ambition: ${genome.ambition} | Creativity: ${genome.creativity} | Thoroughness: ${genome.thoroughness}`,
+  );
+  pushActivity(
+    "text",
+    `🗺️ Codebase map injected (${codebaseMap.length} chars) — agent starts with full structural awareness`,
   );
 
   for await (const msg of query({
@@ -704,15 +750,54 @@ export function startImprovementLoop() {
           }
         }
 
-        // Brief pause between sessions so we don't hammer the API.
+        // ── Smart cooldown between sessions ──────────────────────────────
         if (selfImproveState.enabled) {
-          await new Promise((r) => setTimeout(r, 3_000));
+          // Track consecutive failures for backoff
+          const lastOutcome = entry.status === "completed"
+            ? "completed" as const
+            : entry.status === "reverted"
+              ? "reverted" as const
+              : "failed" as const;
+
+          if (lastOutcome === "completed") {
+            selfImproveState.consecutiveFailures = 0;
+          } else {
+            selfImproveState.consecutiveFailures += 1;
+          }
+
+          const cooldown = computeCooldown(lastOutcome, selfImproveState.consecutiveFailures);
+          selfImproveState.cooldown = cooldown; // triggers SSE broadcast
+          pushActivity(
+            "text",
+            `⏳ Cooldown: ${Math.round(cooldown.durationMs / 1000)}s — ${cooldown.reason}`,
+          );
+
+          // Wait for cooldown, checking every second for skip requests or disable
+          const cooldownEnd = new Date(cooldown.endsAt).getTime();
+          while (Date.now() < cooldownEnd && selfImproveState.enabled) {
+            if (selfImproveState.cooldownSkipRequested) {
+              selfImproveState.cooldownSkipRequested = false;
+              pushActivity("text", "⏭️ Cooldown skipped by user");
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 1_000));
+          }
+
+          selfImproveState.cooldown = null; // clear cooldown state
         }
       }
     } finally {
       selfImproveState.loopAlive = false;
+      selfImproveState.cooldown = null;
     }
   })();
+}
+
+/** Request the current cooldown to be skipped (next session starts immediately). */
+export function skipCooldown(): boolean {
+  if (!selfImproveState.cooldown) return false;
+  selfImproveState.cooldownSkipRequested = true;
+  return true;
 }
 
 // ── Register with the agent registry ────────────────────────────────────────
