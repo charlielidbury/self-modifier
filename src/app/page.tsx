@@ -350,7 +350,7 @@ export default function Home() {
     {
       title: "Simulations",
       description: "Emergent behaviour from simple rules",
-      hrefs: ["/life", "/particles", "/boids", "/reaction", "/evolution"],
+      hrefs: ["/life", "/particles", "/boids", "/reaction"],
     },
     {
       title: "3D & Visuals",
@@ -360,7 +360,12 @@ export default function Home() {
     {
       title: "Interactive Tools",
       description: "Play, listen, learn, and explore",
-      hrefs: ["/chess", "/synth", "/neural", "/sorting", "/constellation"],
+      hrefs: ["/chess", "/synth", "/neural", "/sorting"],
+    },
+    {
+      title: "Meta",
+      description: "Pages about the website itself",
+      hrefs: ["/evolution", "/constellation"],
     },
   ];
 
