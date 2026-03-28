@@ -517,6 +517,8 @@ export function startImprovementLoop() {
         let activeGenome: Genome | null = null;
         let activeQueueItem: QueueItem | null = null;
         try {
+          // Capture typecheck baseline BEFORE the agent runs so we can detect new errors
+          captureBaseline();
           const result = await runOnce();
           entry.summary = result.summary;
           activeGenomeId = result.genome.id;
