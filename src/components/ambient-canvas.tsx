@@ -47,12 +47,23 @@ const COMMIT_FLASH_DURATION = 1800; // ms
 const CONNECTION_DISTANCE = 120;
 const CONNECTION_ALPHA = 0.06;
 
+// ── Consciousness: adaptive frame rate ──────────────────────────────────────────
+// The canvas has an "arousal" level from 0 (deep sleep) to 1 (fully awake).
+// Arousal determines frame interval: asleep → ~250ms (4fps), awake → 16ms (60fps).
+// Events spike arousal; it decays exponentially back toward sleep.
+const AROUSAL_DECAY = 0.0015;       // per ms — ~2s from full to half
+const MIN_FRAME_INTERVAL = 16;      // ms at full arousal (60fps)
+const MAX_FRAME_INTERVAL = 250;     // ms at zero arousal (4fps)
+const SLEEP_THRESHOLD = 0.02;       // below this, skip connection drawing
+const HUE_CONVERGE_THRESHOLD = 0.5; // degrees — hue is "settled" below this
+
 // ── Component ───────────────────────────────────────────────────────────────────
 
 export function AmbientCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particlesRef = useRef<Particle[]>([]);
   const rafRef = useRef<number>(0);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRunningRef = useRef(false);
   const commitFlashRef = useRef(0); // timestamp of last commit flash
   const isDarkRef = useRef(true);
@@ -60,6 +71,10 @@ export function AmbientCanvas() {
   const pageHueRef = useRef(217); // default: blue (Chat page)
   /** Current interpolated hue center — smoothly chases pageHueRef. */
   const currentHueCenterRef = useRef(217);
+  /** Arousal level: 0 = deep sleep, 1 = fully awake */
+  const arousalRef = useRef(1); // start awake for initial render
+  /** Whether the tab is visible */
+  const visibleRef = useRef(true);
 
   const createParticle = useCallback(
     (width: number, height: number): Particle => {
@@ -113,6 +128,17 @@ export function AmbientCanvas() {
     resize();
     window.addEventListener("resize", resize);
 
+    // Visibility change — fully pause when tab is hidden
+    const handleVisibility = () => {
+      visibleRef.current = !document.hidden;
+      if (!document.hidden) {
+        // Wake up and restart the loop
+        arousalRef.current = Math.max(arousalRef.current, 0.3);
+        scheduleNext(performance.now());
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
     // Initialize particles
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -124,16 +150,51 @@ export function AmbientCanvas() {
     const handleAmbientEvent = (e: CustomEvent<AmbientEvent>) => {
       if (e.detail.type === "self-improve-running") {
         isRunningRef.current = e.detail.running;
+        // Spike arousal when running state changes
+        arousalRef.current = 1;
       } else if (e.detail.type === "self-improve-commit") {
         commitFlashRef.current = performance.now();
+        arousalRef.current = 1;
       } else if (e.detail.type === "page-change") {
         pageHueRef.current = e.detail.hue;
+        // Wake up to animate the hue transition
+        arousalRef.current = Math.max(arousalRef.current, 0.8);
       }
     };
     window.addEventListener("ambient-event", handleAmbientEvent);
 
-    // ── Animation loop ────────────────────────────────────────────────────
+    // ── Adaptive animation loop ──────────────────────────────────────────
     let lastTime = performance.now();
+
+    /** Compute how long to wait before the next frame based on arousal. */
+    const frameInterval = (arousal: number): number => {
+      // Lerp between max and min interval
+      return MAX_FRAME_INTERVAL - arousal * (MAX_FRAME_INTERVAL - MIN_FRAME_INTERVAL);
+    };
+
+    /** Schedule the next frame — uses rAF when awake, setTimeout when drowsy. */
+    const scheduleNext = (now: number) => {
+      // Clear any pending timer
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      cancelAnimationFrame(rafRef.current);
+
+      if (!visibleRef.current) return; // fully paused
+
+      const interval = frameInterval(arousalRef.current);
+      if (interval <= 20) {
+        // High arousal: use rAF for smoothness
+        rafRef.current = requestAnimationFrame(animate);
+      } else {
+        // Low arousal: use setTimeout to actually throttle CPU
+        timeoutRef.current = setTimeout(() => {
+          timeoutRef.current = null;
+          animate(performance.now());
+        }, interval);
+      }
+    };
 
     const animate = (now: number) => {
       const dt = Math.min(now - lastTime, 50); // cap delta to avoid jumps
@@ -149,18 +210,40 @@ export function AmbientCanvas() {
           ? 1 - flashAge / COMMIT_FLASH_DURATION
           : 0;
 
+      // ── Update arousal ──────────────────────────────────────────────────
+      // Running or flashing keeps arousal pinned high
+      if (running) {
+        arousalRef.current = 1;
+      } else if (flashIntensity > 0) {
+        arousalRef.current = Math.max(arousalRef.current, flashIntensity);
+      } else {
+        // Check if hue is still transitioning
+        const targetHue = pageHueRef.current;
+        let hueDiff = targetHue - currentHueCenterRef.current;
+        if (hueDiff > 180) hueDiff -= 360;
+        if (hueDiff < -180) hueDiff += 360;
+        const hueSettled = Math.abs(hueDiff) < HUE_CONVERGE_THRESHOLD;
+
+        if (hueSettled) {
+          // Decay toward sleep
+          arousalRef.current *= Math.max(0, 1 - AROUSAL_DECAY * dt);
+        } else {
+          // Keep somewhat awake for hue lerp
+          arousalRef.current = Math.max(arousalRef.current, 0.3);
+        }
+      }
+
+      const arousal = arousalRef.current;
+
       ctx.clearRect(0, 0, width, height);
 
       // Smoothly lerp the hue center toward the target page hue.
-      // We lerp on the shortest arc around the 360° hue wheel.
       const targetHue = pageHueRef.current;
       let hueDiff = targetHue - currentHueCenterRef.current;
-      // Shortest-path on the circle
       if (hueDiff > 180) hueDiff -= 360;
       if (hueDiff < -180) hueDiff += 360;
-      const lerpSpeed = 0.003; // per ms — takes ~500ms to mostly converge
+      const lerpSpeed = 0.003;
       currentHueCenterRef.current += hueDiff * Math.min(lerpSpeed * dt, 1);
-      // Keep in [0, 360)
       currentHueCenterRef.current =
         ((currentHueCenterRef.current % 360) + 360) % 360;
 
@@ -183,10 +266,8 @@ export function AmbientCanvas() {
         // When running, add subtle upward drift
         if (running) {
           p.vy -= 0.001 * (dt / 16);
-          // Clamp vertical speed to prevent runaway
           p.vy = Math.max(p.vy, -BASE_SPEED * 3);
         } else {
-          // Slowly restore natural drift
           p.vy += (Math.sin(p.phase) * BASE_SPEED * 0.5 - p.vy) * 0.001 * dt;
         }
 
@@ -207,10 +288,7 @@ export function AmbientCanvas() {
         alpha = Math.min(alpha, 0.6);
         p.alpha = alpha;
 
-        // Base hue follows the page hue center with per-particle spread.
-        // When self-improve is running, shift toward emerald-green;
-        // on commit flash, shift toward blue-violet.
-        let hue = hueCenter + (p.hue - 180) * 0.25; // ±10° spread around center
+        let hue = hueCenter + (p.hue - 180) * 0.25;
         if (running) hue = 155 + Math.sin(p.phase * 0.5) * 15;
         if (flashIntensity > 0)
           hue = hue + flashIntensity * (50 + Math.sin(p.phase) * 30);
@@ -233,8 +311,8 @@ export function AmbientCanvas() {
         }
       }
 
-      // Draw faint connections between nearby particles
-      if (dark) {
+      // Draw connections only when arousal is above sleep threshold (saves O(n²) work)
+      if (dark && arousal > SLEEP_THRESHOLD) {
         for (let i = 0; i < particles.length; i++) {
           for (let j = i + 1; j < particles.length; j++) {
             const dx = particles[i].x - particles[j].x;
@@ -257,15 +335,19 @@ export function AmbientCanvas() {
         }
       }
 
-      rafRef.current = requestAnimationFrame(animate);
+      // Schedule next frame adaptively
+      scheduleNext(now);
     };
 
+    // Kick off
     rafRef.current = requestAnimationFrame(animate);
 
     return () => {
       cancelAnimationFrame(rafRef.current);
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
       window.removeEventListener("resize", resize);
       window.removeEventListener("ambient-event", handleAmbientEvent);
+      document.removeEventListener("visibilitychange", handleVisibility);
       darkObserver.disconnect();
     };
   }, [createParticle]);
