@@ -460,8 +460,29 @@ function evolvePool(pool: GenePool): void {
   scored.sort((a, b) => b.avgFitness - a.avgFitness);
 
   const keepCount = Math.ceil(pool.genomes.length * 0.5); // Keep top 50%
-  const survivors = scored.slice(0, keepCount).map((s) => s.genome);
-  const eliminated = scored.slice(keepCount).map((s) => s.genome);
+  const initialSurvivors = new Set(scored.slice(0, keepCount).map((s) => s.genome.id));
+
+  // ── Niche protection: rescue the best genome from each focus niche ──
+  // Without this, evolution converges to a monoculture (e.g. all "new-feature").
+  // For each focus type that has NO representative in survivors, promote the
+  // highest-fitness genome of that type from the elimination zone.
+  const survivorFocuses = new Set(
+    scored.filter((s) => initialSurvivors.has(s.genome.id)).map((s) => s.genome.focus),
+  );
+  for (const focus of ALL_FOCUS_GENES) {
+    if (survivorFocuses.has(focus)) continue;
+    // Find the best genome of this focus in the elimination zone
+    const rescued = scored
+      .filter((s) => !initialSurvivors.has(s.genome.id) && s.genome.focus === focus)
+      .sort((a, b) => b.avgFitness - a.avgFitness)[0];
+    if (rescued) {
+      initialSurvivors.add(rescued.genome.id);
+      survivorFocuses.add(focus);
+    }
+  }
+
+  const survivors = scored.filter((s) => initialSurvivors.has(s.genome.id)).map((s) => s.genome);
+  const eliminated = scored.filter((s) => !initialSurvivors.has(s.genome.id)).map((s) => s.genome);
   const eliminatedCount = eliminated.length;
 
   // Preserve eliminated genomes in the graveyard for phylogenetic tracking
