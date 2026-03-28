@@ -135,16 +135,18 @@ type ChatViewProps = {
   cwd?: string;
   /** Whether to show the sessions sidebar (default: true). */
   showSidebar?: boolean;
+  /** Optional session ID to auto-load on mount (e.g. from evolution page "Talk to agent"). */
+  initialSessionId?: string;
 };
 
 /**
  * Self-contained chat view that can be embedded anywhere.
  * Accepts an optional `cwd` to point the agent at a different working directory.
  */
-export function ChatView({ cwd, showSidebar = true }: ChatViewProps) {
+export function ChatView({ cwd, showSidebar = true, initialSessionId }: ChatViewProps) {
   const [messages, setMessages] = useState<readonly ChatMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(initialSessionId ?? null);
   const [activeSessionLabel, setActiveSessionLabel] = useState<string | null>(null);
   const [copiedToClipboard, setCopiedToClipboard] = useState(false);
 
@@ -240,6 +242,42 @@ export function ChatView({ cwd, showSidebar = true }: ChatViewProps) {
     },
     []
   );
+
+  // Auto-load session messages when initialSessionId is provided (e.g. from evolution page)
+  useEffect(() => {
+    if (!initialSessionId) return;
+    let cancelled = false;
+    fetch(`/api/sessions/${initialSessionId}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Session not found");
+        return r.json();
+      })
+      .then((data: { messages?: { role: string; content: unknown }[] }) => {
+        if (cancelled || !data.messages) return;
+        // Parse raw messages into ChatMessages (simple approach: extract text)
+        const parsed: ChatMessage[] = data.messages
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m, i) => ({
+            id: `loaded-${i}`,
+            role: m.role as "user" | "assistant",
+            content:
+              typeof m.content === "string"
+                ? m.content
+                : Array.isArray(m.content)
+                ? (m.content as { type: string; text?: string }[])
+                    .filter((b) => b.type === "text" && b.text)
+                    .map((b) => b.text!)
+                    .join("\n")
+                : "",
+          }))
+          .filter((m) => m.content.length > 0);
+        setMessages(parsed);
+      })
+      .catch(() => {
+        // Session may not exist on disk — that's OK, user can still send new messages
+      });
+    return () => { cancelled = true; };
+  }, [initialSessionId]);
 
   useEffect(() => {
     if (!activeSessionId || activeSessionLabel || isRunning) return;

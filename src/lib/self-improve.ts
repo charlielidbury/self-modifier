@@ -21,6 +21,7 @@ import {
 import { recordCommitGenome } from "./commit-feedback";
 import { popNextItem, completeItem, skipItem, type QueueItem } from "./improvement-queue";
 import { saveSession } from "./session-recorder";
+import { registerAgentSession, clearAgentSession } from "./agent-session-tracker";
 
 export type ImprovementEntry = {
   id: string;
@@ -215,9 +216,10 @@ function getPrompt(): string {
 }
 
 // ── Core runner ───────────────────────────────────────────────────────────────
-async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: QueueItem | null }> {
+async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: QueueItem | null; sessionId: string | null }> {
   const cwd = path.resolve(process.cwd());
   let summary = "(no summary)";
+  let capturedSessionId: string | null = null;
 
   // Clear activity buffer for the new run
   selfImproveState.activity = [];
@@ -268,6 +270,14 @@ async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: 
       maxTurns: 50,
     },
   })) {
+    // Capture session ID from the system message so we can stamp commits
+    if (msg.type === "system") {
+      const sysMsg = msg as { type: "system"; session_id: string };
+      capturedSessionId = sysMsg.session_id;
+      registerAgentSession({ sessionId: capturedSessionId, cwd });
+      pushActivity("text", `🔗 Agent session: ${capturedSessionId.slice(0, 12)}…`);
+    }
+
     // Capture streaming events into the activity log
     if (msg.type === "stream_event") {
       const event = (
@@ -350,7 +360,8 @@ async function runOnce(): Promise<{ summary: string; genome: Genome; queueItem: 
   }
 
   pushActivity("text", `Session complete: ${summary}`);
-  return { summary, genome, queueItem };
+  clearAgentSession();
+  return { summary, genome, queueItem, sessionId: capturedSessionId };
 }
 
 // ── Build verification ────────────────────────────────────────────────────────

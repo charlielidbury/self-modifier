@@ -9,7 +9,30 @@ export type GitCommit = {
   author: string;
   additions?: number;
   deletions?: number;
+  /** Agent session ID (from Agent-Session-Id trailer) */
+  agentSessionId?: string;
+  /** Agent working directory (from Agent-Cwd trailer) */
+  agentCwd?: string;
 };
+
+/** Extract known trailers from a commit body string. */
+function parseTrailers(body: string): { agentSessionId?: string; agentCwd?: string; cleanBody?: string } {
+  const sessionMatch = body.match(/^Agent-Session-Id:\s*(.+)$/m);
+  const cwdMatch = body.match(/^Agent-Cwd:\s*(.+)$/m);
+
+  // Strip trailer lines from the body for cleaner display
+  let cleanBody = body
+    .replace(/^Agent-Session-Id:\s*.+$/m, "")
+    .replace(/^Agent-Cwd:\s*.+$/m, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return {
+    agentSessionId: sessionMatch?.[1]?.trim(),
+    agentCwd: cwdMatch?.[1]?.trim(),
+    cleanBody: cleanBody || undefined,
+  };
+}
 
 export async function GET() {
   try {
@@ -28,13 +51,17 @@ export async function GET() {
       .filter(Boolean)
       .map((record) => {
         const parts = record.trim().split("\x00");
+        const rawBody = (parts[5] ?? "").trim();
+        const trailers = rawBody ? parseTrailers(rawBody) : {};
         return {
           hash: parts[0] ?? "",
           shortHash: parts[1] ?? "",
           message: parts[2] ?? "",
           date: parts[3] ?? "",
           author: parts[4] ?? "",
-          body: (parts[5] ?? "").trim() || undefined,
+          body: trailers.cleanBody || (rawBody || undefined),
+          agentSessionId: trailers.agentSessionId,
+          agentCwd: trailers.agentCwd,
         };
       });
 

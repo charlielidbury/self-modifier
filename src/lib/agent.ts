@@ -6,6 +6,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { StreamEvent } from "./types";
 import { emit } from "./event-bus";
+import { registerAgentSession, clearAgentSession } from "./agent-session-tracker";
 
 const DEFAULT_SYSTEM_PROMPT = `You are an AI assistant embedded in a Next.js application. You can read and modify the application's source code, including the code that powers this very chat interface. The project root is your cwd. Do whatever the user asks.
 
@@ -187,6 +188,8 @@ export async function* runAgent(
         // Mark running now that we have the real ID (new-session path).
         runningSessions.add(msg.session_id);
         emitSessionStatus(msg.session_id);
+        // Register with the agent session tracker so git commits get trailers.
+        registerAgentSession({ sessionId: msg.session_id, cwd: cwd || process.cwd() });
         yield { type: "session", sessionId: msg.session_id };
         break;
       }
@@ -263,5 +266,6 @@ export async function* runAgent(
     // Always clear running status, even if an error is thrown.
     runningSessions.delete(state.sessionId);
     emitSessionStatus(state.sessionId);
+    clearAgentSession();
   }
 }

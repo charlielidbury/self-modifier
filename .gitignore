@@ -8,3 +8,4 @@ next-env.d.ts
 .strategy-genes.json
 .commit-feedback.json
 .self-improve-sessions/
+.current-agent-session.json
