@@ -16,6 +16,7 @@ import { dispatchAmbientEvent } from "@/components/ambient-canvas";
 import { NeuralPulse } from "@/components/neural-pulse";
 import { CodebaseHeartbeat } from "@/components/codebase-heartbeat";
 import { MobileNavDrawer } from "@/components/mobile-nav-drawer";
+import { useNavigationPredictor } from "@/hooks/use-navigation-predictor";
 import {
   PAGE_HUES,
   PAGE_INFO,
@@ -32,6 +33,9 @@ export function Navbar() {
   const containerRef = useRef<HTMLDivElement>(null);
   const homeRef = useRef<HTMLAnchorElement>(null);
   const pageRef = useRef<HTMLAnchorElement>(null);
+
+  // Predictive prefetching — learns navigation patterns and prefetches likely next pages
+  useNavigationPredictor();
 
   const isHome = pathname === "/";
   const pageInfo = PAGE_INFO[pathname];
