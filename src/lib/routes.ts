@@ -28,6 +28,7 @@ import {
   Compass,
   Bird,
   FlaskRound,
+  History,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -353,6 +354,19 @@ export const ROUTES: readonly RouteEntry[] = [
     iconColor: "text-yellow-500",
     iconBg: "bg-yellow-500/10 dark:bg-yellow-500/15",
     keywords: ["flocking", "swarm", "reynolds"],
+  },
+  {
+    path: "/sessions",
+    label: "Sessions",
+    Icon: History,
+    hue: 350,
+    accent: { pill: "bg-rose-500/15 dark:bg-rose-500/20", text: "text-rose-700 dark:text-rose-300" },
+    dotColor: "#f43f5e",
+    title: "Sessions — Self-Modifier",
+    category: "meta",
+    iconColor: "text-rose-500",
+    iconBg: "bg-rose-500/10 dark:bg-rose-500/15",
+    keywords: ["replay", "history", "self-improve", "agent", "recording"],
   },
 ] as const;
 
