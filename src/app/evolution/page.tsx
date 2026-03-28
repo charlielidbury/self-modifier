@@ -32,6 +32,7 @@ type Commit = {
   hash: string;
   shortHash: string;
   message: string;
+  body?: string;
   date: string;
   author: string;
   additions?: number;
@@ -346,6 +347,11 @@ function TimelineCard({
             <p className="text-sm font-medium text-foreground leading-snug">
               {commit.message}
             </p>
+            {commit.body && (
+              <pre className="mt-1.5 text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap font-sans">
+                {commit.body}
+              </pre>
+            )}
             <div className="flex items-center flex-wrap gap-2 mt-1.5 text-[11px] text-muted-foreground">
               <span className={`font-medium ${cat.color}`}>{cat.label}</span>
               <span className="text-muted-foreground/30">·</span>
