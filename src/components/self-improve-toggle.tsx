@@ -130,6 +130,42 @@ function elapsed(iso: string): string {
   return `${m}m ${s % 60}s`;
 }
 
+// ── Browser Notifications ──────────────────────────────────────────────────────
+
+/** Request notification permission (idempotent — safe to call repeatedly). */
+function requestNotificationPermission() {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+/** Send a browser notification if permitted and tab is not focused. */
+function sendBrowserNotification(title: string, body: string) {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+  // Only notify when the tab is hidden — if user is looking at the page they
+  // already see the in-app toast.
+  if (document.visibilityState === "visible") return;
+  try {
+    const n = new Notification(title, {
+      body,
+      icon: "/favicon.ico",
+      tag: "self-improve", // collapse multiple notifications
+      silent: false,
+    });
+    // Auto-close after 6s
+    setTimeout(() => n.close(), 6000);
+    // Focus the tab when clicked
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+  } catch {
+    /* SW-only contexts may throw — ignore */
+  }
+}
+
 // ── Celebration sub-components ─────────────────────────────────────────────────
 
 /** A single confetti particle that animates from origin and fades out. */
@@ -3289,6 +3325,7 @@ export function SelfImproveToggle() {
       dispatchAmbientEvent({ type: "self-improve-commit" });
       window.dispatchEvent(new CustomEvent("self-improve:commit"));
       playCommitChimeIfUnmuted();
+      sendBrowserNotification("✨ Self-Improve Commit", commits[0].message);
       // Clear confetti after animation
       setTimeout(() => setCelebrating(false), 1200);
       // Clear glow after pulse
@@ -3308,6 +3345,8 @@ export function SelfImproveToggle() {
   // ── Toggle on/off ─────────────────────────────────────────────────────────
   const toggle = async () => {
     setToggling(true);
+    // Pre-emptively ask for notification permission when enabling
+    if (!status.enabled) requestNotificationPermission();
     try {
       const res = await fetch("/api/self-improve", {
         method: "POST",
