@@ -2,11 +2,10 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
-import { SelfImproveToggle } from "@/components/self-improve-toggle";
-import { CommandPalette } from "@/components/command-palette";
 import { PageTransition } from "@/components/page-transition";
 import { AmbientCanvas } from "@/components/ambient-canvas";
 import { AmbientBorder } from "@/components/ambient-border";
+import { DeferredLayoutShells } from "@/components/deferred-layout-shells";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,8 +46,7 @@ export default function RootLayout({
             {children}
           </PageTransition>
         </main>
-        <CommandPalette />
-        <SelfImproveToggle />
+        <DeferredLayoutShells />
         <AmbientBorder />
       </body>
     </html>
