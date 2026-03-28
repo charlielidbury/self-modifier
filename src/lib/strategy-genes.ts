@@ -73,6 +73,14 @@ export type EvolutionSnapshot = {
   survivorIds: string[];
 };
 
+/** A genome that was eliminated during evolution — preserved for lineage tracking. */
+export type GraveyardEntry = Genome & {
+  /** Generation when this genome was culled */
+  culledAtGeneration: number;
+  /** Reason for elimination */
+  causeOfDeath: "low-fitness" | "replaced";
+};
+
 export type GenePool = {
   genomes: Genome[];
   generationCount: number;
@@ -82,6 +90,8 @@ export type GenePool = {
   totalSessions: number;
   /** Historical snapshots from each evolution step */
   evolutionHistory: EvolutionSnapshot[];
+  /** Graveyard of culled genomes — preserved for phylogenetic lineage tracking */
+  graveyard: GraveyardEntry[];
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -96,9 +106,12 @@ function readGenePool(): GenePool {
     const raw = fs.readFileSync(GENE_POOL_FILE, "utf-8");
     const data = JSON.parse(raw) as GenePool;
     if (data.genomes && Array.isArray(data.genomes)) {
-      // Backwards compatibility: ensure evolutionHistory exists
+      // Backwards compatibility
       if (!Array.isArray(data.evolutionHistory)) {
         data.evolutionHistory = [];
+      }
+      if (!Array.isArray(data.graveyard)) {
+        data.graveyard = [];
       }
       return data;
     }
@@ -144,6 +157,7 @@ function seedPool(): GenePool {
     activeGenomeId: null,
     totalSessions: 0,
     evolutionHistory: [],
+    graveyard: [],
   };
   writeGenePool(pool);
   return pool;
@@ -443,7 +457,22 @@ function evolvePool(pool: GenePool): void {
 
   const keepCount = Math.ceil(pool.genomes.length * 0.5); // Keep top 50%
   const survivors = scored.slice(0, keepCount).map((s) => s.genome);
-  const eliminatedCount = pool.genomes.length - keepCount;
+  const eliminated = scored.slice(keepCount).map((s) => s.genome);
+  const eliminatedCount = eliminated.length;
+
+  // Preserve eliminated genomes in the graveyard for phylogenetic tracking
+  for (const genome of eliminated) {
+    pool.graveyard.push({
+      ...genome,
+      culledAtGeneration: gen,
+      causeOfDeath: "low-fitness",
+    });
+  }
+  // Cap graveyard at 200 entries to prevent unbounded growth
+  const MAX_GRAVEYARD = 200;
+  if (pool.graveyard.length > MAX_GRAVEYARD) {
+    pool.graveyard = pool.graveyard.slice(-MAX_GRAVEYARD);
+  }
 
   // Record snapshot BEFORE replacing genomes
   const snapshot = takeSnapshot(pool, eliminatedCount, survivors.map((s) => s.id));
@@ -544,6 +573,58 @@ export function getGenePool(): GenePool {
 
 export function resetGenePool(): GenePool {
   return seedPool();
+}
+
+/** Node in the phylogenetic tree — includes both living and dead genomes. */
+export type LineageNode = Genome & {
+  alive: boolean;
+  culledAtGeneration?: number;
+  causeOfDeath?: string;
+  /** IDs of child genomes (computed from parentId references) */
+  childIds: string[];
+};
+
+/**
+ * Get the full lineage of all genomes — living and dead — for phylogenetic visualization.
+ * Computes parent→child edges and marks living vs culled status.
+ */
+export function getFullLineage(): {
+  nodes: LineageNode[];
+  maxGeneration: number;
+  livingIds: Set<string>;
+} {
+  const pool = readGenePool();
+  const livingIds = new Set(pool.genomes.map((g) => g.id));
+
+  // Merge living genomes and graveyard into one list
+  const allGenomes: LineageNode[] = [
+    ...pool.genomes.map((g) => ({ ...g, alive: true, childIds: [] as string[] })),
+    ...pool.graveyard.map((g) => ({
+      ...g,
+      alive: false,
+      childIds: [] as string[],
+    })),
+  ];
+
+  // Deduplicate by id (in case of data overlap)
+  const byId = new Map<string, LineageNode>();
+  for (const node of allGenomes) {
+    if (!byId.has(node.id)) {
+      byId.set(node.id, node);
+    }
+  }
+
+  // Build parent→child edges
+  for (const node of byId.values()) {
+    if (node.parentId && byId.has(node.parentId)) {
+      byId.get(node.parentId)!.childIds.push(node.id);
+    }
+  }
+
+  const nodes = Array.from(byId.values());
+  const maxGeneration = nodes.reduce((max, n) => Math.max(max, n.generation), 0);
+
+  return { nodes, maxGeneration, livingIds };
 }
 
 /**

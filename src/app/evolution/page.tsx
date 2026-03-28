@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
+import { useRouter } from "next/navigation";
 import { useEventBus } from "@/hooks/use-event-bus";
 import {
   GitCommit,
@@ -24,7 +25,10 @@ import {
   Check,
   Users,
   Activity,
+  MessageCircle,
 } from "lucide-react";
+
+const GenomeTree = lazy(() => import("@/components/genome-tree"));
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -37,6 +41,8 @@ type Commit = {
   author: string;
   additions?: number;
   deletions?: number;
+  agentSessionId?: string;
+  agentCwd?: string;
 };
 
 type DiffFile = {
@@ -275,6 +281,7 @@ function TimelineCard({
   index: number;
   isLatest: boolean;
 }) {
+  const router = useRouter();
   const [showDiff, setShowDiff] = useState(false);
   const [diff, setDiff] = useState<CommitDiff | null>(null);
   const [loading, setLoading] = useState(false);
@@ -423,18 +430,34 @@ function TimelineCard({
               </div>
             )}
           </div>
-          <button
-            onClick={loadDiff}
-            title={showDiff ? "Hide changes" : "View changes"}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
-              showDiff
-                ? "bg-foreground/10 text-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-foreground/5"
-            }`}
-          >
-            <Code2 size={12} />
-            <span className="hidden sm:inline">Diff</span>
-          </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {commit.agentSessionId && (
+              <button
+                onClick={() => {
+                  const params = new URLSearchParams({ session: commit.agentSessionId! });
+                  if (commit.agentCwd) params.set("cwd", commit.agentCwd);
+                  router.push(`/chat?${params.toString()}`);
+                }}
+                title="Talk to the agent that made this commit"
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors"
+              >
+                <MessageCircle size={12} />
+                <span className="hidden sm:inline">Agent</span>
+              </button>
+            )}
+            <button
+              onClick={loadDiff}
+              title={showDiff ? "Hide changes" : "View changes"}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                showDiff
+                  ? "bg-foreground/10 text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-foreground/5"
+              }`}
+            >
+              <Code2 size={12} />
+              <span className="hidden sm:inline">Diff</span>
+            </button>
+          </div>
         </div>
 
         {/* Expandable diff */}
@@ -822,6 +845,20 @@ export default function EvolutionPage() {
             </div>
           </div>
         )}
+
+        {/* Phylogenetic tree */}
+        <div className="mb-8">
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+                <Loader2 size={14} className="animate-spin" />
+                <span className="text-xs">Loading phylogenetic tree...</span>
+              </div>
+            }
+          >
+            <GenomeTree />
+          </Suspense>
+        </div>
 
         {/* Timeline */}
         {commits.length === 0 ? (
