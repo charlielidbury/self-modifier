@@ -254,26 +254,82 @@ function crossover(a: Genome, b: Genome, generation: number): Genome {
   };
 }
 
+// ── Diff stats for richer fitness ─────────────────────────────────────────────
+
+export type DiffStats = {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+};
+
+/**
+ * Compute a fitness modifier from diff statistics.
+ * Rewards well-scoped changes, penalises trivially small or dangerously large ones.
+ *
+ * Sweet spot: 10–200 net lines across 1–8 files → up to +0.5 bonus.
+ * Trivial (<5 lines): small penalty (genome wasted a turn).
+ * Huge (>400 lines): penalty (risky, harder to review).
+ */
+function diffFitnessModifier(stats: DiffStats): number {
+  const net = stats.insertions + stats.deletions;
+
+  // Scope score: bell-curve-ish around the sweet spot
+  let scopeBonus: number;
+  if (net < 5) {
+    scopeBonus = -0.2; // trivially small
+  } else if (net <= 200) {
+    // Linear ramp from 0 at 5 lines to 0.5 at ~80 lines, then plateau
+    scopeBonus = Math.min(0.5, (net - 5) / 150);
+  } else if (net <= 400) {
+    // Gentle decline
+    scopeBonus = 0.5 - ((net - 200) / 200) * 0.5;
+  } else {
+    // Oversize — risky
+    scopeBonus = -0.3;
+  }
+
+  // File count bonus: touching 1–5 files is ideal
+  let fileBonus: number;
+  if (stats.filesChanged <= 5) {
+    fileBonus = 0.1;
+  } else if (stats.filesChanged <= 10) {
+    fileBonus = 0;
+  } else {
+    fileBonus = -0.15; // shotgun surgery
+  }
+
+  return Math.round((scopeBonus + fileBonus) * 100) / 100;
+}
+
 // ── Fitness update & evolution ────────────────────────────────────────────────
 
 /**
  * Record the outcome of a session and evolve the pool.
+ * Optionally accepts diff stats for richer fitness scoring on successful sessions.
  */
 export function recordOutcome(
   genomeId: string,
   outcome: "completed" | "failed" | "reverted",
+  diffStats?: DiffStats,
 ): void {
   const pool = readGenePool();
   const genome = pool.genomes.find((g) => g.id === genomeId);
   if (!genome) return;
 
-  // Update fitness
+  // Base fitness from outcome
   const fitnessDeltas: Record<string, number> = {
     completed: 1.0,
     failed: -0.5,
     reverted: -1.0,
   };
-  genome.fitness += fitnessDeltas[outcome];
+  let delta = fitnessDeltas[outcome];
+
+  // Layer on diff-based modifier for successful completions
+  if (outcome === "completed" && diffStats) {
+    delta += diffFitnessModifier(diffStats);
+  }
+
+  genome.fitness += Math.round(delta * 100) / 100;
   genome.timesUsed += 1;
   pool.totalSessions += 1;
   pool.activeGenomeId = null;

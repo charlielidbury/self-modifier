@@ -16,6 +16,7 @@ import {
   recordOutcome,
   buildStrategyDirective,
   type Genome,
+  type DiffStats,
 } from "./strategy-genes";
 import { recordCommitGenome } from "./commit-feedback";
 import { popNextItem, completeItem, skipItem, type QueueItem } from "./improvement-queue";
@@ -466,6 +467,31 @@ async function rollbackCommit(commitHash: string): Promise<boolean> {
   }
 }
 
+// ── Diff stats gathering ──────────────────────────────────────────────────────
+
+function gatherDiffStats(): DiffStats | null {
+  const cwd = path.resolve(process.cwd());
+  try {
+    const stat = execSync("git diff --stat HEAD~1 HEAD", {
+      cwd,
+      encoding: "utf-8",
+      timeout: 10_000,
+    });
+    // Last line looks like: " 3 files changed, 45 insertions(+), 12 deletions(-)"
+    const summary = stat.trim().split("\n").pop() ?? "";
+    const filesMatch = summary.match(/(\d+)\s+files?\s+changed/);
+    const insMatch = summary.match(/(\d+)\s+insertions?/);
+    const delMatch = summary.match(/(\d+)\s+deletions?/);
+    return {
+      filesChanged: filesMatch ? parseInt(filesMatch[1], 10) : 0,
+      insertions: insMatch ? parseInt(insMatch[1], 10) : 0,
+      deletions: delMatch ? parseInt(delMatch[1], 10) : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── Background loop ───────────────────────────────────────────────────────────
 export function startImprovementLoop() {
   // Already looping — nothing to do (flag lives on globalThis, survives HMR).
@@ -549,8 +575,19 @@ export function startImprovementLoop() {
 
           if (activeGenomeId) {
             try {
-              recordOutcome(activeGenomeId, outcome);
-              pushActivity("text", `🧬 Genome fitness updated (${outcome})`);
+              // Gather diff stats for richer fitness scoring
+              let diffStats: DiffStats | null = null;
+              if (outcome === "completed") {
+                diffStats = gatherDiffStats();
+                if (diffStats) {
+                  pushActivity(
+                    "text",
+                    `📊 Diff stats: ${diffStats.filesChanged} file(s), +${diffStats.insertions}/-${diffStats.deletions} lines`,
+                  );
+                }
+              }
+              recordOutcome(activeGenomeId, outcome, diffStats ?? undefined);
+              pushActivity("text", `🧬 Genome fitness updated (${outcome}${diffStats ? `, scope bonus applied` : ""})`);
             } catch (gErr) {
               pushActivity("text", `⚠️ Could not update genome: ${gErr instanceof Error ? gErr.message : String(gErr)}`);
             }
