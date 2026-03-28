@@ -79,7 +79,7 @@ export function Navbar() {
 
   return (
     <TooltipProvider delayDuration={600}>
-      <nav className="h-12 flex-none border-b border-border bg-background flex items-center px-4 gap-1 relative z-10">
+      <nav data-navbar className="h-12 flex-none border-b border-border bg-background flex items-center px-4 gap-1 relative z-10">
 
         {/* Live neural pulse — shows self-improve agent heartbeat */}
         <NeuralPulse />

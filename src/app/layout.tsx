@@ -6,6 +6,7 @@ import { PageTransition } from "@/components/page-transition";
 import { AmbientCanvas } from "@/components/ambient-canvas";
 import { AmbientBorder } from "@/components/ambient-border";
 import { DeferredLayoutShells } from "@/components/deferred-layout-shells";
+import { ZenModeController } from "@/components/zen-mode";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,7 +33,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');var light=t==='light';if(!light)document.documentElement.classList.add('dark');}catch(e){document.documentElement.classList.add('dark');}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('theme');var light=t==='light';if(!light)document.documentElement.classList.add('dark');if(localStorage.getItem('zen-mode')==='true')document.documentElement.classList.add('zen');}catch(e){document.documentElement.classList.add('dark');}})();`,
           }}
         />
       </head>
@@ -48,6 +49,7 @@ export default function RootLayout({
         </main>
         <DeferredLayoutShells />
         <AmbientBorder />
+        <ZenModeController />
       </body>
     </html>
   );

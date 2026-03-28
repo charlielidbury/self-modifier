@@ -355,6 +355,7 @@ export function AmbientCanvas() {
   return (
     <canvas
       ref={canvasRef}
+      data-ambient-canvas
       className="fixed inset-0 pointer-events-none"
       style={{ zIndex: 0 }}
       aria-hidden="true"

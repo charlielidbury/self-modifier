@@ -161,6 +161,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ["?"], description: "Show keyboard shortcuts" },
       { keys: ["⌘", "K"], description: "Open command palette" },
       { keys: ["Alt", "T"], description: "Toggle dark / light mode" },
+      { keys: ["Ctrl", "."], description: "Toggle Zen Mode (hide all chrome)" },
     ],
   },
 ];

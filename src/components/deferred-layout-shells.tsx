@@ -25,7 +25,9 @@ const CommandPalette = dynamic(
 export function DeferredLayoutShells() {
   return (
     <DeferredIsland timeoutMs={3000}>
-      <SelfImproveToggle />
+      <div data-self-improve>
+        <SelfImproveToggle />
+      </div>
       <CommandPalette />
     </DeferredIsland>
   );

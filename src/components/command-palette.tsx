@@ -21,6 +21,8 @@ import {
   Shuffle,
   SkipForward,
   Sparkles,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { ROUTES } from "@/lib/routes";
 
@@ -47,16 +49,19 @@ function useCommands(): Command[] {
   const router = useRouter();
   const pathname = usePathname();
   const [isDark, setIsDark] = useState(false);
+  const [isZen, setIsZen] = useState(false);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
+    setIsZen(document.documentElement.classList.contains("zen"));
   }, []);
 
-  // Watch for theme changes (MutationObserver on <html> class attribute)
+  // Watch for theme/zen changes (MutationObserver on <html> class attribute)
   useEffect(() => {
     const el = document.documentElement;
     const obs = new MutationObserver(() => {
       setIsDark(el.classList.contains("dark"));
+      setIsZen(el.classList.contains("zen"));
     });
     obs.observe(el, { attributes: true, attributeFilter: ["class"] });
     return () => obs.disconnect();
@@ -115,6 +120,17 @@ function useCommands(): Command[] {
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "?" }));
       },
       keywords: ["help", "keys", "hotkeys", "bindings"],
+    },
+    {
+      id: "zen-mode-toggle",
+      label: isZen ? "Exit Zen Mode" : "Enter Zen Mode",
+      hint: "Ctrl+.",
+      icon: isZen ? <Minimize2 size={16} /> : <Maximize2 size={16} />,
+      group: "Actions",
+      action: () => {
+        window.dispatchEvent(new Event("zen-mode-toggle"));
+      },
+      keywords: ["focus", "distraction", "fullscreen", "immersive", "hide", "chrome", "clean", "minimal"],
     },
     ...(pathname === "/chat"
       ? [
