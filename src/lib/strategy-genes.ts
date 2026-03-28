@@ -260,6 +260,10 @@ export type DiffStats = {
   filesChanged: number;
   insertions: number;
   deletions: number;
+  /** Change in total source bytes (positive = codebase grew, negative = shrank) */
+  codeMassDelta?: number;
+  /** Total source bytes after the change */
+  codeMassTotal?: number;
 };
 
 /**
@@ -301,6 +305,36 @@ function diffFitnessModifier(stats: DiffStats): number {
   return Math.round((scopeBonus + fileBonus) * 100) / 100;
 }
 
+/**
+ * Compute a fitness modifier from code mass change.
+ * Creates evolutionary pressure against bloat:
+ *
+ * - Net shrinkage (negative delta): bonus up to +0.4
+ * - Neutral (±500 bytes): no effect
+ * - Growth 500–2000 bytes: small penalty
+ * - Growth >2000 bytes: larger penalty (bloat)
+ *
+ * This is the anti-bloat gene — genomes that produce leaner code survive.
+ */
+function codeMassFitnessModifier(deltaBytes: number): number {
+  if (deltaBytes < -500) {
+    // Shrank the codebase — reward proportionally, capped at +0.4
+    return Math.min(0.4, Math.abs(deltaBytes) / 5000);
+  } else if (deltaBytes <= 500) {
+    // Roughly neutral — no modifier
+    return 0;
+  } else if (deltaBytes <= 2000) {
+    // Modest growth — mild penalty
+    return -0.1;
+  } else if (deltaBytes <= 5000) {
+    // Significant growth — moderate penalty
+    return -0.2;
+  } else {
+    // Major bloat — strong penalty
+    return -0.35;
+  }
+}
+
 // ── Fitness update & evolution ────────────────────────────────────────────────
 
 /**
@@ -327,6 +361,10 @@ export function recordOutcome(
   // Layer on diff-based modifier for successful completions
   if (outcome === "completed" && diffStats) {
     delta += diffFitnessModifier(diffStats);
+    // Anti-bloat pressure from code mass tracking
+    if (diffStats.codeMassDelta !== undefined) {
+      delta += codeMassFitnessModifier(diffStats.codeMassDelta);
+    }
   }
 
   genome.fitness += Math.round(delta * 100) / 100;

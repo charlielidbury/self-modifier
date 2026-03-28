@@ -467,6 +467,27 @@ async function rollbackCommit(commitHash: string): Promise<boolean> {
   }
 }
 
+// ── Code mass measurement ─────────────────────────────────────────────────────
+
+/** Measure total source code size in bytes (all .ts/.tsx files under src/). */
+function measureCodeMass(): number {
+  const cwd = path.resolve(process.cwd());
+  try {
+    // Use find + stat to sum bytes of all TypeScript source files
+    const output = execSync(
+      `find src -type f \\( -name "*.ts" -o -name "*.tsx" \\) -exec wc -c {} + 2>/dev/null | tail -1`,
+      { cwd, encoding: "utf-8", timeout: 15_000 },
+    );
+    const match = output.trim().match(/^(\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Pre-run code mass captured before each session */
+let preRunCodeMass = 0;
+
 // ── Diff stats gathering ──────────────────────────────────────────────────────
 
 function gatherDiffStats(): DiffStats | null {
@@ -519,6 +540,11 @@ export function startImprovementLoop() {
         try {
           // Capture typecheck baseline BEFORE the agent runs so we can detect new errors
           captureBaseline();
+          // Capture code mass baseline for anti-bloat fitness tracking
+          preRunCodeMass = measureCodeMass();
+          if (preRunCodeMass > 0) {
+            pushActivity("text", `📏 Code mass baseline: ${(preRunCodeMass / 1024).toFixed(1)} KB`);
+          }
           const result = await runOnce();
           entry.summary = result.summary;
           activeGenomeId = result.genome.id;
@@ -581,15 +607,29 @@ export function startImprovementLoop() {
               let diffStats: DiffStats | null = null;
               if (outcome === "completed") {
                 diffStats = gatherDiffStats();
+                // Enrich with code mass delta
+                if (diffStats && preRunCodeMass > 0) {
+                  const postRunCodeMass = measureCodeMass();
+                  if (postRunCodeMass > 0) {
+                    diffStats.codeMassDelta = postRunCodeMass - preRunCodeMass;
+                    diffStats.codeMassTotal = postRunCodeMass;
+                  }
+                }
                 if (diffStats) {
+                  const massInfo = diffStats.codeMassDelta !== undefined
+                    ? `, mass ${diffStats.codeMassDelta >= 0 ? "+" : ""}${(diffStats.codeMassDelta / 1024).toFixed(1)} KB → ${((diffStats.codeMassTotal ?? 0) / 1024).toFixed(1)} KB total`
+                    : "";
                   pushActivity(
                     "text",
-                    `📊 Diff stats: ${diffStats.filesChanged} file(s), +${diffStats.insertions}/-${diffStats.deletions} lines`,
+                    `📊 Diff stats: ${diffStats.filesChanged} file(s), +${diffStats.insertions}/-${diffStats.deletions} lines${massInfo}`,
                   );
                 }
               }
               recordOutcome(activeGenomeId, outcome, diffStats ?? undefined);
-              pushActivity("text", `🧬 Genome fitness updated (${outcome}${diffStats ? `, scope bonus applied` : ""})`);
+              const massNote = diffStats?.codeMassDelta !== undefined
+                ? `, mass ${diffStats.codeMassDelta >= 0 ? "+" : ""}${(diffStats.codeMassDelta / 1024).toFixed(1)} KB`
+                : "";
+              pushActivity("text", `🧬 Genome fitness updated (${outcome}${diffStats ? `, scope bonus applied` : ""}${massNote})`);
             } catch (gErr) {
               pushActivity("text", `⚠️ Could not update genome: ${gErr instanceof Error ? gErr.message : String(gErr)}`);
             }
