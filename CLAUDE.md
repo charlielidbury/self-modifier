@@ -45,6 +45,19 @@ pnpm build        # production build
 pnpm tsc --noEmit # type check
 ```
 
+## Hosting
+
+The site is hosted on Vercel at **https://self-modifier.vercel.app**. The GitHub repo is connected — every push to `main` triggers an automatic production deployment. No environment variables are configured.
+
+Note: The self-modifying chat features (Claude agent subprocess, session persistence, Playwright MCP) only work locally. The Vercel deployment serves the static/serverless parts of the app (pages, API routes that don't depend on the agent SDK).
+
+Useful commands:
+```bash
+vercel             # deploy a preview
+vercel --prod      # deploy to production
+vercel env ls      # list environment variables
+```
+
 ## Git
 **Always commit your changes when you finish a task. Do not end a turn without committing.**
 
