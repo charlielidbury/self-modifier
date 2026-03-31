@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { useEventBus } from "@/hooks/use-event-bus";
+import { useRpcSubscription } from "@/hooks/use-rpc-subscription";
 
 /**
  * NeuralPulse — a tiny animated Julia set fractal that lives in the navbar.
@@ -102,8 +102,8 @@ export function NeuralPulse() {
     animSpeed: 0.0005,
   });
 
-  // Listen to SSE events to determine agent state (replaces polling)
-  useEventBus("self-improve:activity", useCallback((raw: unknown) => {
+  // Listen to RPC events to determine agent state
+  useRpcSubscription("self-improve:activity", useCallback((raw: unknown) => {
     const data = raw as { events?: { id: number; kind: string; content: string }[]; running?: boolean };
     const newEvents = data.events ?? [];
 
@@ -123,7 +123,7 @@ export function NeuralPulse() {
     }
   }, []));
 
-  useEventBus("self-improve:status", useCallback((raw: unknown) => {
+  useRpcSubscription("self-improve:status", useCallback((raw: unknown) => {
     const data = raw as { enabled?: boolean; running?: boolean };
     if (stateRef.current === "commit") return; // Don't interrupt commit flash
 

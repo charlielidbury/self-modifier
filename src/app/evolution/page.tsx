@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import { useRouter } from "next/navigation";
-import { useEventBus } from "@/hooks/use-event-bus";
+import { useBackend } from "@/hooks/use-backend";
+import { useRpcSubscription } from "@/hooks/use-rpc-subscription";
 import {
   GitCommit,
   Loader2,
@@ -282,6 +283,7 @@ function TimelineCard({
   isLatest: boolean;
 }) {
   const router = useRouter();
+  const backend = useBackend();
   const [showDiff, setShowDiff] = useState(false);
   const [diff, setDiff] = useState<CommitDiff | null>(null);
   const [loading, setLoading] = useState(false);
@@ -298,18 +300,15 @@ function TimelineCard({
       setShowDiff((v) => !v);
       return;
     }
+    if (!backend) return;
     setShowDiff(true);
     setLoading(true);
     setError(null);
-    fetch(`/api/self-improve/commits/${commit.hash}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error("Failed");
-        return res.json() as Promise<CommitDiff>;
-      })
+    (backend.getCommitDiff(commit.hash) as Promise<CommitDiff>)
       .then(setDiff)
       .catch(() => setError("Could not load diff"))
       .finally(() => setLoading(false));
-  }, [commit.hash, diff]);
+  }, [commit.hash, diff, backend]);
 
   const copyHash = useCallback(
     (e: React.MouseEvent) => {
@@ -575,21 +574,19 @@ export default function EvolutionPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [, setTick] = useState(0);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const backend = useBackend();
 
   const fetchCommits = useCallback((isManual = false) => {
+    if (!backend) return;
     if (isManual) setRefreshing(true);
-    fetch("/api/self-improve/commits")
-      .then(async (res) => {
-        if (!res.ok) throw new Error("Failed");
-        return res.json() as Promise<{ commits: Commit[] }>;
-      })
+    (backend.getCommits() as Promise<{ commits: Commit[] }>)
       .then((data) => setCommits(data.commits))
       .catch(() => {})
       .finally(() => {
         setLoading(false);
         if (isManual) setRefreshing(false);
       });
-  }, []);
+  }, [backend]);
 
   // Initial load
   useEffect(() => {
@@ -597,7 +594,7 @@ export default function EvolutionPage() {
   }, [fetchCommits]);
 
   // Re-fetch commits when the server detects new git activity
-  useEventBus("self-improve:commits", useCallback(() => {
+  useRpcSubscription("self-improve:commits", useCallback(() => {
     fetchCommits();
   }, [fetchCommits]));
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useEventBus } from "@/hooks/use-event-bus";
+import { useRpcSubscription } from "@/hooks/use-rpc-subscription";
 
 /**
  * AmbientBorder — a full-viewport edge glow that reflects the self-improve
@@ -29,8 +29,8 @@ export function AmbientBorder() {
     setState(next);
   }, []);
 
-  // Listen to SSE events to determine agent state (replaces polling)
-  useEventBus("self-improve:activity", useCallback((raw: unknown) => {
+  // Listen to RPC events to determine agent state
+  useRpcSubscription("self-improve:activity", useCallback((raw: unknown) => {
     const data = raw as { events?: { id: number; kind: string; content: string }[]; running?: boolean };
     const newEvents = data.events ?? [];
 
@@ -48,7 +48,7 @@ export function AmbientBorder() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateState]));
 
-  useEventBus("self-improve:status", useCallback((raw: unknown) => {
+  useRpcSubscription("self-improve:status", useCallback((raw: unknown) => {
     const data = raw as { enabled?: boolean; running?: boolean };
     if (stateRef.current === "commit") return;
 

@@ -28,7 +28,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RecentlyModifiedRoute } from "@/app/api/recently-modified/route";
-import { useEventBus } from "@/hooks/use-event-bus";
+import { useBackend } from "@/hooks/use-backend";
+import { useRpcSubscription } from "@/hooks/use-rpc-subscription";
 
 interface CardInfo {
   href: string;
@@ -283,29 +284,29 @@ export default function Home() {
   const gridRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
   const [recentMods, setRecentMods] = useState<Map<string, RecentlyModifiedRoute>>(new Map());
+  const backend = useBackend();
 
   // Fetch recently modified routes
   const fetchRecent = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/recently-modified");
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await backend.getRecentlyModified();
       const map = new Map<string, RecentlyModifiedRoute>();
-      for (const route of data.routes ?? []) {
+      for (const route of (data as { routes: RecentlyModifiedRoute[] }).routes ?? []) {
         map.set(route.route, route);
       }
       setRecentMods(map);
     } catch {
       // silently fail
     }
-  }, []);
+  }, [backend]);
 
   useEffect(() => {
     fetchRecent();
   }, [fetchRecent]);
 
   // Re-fetch when server detects new git activity
-  useEventBus("recently-modified", useCallback(() => {
+  useRpcSubscription("recently-modified", useCallback(() => {
     fetchRecent();
   }, [fetchRecent]));
 

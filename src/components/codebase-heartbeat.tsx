@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useEventBus } from "@/hooks/use-event-bus";
+import { useBackend } from "@/hooks/use-backend";
+import { useRpcSubscription } from "@/hooks/use-rpc-subscription";
 
 type CodebaseId = {
   shortHash: string;
@@ -32,12 +33,12 @@ export function CodebaseHeartbeat() {
   const popoverRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const mutationTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const backend = useBackend();
 
   const fetchData = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/codebase-id");
-      if (!res.ok) return;
-      const json: CodebaseId = await res.json();
+      const json = await backend.getCodebaseId() as CodebaseId;
 
       // Detect mutation
       if (prevHash && json.shortHash !== prevHash) {
@@ -50,7 +51,7 @@ export function CodebaseHeartbeat() {
     } catch {
       // Silently fail — not critical
     }
-  }, [prevHash]);
+  }, [backend, prevHash]);
 
   // Initial fetch
   useEffect(() => {
@@ -58,7 +59,7 @@ export function CodebaseHeartbeat() {
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-fetch when self-improve commits land
-  useEventBus("self-improve:status", () => {
+  useRpcSubscription("self-improve:status", () => {
     // Small delay so git has time to settle
     setTimeout(fetchData, 1500);
   });
