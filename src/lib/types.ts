@@ -43,3 +43,70 @@ export type ChatMessage = {
   createdAt?: number; // Unix timestamp in ms — set when the message is created/completed
   queued?: boolean; // True if this user message is waiting to be sent (agent is busy)
 };
+
+// ── Git types ─────────────────────────────────────────────────────────────────
+
+export type GitCommit = {
+  hash: string;
+  shortHash: string;
+  message: string;
+  body?: string;
+  date: string;
+  author: string;
+  additions?: number;
+  deletions?: number;
+  agentSessionId?: string;
+  agentCwd?: string;
+};
+
+export type DiffFile = {
+  path: string;
+  additions: number;
+  deletions: number;
+  patch: string;
+};
+
+export type CommitDiff = {
+  hash: string;
+  message: string;
+  files: DiffFile[];
+  totalAdditions: number;
+  totalDeletions: number;
+};
+
+export type WorkingDiffFile = {
+  path: string;
+  status: "modified" | "added" | "deleted" | "renamed";
+  additions: number;
+  deletions: number;
+  patch: string;
+};
+
+export type WorkingDiffResponse = {
+  files: WorkingDiffFile[];
+  totalAdditions: number;
+  totalDeletions: number;
+  isEmpty: boolean;
+};
+
+export type FileHotspot = {
+  path: string;
+  changes: number;
+  additions: number;
+  deletions: number;
+  commitCount: number;
+  lastModified: string;
+};
+
+export type HotspotsResponse = {
+  files: FileHotspot[];
+  totalFiles: number;
+  totalChanges: number;
+};
+
+export type RecentlyModifiedRoute = {
+  route: string;
+  lastModified: string;
+  commitMessage: string;
+  shortHash: string;
+};

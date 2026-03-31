@@ -1,9 +1,8 @@
 /**
  * Global server-side event bus for push-based communication.
  *
- * Server code emits typed events here; the SSE endpoint (/api/events)
- * subscribes and forwards them to all connected browsers. This replaces
- * all client-side polling with a single multiplexed SSE stream.
+ * Server code emits typed events here; the RPC backend subscribes and
+ * forwards them to all connected browsers via Cap'n Web RPC callbacks.
  *
  * Survives HMR via globalThis.
  */
@@ -12,6 +11,7 @@ export type EventBusEvent =
   | { channel: "self-improve:status"; data: { enabled: boolean; running: boolean; entries: unknown[]; suggestion: string } }
   | { channel: "self-improve:activity"; data: { events: unknown[]; running: boolean } }
   | { channel: "self-improve:commits" }
+  | { channel: "self-improve:cooldown"; data: { durationMs: number; startedAt: string; endsAt: string; reason: string } | null }
   | { channel: "sessions:status"; data: Record<string, string> }
   | { channel: "recently-modified" }
   | { channel: "telegram:update" };
@@ -51,7 +51,7 @@ export function subscribe(listener: Listener): () => void {
   };
 }
 
-/** Emit an event to all subscribers (SSE connections). */
+/** Emit an event to all subscribers (RPC connections). */
 export function emit(event: EventBusEvent): void {
   for (const listener of state.listeners) {
     try {
@@ -62,7 +62,7 @@ export function emit(event: EventBusEvent): void {
   }
 }
 
-/** Number of active SSE connections. */
+/** Number of active RPC connections. */
 export function subscriberCount(): number {
   return state.listeners.size;
 }

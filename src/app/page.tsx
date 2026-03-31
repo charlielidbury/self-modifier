@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { RecentlyModifiedRoute } from "@/app/api/recently-modified/route";
+import type { RecentlyModifiedRoute } from "@/lib/types";
 import { useBackend } from "@/hooks/use-backend";
 import { useRpcSubscription } from "@/hooks/use-rpc-subscription";
 

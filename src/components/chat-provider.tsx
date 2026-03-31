@@ -289,22 +289,17 @@ export function ChatProvider({
     sseStateRef.current.messages = messages;
   }, [messages]);
 
-  // Subscribe to the SSE stream for the active session.
-  // Re-runs whenever activeSessionId changes (e.g., after loading a session).
+  // Subscribe to session-specific events via RPC (multi-tab sync).
+  // Re-runs whenever activeSessionId or backend changes.
   useEffect(() => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || !backend) return;
 
-    const es = new EventSource(`/api/sessions/${activeSessionId}/stream`);
-
-    es.onmessage = (e: MessageEvent<string>) => {
+    const handleEvent = (event: StreamEvent) => {
       // Skip if this window is already processing its own POST response.
       if (isSendingRef.current) return;
 
-      const event = JSON.parse(e.data) as StreamEvent;
-
       switch (event.type) {
         case "user_message": {
-          // A new turn started in another window — add user + empty assistant msgs.
           const userMsg: ChatMessage = {
             id: crypto.randomUUID(),
             role: "user",
@@ -371,7 +366,6 @@ export function ChatProvider({
         }
 
         case "done": {
-          // Stamp the assistant message with its completion time.
           const { assistantId: doneId, messages: curMsgs } = sseStateRef.current;
           if (doneId) {
             const stamped = curMsgs.map((m) =>
@@ -386,19 +380,14 @@ export function ChatProvider({
         }
 
         case "session":
-          // Other window confirmed same session — nothing to do.
           break;
       }
     };
 
-    es.onerror = () => {
-      // EventSource will auto-reconnect; nothing special needed here.
-    };
-
-    return () => {
-      es.close();
-    };
-  }, [activeSessionId, setMessages, setIsRunning]);
+    backend.subscribeSession(activeSessionId, handleEvent).catch(() => {
+      // Connection lost — will re-subscribe on reconnect
+    });
+  }, [activeSessionId, backend, setMessages, setIsRunning]);
 
   // Reference to the latest messages so sendMessage can read current state
   // without needing it as a dependency.

@@ -8,7 +8,7 @@ import {
   FlaskConical, Brain, BarChart3, Droplets,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { RecentlyModifiedRoute } from "@/app/api/recently-modified/route";
+import type { RecentlyModifiedRoute } from "@/lib/types";
 import { useBackend } from "@/hooks/use-backend";
 import { useRpcSubscription } from "@/hooks/use-rpc-subscription";
 

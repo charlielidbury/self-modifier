@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Dna, Loader2, RefreshCw, Skull, Sparkles } from "lucide-react";
+import { useBackend } from "@/hooks/use-backend";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -221,6 +222,7 @@ function GeneStat({ label, value }: { label: string; value: number }) {
 // ── Main tree component ───────────────────────────────────────────────────────
 
 export default function GenomeTree() {
+  const backend = useBackend();
   const [data, setData] = useState<LineageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -229,17 +231,14 @@ export default function GenomeTree() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const fetchData = useCallback(() => {
+    if (!backend) return;
     setLoading(true);
     setError(null);
-    fetch("/api/self-improve/lineage")
-      .then(async (res) => {
-        if (!res.ok) throw new Error("Failed to fetch lineage");
-        return res.json() as Promise<LineageData>;
-      })
+    (backend.getLineage() as Promise<LineageData>)
       .then(setData)
-      .catch((e) => setError(e.message))
+      .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [backend]);
 
   useEffect(() => {
     fetchData();

@@ -7,6 +7,7 @@ import { AmbientCanvas } from "@/components/ambient-canvas";
 import { AmbientBorder } from "@/components/ambient-border";
 import { DeferredLayoutShells } from "@/components/deferred-layout-shells";
 import { ZenModeController } from "@/components/zen-mode";
+import { BackendProvider } from "@/hooks/use-backend";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,16 +41,18 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col h-screen`}
       >
-        <AmbientCanvas />
-        <Navbar />
-        <main className="flex-1 overflow-hidden relative z-[1]">
-          <PageTransition>
-            {children}
-          </PageTransition>
-        </main>
-        <DeferredLayoutShells />
-        <AmbientBorder />
-        <ZenModeController />
+        <BackendProvider>
+          <AmbientCanvas />
+          <Navbar />
+          <main className="flex-1 overflow-hidden relative z-[1]">
+            <PageTransition>
+              {children}
+            </PageTransition>
+          </main>
+          <DeferredLayoutShells />
+          <AmbientBorder />
+          <ZenModeController />
+        </BackendProvider>
       </body>
     </html>
   );

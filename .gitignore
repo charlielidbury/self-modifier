@@ -9,3 +9,4 @@ next-env.d.ts
 .commit-feedback.json
 .self-improve-sessions/
 .current-agent-session.json
+.vercel

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useBackend } from "@/hooks/use-backend";
 import {
   History,
   ChevronRight,
@@ -143,6 +144,7 @@ function eventIcon(kind: string, tool?: string) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SessionsPage() {
+  const backend = useBackend();
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [stats, setStats] = useState<SessionStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,15 +163,15 @@ export default function SessionsPage() {
 
   // Fetch session list + stats
   useEffect(() => {
-    fetch("/api/self-improve/sessions?stats=true")
-      .then((r) => r.json())
+    if (!backend) return;
+    (backend.getSelfImproveSessions(true) as Promise<{ sessions: SessionRecord[]; stats: SessionStats | null }>)
       .then((data) => {
         setSessions(data.sessions ?? []);
         setStats(data.stats ?? null);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [backend]);
 
   // Fetch session detail
   const openSession = useCallback((id: string) => {
@@ -180,12 +182,12 @@ export default function SessionsPage() {
     setReplayIndex(0);
     if (replayRef.current) clearInterval(replayRef.current);
 
-    fetch(`/api/self-improve/sessions/${id}`)
-      .then((r) => r.json())
+    if (!backend) { setDetailLoading(false); return; }
+    (backend.getSelfImproveSession(id) as Promise<SessionDetail>)
       .then((data) => setDetail(data))
       .catch(() => {})
       .finally(() => setDetailLoading(false));
-  }, []);
+  }, [backend]);
 
   // Replay controls
   const startReplay = useCallback(() => {
