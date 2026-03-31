@@ -14,6 +14,7 @@ import type {
   ThreadMessageLike,
 } from "@assistant-ui/react";
 import type { ChatMessage, ContentPart, StreamEvent } from "@/lib/types";
+import { useBackend } from "@/hooks/use-backend";
 
 /** Set of message IDs that are queued (waiting for agent to finish). */
 const QueuedMessageIdsContext = createContext<Set<string>>(new Set());
@@ -268,6 +269,7 @@ export function ChatProvider({
   cwd,
   children,
 }: ChatProviderProps) {
+  const backend = useBackend();
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // True while THIS window is processing its own POST stream — ignore SSE events.
@@ -406,11 +408,16 @@ export function ChatProvider({
   const activeSessionIdRef = useRef(activeSessionId);
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
 
-  // Core send function — actually POSTs a message to the server and streams
-  // the response. Expects the user message to already be in the messages list.
-  // `baseMessages` is the messages array at the point this send starts.
+  // Core send function — calls the RPC backend.chat() method which streams
+  // events back via the onEvent callback. Expects the user message to already
+  // be in the messages list.
   const sendMessage = useCallback(
     async (text: string, images: string[] | undefined, userMsgId: string) => {
+      if (!backend) {
+        console.error("Cannot send message: RPC backend not connected");
+        return;
+      }
+
       const assistantId = crypto.randomUUID();
       const assistantMsg: ChatMessage = {
         id: assistantId,
@@ -434,36 +441,12 @@ export function ChatProvider({
       let currentMessages = withAssistant;
 
       try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: text,
-            sessionId: activeSessionIdRef.current ?? undefined,
-            images: images && images.length > 0 ? images : undefined,
-            ...(cwd ? { cwd } : {}),
-          }),
-          signal: abortController.signal,
-        });
-
-        const reader = res.body?.getReader();
-        if (!reader) throw new Error("No response body");
-
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            const event: StreamEvent = JSON.parse(line);
-
+        const result = await backend.chat(
+          text,
+          activeSessionIdRef.current ?? null,
+          images && images.length > 0 ? images : null,
+          cwd ?? null,
+          (event: StreamEvent) => {
             switch (event.type) {
               case "session":
                 setActiveSessionId(event.sessionId);
@@ -516,7 +499,12 @@ export function ChatProvider({
                 break;
               }
             }
-          }
+          },
+        );
+
+        // The RPC call returns the sessionId — update if we didn't have one.
+        if (result.sessionId && !activeSessionIdRef.current) {
+          setActiveSessionId(result.sessionId);
         }
       } catch (err) {
         if ((err as { name?: string }).name === "AbortError") return;
@@ -548,7 +536,7 @@ export function ChatProvider({
         }
       }
     },
-    [setMessages, setIsRunning, setActiveSessionId]
+    [backend, setMessages, setIsRunning, setActiveSessionId, cwd]
   );
 
   const onNew = useCallback(
