@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
 import { Trash2, MessageSquare, Pencil, Plus, Pin } from "lucide-react";
 import type { SessionInfo, ChatMessage, ContentPart } from "@/lib/types";
-import { useEventBus } from "@/hooks/use-event-bus";
+import { useRpcSubscription } from "@/hooks/use-rpc-subscription";
+import { useBackend } from "@/hooks/use-backend";
 import type { AgentStatus } from "@/lib/agent";
 import {
   Tooltip,
@@ -152,6 +153,7 @@ export function SessionsSidebar({
   onLoadSession,
   cwd,
 }: SessionsSidebarProps) {
+  const backend = useBackend();
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [statuses, setStatuses] = useState<Record<string, AgentStatus>>({});
@@ -243,27 +245,19 @@ export function SessionsSidebar({
   }, [onNewSession]);
 
   useEffect(() => {
+    if (!backend) return;
     let cancelled = false;
     async function fetchSessionsAndStatuses() {
       try {
-        const sessionsUrl = cwd
-          ? `/api/sessions?cwd=${encodeURIComponent(cwd)}`
-          : "/api/sessions";
-        const res = await fetch(sessionsUrl);
-        const data: SessionInfo[] = await res.json();
+        const data: SessionInfo[] = await backend!.getSessions(cwd);
         if (cancelled) return;
         setSessions(data);
         sessionIdsRef.current = data.map((s) => s.sessionId);
 
         // Now fetch statuses — we have the IDs available.
         if (data.length > 0) {
-          const statusRes = await fetch("/api/sessions/status", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sessionIds: data.map((s) => s.sessionId) }),
-          });
+          const statusData = await backend!.getSessionStatuses(data.map((s) => s.sessionId));
           if (!cancelled) {
-            const statusData = await statusRes.json();
             setStatuses(statusData as Record<string, AgentStatus>);
           }
         }
@@ -275,10 +269,10 @@ export function SessionsSidebar({
     }
     fetchSessionsAndStatuses();
     return () => { cancelled = true; };
-  }, [cwd]);
+  }, [cwd, backend]);
 
-  // Listen for real-time session status updates via SSE
-  useEventBus("sessions:status", useCallback((raw: unknown) => {
+  // Listen for real-time session status updates via RPC subscription
+  useRpcSubscription("sessions:status", useCallback((raw: unknown) => {
     const update = raw as Record<string, AgentStatus>;
     setStatuses((prev) => ({ ...prev, ...update }));
   }, []));
@@ -294,9 +288,9 @@ export function SessionsSidebar({
       const sessionLabel =
         sessions.find((s) => s.sessionId === sessionId)?.summary ||
         sessionId.slice(0, 8);
+      if (!backend) return;
       try {
-        const res = await fetch(`/api/sessions/${sessionId}`);
-        const data = await res.json();
+        const data = await backend.getSessionMessages(sessionId);
         // Parse raw SDK messages into ChatMessage objects, properly handling
         // tool_use / tool_result blocks that span multiple raw messages.
         //
@@ -324,7 +318,7 @@ export function SessionsSidebar({
           };
         };
 
-        const raw = data as RawMsg[];
+        const raw = data as unknown as RawMsg[];
         const loaded: ChatMessage[] = [];
 
         // Collect tool results from synthetic "user" messages into a lookup
@@ -490,7 +484,7 @@ export function SessionsSidebar({
         onLoadSession([], sessionId, sessionLabel);
       }
     },
-    [onLoadSession, sessions]
+    [onLoadSession, sessions, backend]
   );
 
   const deleteSession = useCallback(
@@ -509,8 +503,8 @@ export function SessionsSidebar({
       setArmedForDelete(null);
       setExitingSessionIds((prev) => new Set([...prev, sessionId]));
 
-      // Fire the DELETE request immediately (don't block on animation)
-      fetch(`/api/sessions/${sessionId}`, { method: "DELETE" }).catch(() => {});
+      // Fire the delete request immediately (don't block on animation)
+      if (backend) backend.deleteSession(sessionId).catch(() => {});
 
       // After the CSS transition finishes, remove from local state
       setTimeout(() => {
@@ -559,15 +553,11 @@ export function SessionsSidebar({
     );
 
     try {
-      await fetch(`/api/sessions/${renamingSessionId}/rename`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
-      });
+      if (backend) await backend.renameSession(renamingSessionId, trimmed);
     } catch {
       // Silently ignore network errors; optimistic update stays
     }
-  }, [renamingSessionId, renameValue]);
+  }, [renamingSessionId, renameValue, backend]);
 
   const cancelRename = useCallback(() => {
     setRenamingSessionId(null);
