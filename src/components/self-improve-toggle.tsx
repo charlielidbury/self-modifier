@@ -48,7 +48,8 @@ import {
 import { dispatchAmbientEvent } from "./ambient-canvas";
 import { playCommitChimeIfUnmuted, isSoundMuted, setSoundMuted } from "@/lib/commit-sound";
 import { playSoundForEvent, startPresenceDrone, stopPresenceDrone } from "@/lib/agent-soundscape";
-import { useEventBus } from "@/hooks/use-event-bus";
+import { useRpcSubscription } from "@/hooks/use-rpc-subscription";
+import { useBackend } from "@/hooks/use-backend";
 
 type CooldownInfo = {
   durationMs: number;
@@ -366,22 +367,20 @@ function CommitDiffPanel({
   hash: string;
   onClose: () => void;
 }) {
+  const backend = useBackend();
   const [diff, setDiff] = useState<CommitDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!backend) return;
     setLoading(true);
     setError(null);
-    fetch(`/api/self-improve/commits/${hash}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error("Failed to fetch diff");
-        return res.json() as Promise<CommitDiff>;
-      })
+    backend.getCommitDiff(hash)
       .then(setDiff)
       .catch(() => setError("Could not load diff"))
       .finally(() => setLoading(false));
-  }, [hash]);
+  }, [hash, backend]);
 
   return (
     <div className="diff-panel-in">
@@ -533,24 +532,23 @@ function ActivityLine({ line }: { line: DisplayLine }) {
 }
 
 function ActivityFeed({ isRunning }: { isRunning: boolean }) {
+  const backend = useBackend();
   const [lines, setLines] = useState<DisplayLine[]>([]);
   const cursorRef = useRef<number>(-1);
   const scrollRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
 
-  // Fetch initial activity events, then listen via SSE
+  // Fetch initial activity events
   useEffect(() => {
+    if (!backend) return;
     if (!isRunning && lines.length === 0) return;
     let cancelled = false;
 
     async function fetchInitial() {
       try {
-        const url = cursorRef.current >= 0
-          ? `/api/self-improve/activity?since=${cursorRef.current}`
-          : "/api/self-improve/activity";
-        const res = await fetch(url);
-        if (!res.ok || cancelled) return;
-        const data = await res.json() as { events: ActivityEvent[]; running: boolean };
+        const since = cursorRef.current >= 0 ? cursorRef.current : undefined;
+        const data = await backend!.getActivity(since);
+        if (cancelled) return;
         if (data.events.length > 0) {
           cursorRef.current = data.events[data.events.length - 1].id;
           setLines(coalesceEvents(data.events));
@@ -561,10 +559,10 @@ function ActivityFeed({ isRunning }: { isRunning: boolean }) {
     fetchInitial();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [backend]);
 
-  // Listen for real-time activity events via SSE
-  useEventBus("self-improve:activity", useCallback((raw: unknown) => {
+  // Listen for real-time activity events via RPC subscription
+  useRpcSubscription("self-improve:activity", useCallback((raw: unknown) => {
     const data = raw as { events: ActivityEvent[]; running: boolean };
     if (data.events.length > 0) {
       // Play ambient sounds for new events
@@ -661,22 +659,21 @@ type WorkingDiffData = {
 };
 
 function WorkingDiffPanel({ isRunning }: { isRunning: boolean }) {
+  const backend = useBackend();
   const [diff, setDiff] = useState<WorkingDiffData | null>(null);
   const [expanded, setExpanded] = useState(true);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchDiff = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve/working-diff");
-      if (res.ok) {
-        const data = (await res.json()) as WorkingDiffData;
-        setDiff(data);
-      }
+      const data = (await backend.getWorkingDiff()) as unknown as WorkingDiffData;
+      setDiff(data);
     } catch {
       // ignore
     }
-  }, []);
+  }, [backend]);
 
   // Poll while the agent is running
   useEffect(() => {
@@ -968,18 +965,19 @@ function hotspotColorText(filePath: string): string {
 }
 
 function FileHotspotsChart() {
+  const backend = useBackend();
   const [hotspots, setHotspots] = useState<FileHotspot[]>([]);
   const [totalFiles, setTotalFiles] = useState(0);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
+    if (!backend) return;
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch("/api/self-improve/hotspots");
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as { files: FileHotspot[]; totalFiles: number };
+        const data = (await backend!.getHotspots()) as unknown as { files: FileHotspot[]; totalFiles: number };
+        if (cancelled) return;
         setHotspots(data.files);
         setTotalFiles(data.totalFiles);
       } catch { /* ignore */ }
@@ -987,7 +985,7 @@ function FileHotspotsChart() {
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [backend]);
 
   if (loading) {
     return (
@@ -1099,6 +1097,7 @@ type CooldownConfig = {
 
 /** Inline cooldown settings panel shown in the Prompt tab. */
 function CooldownSettings() {
+  const backend = useBackend();
   const [config, setConfig] = useState<CooldownConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1106,34 +1105,27 @@ function CooldownSettings() {
   const fetchedRef = useRef(false);
 
   useEffect(() => {
-    if (fetchedRef.current) return;
+    if (fetchedRef.current || !backend) return;
     fetchedRef.current = true;
-    fetch("/api/self-improve/config")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: CooldownConfig | null) => {
-        if (data) setConfig(data);
+    backend.getConfig()
+      .then((data) => {
+        if (data) setConfig(data as unknown as CooldownConfig);
       })
       .catch(() => {});
-  }, []);
+  }, [backend]);
 
   const save = useCallback(async (updated: CooldownConfig) => {
+    if (!backend) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/self-improve/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as CooldownConfig;
-        setConfig(data);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1500);
-      }
+      const data = (await backend.setConfig(updated as unknown as Record<string, unknown>)) as unknown as CooldownConfig;
+      setConfig(data);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [backend]);
 
   if (!config) return null;
 
@@ -1724,44 +1716,37 @@ function FitnessTimeline({ history }: { history: EvolutionSnapshotData[] }) {
 }
 
 function GenomePanel() {
+  const backend = useBackend();
   const [pool, setPool] = useState<GenePoolData | null>(null);
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
 
   const fetchPool = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve/genome");
-      if (res.ok) {
-        const data = (await res.json()) as GenePoolData;
-        setPool(data);
-      }
+      const data = (await backend.getGenome()) as GenePoolData;
+      setPool(data);
     } catch {
       /* ignore */
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [backend]);
 
   useEffect(() => {
     fetchPool();
   }, [fetchPool]);
 
   const resetPool = useCallback(async () => {
+    if (!backend) return;
     setResetting(true);
     try {
-      const res = await fetch("/api/self-improve/genome", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reset: true }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as GenePoolData;
-        setPool(data);
-      }
+      const data = (await backend.resetGenome()) as GenePoolData;
+      setPool(data);
     } finally {
       setResetting(false);
     }
-  }, []);
+  }, [backend]);
 
   if (loading) {
     return (
@@ -1906,6 +1891,7 @@ type QueueItem = {
 };
 
 function QueuePanel() {
+  const backend = useBackend();
   const [items, setItems] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [newText, setNewText] = useState("");
@@ -1913,52 +1899,38 @@ function QueuePanel() {
   const [showCompleted, setShowCompleted] = useState(false);
 
   const fetchQueue = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve/queue");
-      if (res.ok) {
-        const data = (await res.json()) as { items: QueueItem[] };
-        setItems(data.items);
-      }
+      const data = (await backend.getQueue()) as { items: QueueItem[] };
+      setItems(data.items);
     } catch { /* ignore */ }
     finally { setLoading(false); }
-  }, []);
+  }, [backend]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
   const addItem = useCallback(async () => {
-    if (!newText.trim()) return;
+    if (!newText.trim() || !backend) return;
     setAdding(true);
     try {
-      const res = await fetch("/api/self-improve/queue", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add", text: newText.trim() }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { items: QueueItem[] };
-        setItems(data.items);
-        setNewText("");
-      }
+      const data = (await backend.queueAction("add", { text: newText.trim() })) as { items: QueueItem[] };
+      setItems(data.items);
+      setNewText("");
     } finally { setAdding(false); }
-  }, [newText]);
+  }, [newText, backend]);
 
   const removeItem = useCallback(async (id: string) => {
+    if (!backend) return;
     // Optimistic removal
     setItems((prev) => prev.filter((i) => i.id !== id));
     try {
-      const res = await fetch("/api/self-improve/queue", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "remove", id }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { items: QueueItem[] };
-        setItems(data.items);
-      }
+      const data = (await backend.queueAction("remove", { id })) as { items: QueueItem[] };
+      setItems(data.items);
     } catch { fetchQueue(); }
-  }, [fetchQueue]);
+  }, [backend, fetchQueue]);
 
   const moveItem = useCallback(async (id: string, direction: "up" | "down") => {
+    if (!backend) return;
     const currentIndex = items.findIndex((i) => i.id === id);
     if (currentIndex === -1) return;
     const newIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
@@ -1971,45 +1943,26 @@ function QueuePanel() {
     setItems(next);
 
     try {
-      const res = await fetch("/api/self-improve/queue", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reorder", id, newIndex }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { items: QueueItem[] };
-        setItems(data.items);
-      }
+      const data = (await backend.queueAction("reorder", { id, newIndex })) as { items: QueueItem[] };
+      setItems(data.items);
     } catch { fetchQueue(); }
-  }, [items, fetchQueue]);
+  }, [items, backend, fetchQueue]);
 
   const requeueItem = useCallback(async (id: string) => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve/queue", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "requeue", id }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { items: QueueItem[] };
-        setItems(data.items);
-      }
+      const data = (await backend.queueAction("requeue", { id })) as { items: QueueItem[] };
+      setItems(data.items);
     } catch { fetchQueue(); }
-  }, [fetchQueue]);
+  }, [backend, fetchQueue]);
 
   const clearCompleted = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve/queue", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "clear-completed" }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { items: QueueItem[] };
-        setItems(data.items);
-      }
+      const data = (await backend.queueAction("clear-completed", {})) as { items: QueueItem[] };
+      setItems(data.items);
     } catch { fetchQueue(); }
-  }, [fetchQueue]);
+  }, [backend, fetchQueue]);
 
   const pendingItems = items.filter((i) => i.status === "pending" || i.status === "in-progress");
   const completedItems = items.filter((i) => i.status === "done" || i.status === "skipped");
@@ -2233,48 +2186,38 @@ type MemoryEntry = {
 };
 
 function MemoryPanel() {
+  const backend = useBackend();
   const [memories, setMemories] = useState<MemoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const fetchMemories = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve/memory");
-      if (res.ok) {
-        const data = (await res.json()) as { memories: MemoryEntry[] };
-        setMemories(data.memories);
-      }
+      const data = (await backend.getMemories()) as { memories: MemoryEntry[] };
+      setMemories(data.memories);
     } catch { /* ignore */ }
     finally { setLoading(false); }
-  }, []);
+  }, [backend]);
 
   useEffect(() => { fetchMemories(); }, [fetchMemories]);
 
   const deleteEntry = useCallback(async (id: string) => {
+    if (!backend) return;
     setDeleting(id);
     try {
-      const res = await fetch("/api/self-improve/memory", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { memories: MemoryEntry[] };
-        setMemories(data.memories);
-      }
+      const data = (await backend.deleteMemory(id)) as { memories: MemoryEntry[] };
+      setMemories(data.memories);
     } finally { setDeleting(null); }
-  }, []);
+  }, [backend]);
 
   const clearAll = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve/memory", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clearAll: true }),
-      });
-      if (res.ok) setMemories([]);
+      await backend.deleteMemory(undefined, true);
+      setMemories([]);
     } catch { /* ignore */ }
-  }, []);
+  }, [backend]);
 
   if (loading) {
     return (
@@ -2432,6 +2375,7 @@ function formatDuration(ms: number): string {
 }
 
 function SessionReplayPanel() {
+  const backend = useBackend();
   const [sessions, setSessions] = useState<ReplaySession[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -2446,22 +2390,23 @@ function SessionReplayPanel() {
 
   // Fetch session list
   useEffect(() => {
+    if (!backend) return;
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch("/api/self-improve/sessions");
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as { sessions: ReplaySession[] };
+        const data = (await backend!.getSelfImproveSessions(true)) as { sessions: ReplaySession[] };
+        if (cancelled) return;
         setSessions(data.sessions);
       } catch { /* ignore */ }
       finally { if (!cancelled) setLoading(false); }
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [backend]);
 
   // Load a specific session's events
   const loadSessionDetail = useCallback(async (id: string) => {
+    if (!backend) return;
     setSelectedId(id);
     setReplayLoading(true);
     setPlaying(false);
@@ -2470,13 +2415,11 @@ function SessionReplayPanel() {
     setReplayEvents([]);
 
     try {
-      const res = await fetch(`/api/self-improve/sessions/${id}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { events: ReplayEvent[] };
+      const data = (await backend.getSelfImproveSession(id)) as { events: ReplayEvent[] };
       setReplayEvents(data.events ?? []);
     } catch { /* ignore */ }
     finally { setReplayLoading(false); }
-  }, []);
+  }, [backend]);
 
   // Playback engine
   useEffect(() => {
@@ -2935,6 +2878,7 @@ function formatEta(ms: number): string {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function SelfImproveToggle() {
+  const backend = useBackend();
   const [status, setStatus] = useState<AgentStatus>({
     enabled: false,
     running: false,
@@ -2958,16 +2902,14 @@ export function SelfImproveToggle() {
 
   // Fetch ETA when agent starts running
   const fetchEta = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve/eta");
-      if (res.ok) {
-        const data = (await res.json()) as EtaData;
-        setEta(data);
-      }
+      const data = (await backend.getEta()) as unknown as EtaData;
+      setEta(data);
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [backend]);
 
   // Re-fetch ETA when running state changes
   useEffect(() => {
@@ -3001,37 +2943,25 @@ export function SelfImproveToggle() {
 
   // Fetch feedback ratings on mount
   useEffect(() => {
-    if (feedbackFetchedRef.current) return;
+    if (feedbackFetchedRef.current || !backend) return;
     feedbackFetchedRef.current = true;
-    fetch("/api/self-improve/feedback")
-      .then((r) => r.ok ? r.json() : {})
-      .then((data: Record<string, { rating: "up" | "down" | null }>) => {
+    backend.getFeedback()
+      .then((data) => {
         const mapped: Record<string, { rating: "up" | "down" | null }> = {};
-        for (const [hash, entry] of Object.entries(data)) {
+        for (const [hash, entry] of Object.entries(data as Record<string, { rating: "up" | "down" | null }>)) {
           mapped[hash] = { rating: entry.rating };
         }
         setFeedback(mapped);
       })
       .catch(() => {});
-  }, []);
+  }, [backend]);
 
   const submitFeedback = useCallback(async (commitHash: string, rating: "up" | "down" | null) => {
+    if (!backend) return;
     // Optimistic update
     setFeedback((prev) => ({ ...prev, [commitHash]: { rating } }));
     try {
-      const res = await fetch("/api/self-improve/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commitHash, rating }),
-      });
-      if (!res.ok) {
-        // Revert on failure
-        setFeedback((prev) => {
-          const next = { ...prev };
-          delete next[commitHash];
-          return next;
-        });
-      }
+      await backend.submitFeedback(commitHash, rating);
     } catch {
       setFeedback((prev) => {
         const next = { ...prev };
@@ -3039,7 +2969,7 @@ export function SelfImproveToggle() {
         return next;
       });
     }
-  }, []);
+  }, [backend]);
 
   // ── Celebration state ───────────────────────────────────────────────────
   const [celebrating, setCelebrating] = useState(false);
@@ -3077,36 +3007,27 @@ export function SelfImproveToggle() {
 
   const submitSuggestion = useCallback(async () => {
     const text = suggestionInput.trim();
-    if (!text || suggestionSaving) return;
+    if (!text || suggestionSaving || !backend) return;
     setSuggestionSaving(true);
     try {
-      const res = await fetch("/api/self-improve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ suggestion: text }),
-      });
-      if (res.ok) {
-        setStatus(await res.json());
-        setSuggestionSaved(true);
-        setTimeout(() => setSuggestionSaved(false), 2000);
-      }
+      const data = await backend.setSelfImproveSuggestion(text);
+      setStatus(data as unknown as AgentStatus);
+      setSuggestionSaved(true);
+      setTimeout(() => setSuggestionSaved(false), 2000);
     } finally {
       setSuggestionSaving(false);
     }
-  }, [suggestionInput, suggestionSaving]);
+  }, [suggestionInput, suggestionSaving, backend]);
 
   const clearSuggestion = useCallback(async () => {
+    if (!backend) return;
     setSuggestionInput("");
     setSuggestionSaved(false);
     try {
-      const res = await fetch("/api/self-improve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ suggestion: "" }),
-      });
-      if (res.ok) setStatus(await res.json());
+      const data = await backend.setSelfImproveSuggestion("");
+      setStatus(data as unknown as AgentStatus);
     } catch { /* ignore */ }
-  }, []);
+  }, [backend]);
 
   // ── Prompt editor state ──────────────────────────────────────────────────
   const [promptText, setPromptText] = useState("");
@@ -3117,17 +3038,15 @@ export function SelfImproveToggle() {
   const promptFetchedRef = useRef(false);
 
   const fetchPrompt = useCallback(async () => {
+    if (!backend) return;
     setPromptLoading(true);
     try {
-      const res = await fetch("/api/self-improve/prompt");
-      if (res.ok) {
-        const data = (await res.json()) as { prompt: string };
-        setPromptText(data.prompt);
-        setPromptOriginal(data.prompt);
-      }
+      const prompt = await backend.getPrompt();
+      setPromptText(prompt);
+      setPromptOriginal(prompt);
     } catch { /* ignore */ }
     finally { setPromptLoading(false); }
-  }, []);
+  }, [backend]);
 
   // Fetch prompt when switching to the prompt tab
   useEffect(() => {
@@ -3138,22 +3057,15 @@ export function SelfImproveToggle() {
   }, [panelTab, fetchPrompt]);
 
   const savePrompt = useCallback(async () => {
-    if (promptSaving) return;
+    if (promptSaving || !backend) return;
     setPromptSaving(true);
     try {
-      const res = await fetch("/api/self-improve/prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: promptText }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { prompt: string };
-        setPromptOriginal(data.prompt);
-        setPromptSaved(true);
-        setTimeout(() => setPromptSaved(false), 2000);
-      }
+      const prompt = await backend.setPrompt(promptText);
+      setPromptOriginal(prompt);
+      setPromptSaved(true);
+      setTimeout(() => setPromptSaved(false), 2000);
     } finally { setPromptSaving(false); }
-  }, [promptText, promptSaving]);
+  }, [promptText, promptSaving, backend]);
 
   const resetPrompt = useCallback(() => {
     setPromptText(promptOriginal);
@@ -3168,21 +3080,19 @@ export function SelfImproveToggle() {
 
   // Fetch build health once on mount, then refresh when commits change via SSE
   const fetchBuildHealth = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve/health");
-      if (res.ok) {
-        const data = (await res.json()) as { health: BuildHealth | null };
-        setBuildHealth(data.health);
-      }
+      const data = (await backend.getBuildHealth()) as { health: BuildHealth | null };
+      setBuildHealth(data.health);
     } catch { /* ignore */ }
-  }, []);
+  }, [backend]);
 
   useEffect(() => {
     fetchBuildHealth();
   }, [fetchBuildHealth]);
 
   // Re-fetch build health when new commits are detected (build check runs after each commit)
-  useEventBus("self-improve:commits", useCallback(() => {
+  useRpcSubscription("self-improve:commits", useCallback(() => {
     // Small delay to let the build check finish after the commit
     setTimeout(fetchBuildHealth, 3000);
   }, [fetchBuildHealth]));
@@ -3254,20 +3164,21 @@ export function SelfImproveToggle() {
 
   // ── Fetch agent status ────────────────────────────────────────────────────
   const fetchStatus = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve");
-      if (res.ok) setStatus(await res.json());
+      const data = await backend.getSelfImproveStatus();
+      setStatus(data as unknown as AgentStatus);
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [backend]);
 
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
 
-  // Listen for real-time status updates via SSE
-  useEventBus("self-improve:status", useCallback((raw: unknown) => {
+  // Listen for real-time status updates via RPC subscription
+  useRpcSubscription("self-improve:status", useCallback((raw: unknown) => {
     setStatus(raw as AgentStatus);
   }, []));
 
@@ -3276,8 +3187,8 @@ export function SelfImproveToggle() {
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const [skippingCooldown, setSkippingCooldown] = useState(false);
 
-  // Listen for cooldown SSE events
-  useEventBus("self-improve:cooldown", useCallback((raw: unknown) => {
+  // Listen for cooldown RPC subscription events
+  useRpcSubscription("self-improve:cooldown", useCallback((raw: unknown) => {
     setCooldown(raw as CooldownInfo | null);
   }, []));
 
@@ -3297,26 +3208,25 @@ export function SelfImproveToggle() {
   }, [cooldown]);
 
   const skipCooldown = useCallback(async () => {
+    if (!backend) return;
     setSkippingCooldown(true);
     try {
-      await fetch("/api/self-improve/cooldown", { method: "POST" });
+      await backend.resetCooldown();
     } finally {
       setSkippingCooldown(false);
     }
-  }, []);
+  }, [backend]);
 
   // ── Fetch commits (once on mount, then via SSE notification) ──────────────
   const fetchCommits = useCallback(async () => {
+    if (!backend) return;
     try {
-      const res = await fetch("/api/self-improve/commits");
-      if (res.ok) {
-        const data = (await res.json()) as { commits: Commit[] };
-        setCommits(data.commits);
-      }
+      const data = (await backend.getCommits()) as { commits: Commit[] };
+      setCommits(data.commits);
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [backend]);
 
   // Initial commit fetch so count shows in pill right away
   useEffect(() => {
@@ -3324,7 +3234,7 @@ export function SelfImproveToggle() {
   }, [fetchCommits]);
 
   // Re-fetch commits when the server detects new git activity
-  useEventBus("self-improve:commits", useCallback(() => {
+  useRpcSubscription("self-improve:commits", useCallback(() => {
     fetchCommits();
   }, [fetchCommits]));
 
@@ -3365,16 +3275,13 @@ export function SelfImproveToggle() {
 
   // ── Toggle on/off ─────────────────────────────────────────────────────────
   const toggle = async () => {
+    if (!backend) return;
     setToggling(true);
     // Pre-emptively ask for notification permission when enabling
     if (!status.enabled) requestNotificationPermission();
     try {
-      const res = await fetch("/api/self-improve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !status.enabled }),
-      });
-      if (res.ok) setStatus(await res.json());
+      const data = await backend.setSelfImproveEnabled(!status.enabled);
+      setStatus(data as unknown as AgentStatus);
     } finally {
       setToggling(false);
     }
